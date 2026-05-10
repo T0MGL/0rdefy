@@ -434,7 +434,7 @@ export function ExternalWebhookManagementModal({
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="config">Config</TabsTrigger>
             <TabsTrigger value="payload">Payload</TabsTrigger>
-            <TabsTrigger value="codigo">Codigo</TabsTrigger>
+            <TabsTrigger value="codigo">Código</TabsTrigger>
             <TabsTrigger value="logs">Logs</TabsTrigger>
           </TabsList>
 
@@ -599,9 +599,9 @@ export function ExternalWebhookManagementModal({
                     <code className="text-green-600">customer.name</code>
                     <span className="text-muted-foreground">Nombre del cliente</span>
                     <code className="text-green-600">customer.phone</code>
-                    <span className="text-muted-foreground">Telefono</span>
+                    <span className="text-muted-foreground">Teléfono</span>
                     <code className="text-green-600">shipping_address.address</code>
-                    <span className="text-muted-foreground">Direccion</span>
+                    <span className="text-muted-foreground">Dirección</span>
                     <code className="text-green-600">shipping_address.city</code>
                     <span className="text-muted-foreground">Ciudad</span>
                     <code className="text-green-600">items[].name</code>
@@ -663,9 +663,9 @@ export function ExternalWebhookManagementModal({
                   <Label className="text-xs font-medium">Query Parameters (al menos uno requerido)</Label>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px]">
                     <code className="text-blue-600 font-semibold">phone</code>
-                    <span className="text-muted-foreground">Telefono del cliente</span>
+                    <span className="text-muted-foreground">Teléfono del cliente</span>
                     <code className="text-blue-600 font-semibold">order_number</code>
-                    <span className="text-muted-foreground">Numero de orden (ej: 1315)</span>
+                    <span className="text-muted-foreground">Número de orden (ej: 1315)</span>
                   </div>
                   <div className="border-t pt-1.5 mt-1.5">
                     <Label className="text-[10px] text-muted-foreground">Filtros opcionales</Label>
@@ -715,7 +715,7 @@ export function ExternalWebhookManagementModal({
                       <code>address</code><span className="text-muted-foreground">Direccion</span>
                       <code>city</code><span className="text-muted-foreground">Ciudad</span>
                       <code>total_price</code><span className="text-muted-foreground">Total</span>
-                      <code>payment_method</code><span className="text-muted-foreground">Metodo de pago</span>
+                      <code>payment_method</code><span className="text-muted-foreground">Método de pago</span>
                       <code>is_pickup</code><span className="text-muted-foreground">Retiro en local</span>
                       <code>created_at</code><span className="text-muted-foreground">Fecha creacion</span>
                       <code>confirmed_at</code><span className="text-muted-foreground">Fecha confirmacion</span>
@@ -763,7 +763,7 @@ export function ExternalWebhookManagementModal({
                   <Label className="text-xs font-medium">Campos</Label>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px]">
                     <code className="text-emerald-600 font-semibold">order_number *</code>
-                    <span className="text-muted-foreground">Numero de orden (ej: 1315, #1315)</span>
+                    <span className="text-muted-foreground">Número de orden (ej: 1315, #1315)</span>
                     <code className="text-muted-foreground">courier_id</code>
                     <span className="text-muted-foreground">UUID transportista (opcional)</span>
                     <code className="text-muted-foreground">is_pickup</code>

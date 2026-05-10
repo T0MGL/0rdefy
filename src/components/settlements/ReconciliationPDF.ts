@@ -6,6 +6,7 @@
 
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { formatCurrency } from '@/utils/currency';
 
 export interface ReconciliationPDFOrder {
   display_order_number: string;
@@ -32,12 +33,11 @@ export interface ReconciliationPDFData {
   totalAmountCollected: number | null;
 }
 
+// PDF amount formatter. Uses the canonical formatter so the PDF stays in
+// sync with the on-screen reconciliation card. Pulls the store currency
+// from local storage at call time.
 function formatGs(amount: number): string {
-  return new Intl.NumberFormat('es-PY', {
-    style: 'decimal',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount) + ' Gs';
+  return formatCurrency(amount);
 }
 
 export async function generateReconciliationPDF(data: ReconciliationPDFData): Promise<void> {

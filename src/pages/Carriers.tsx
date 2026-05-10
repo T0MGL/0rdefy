@@ -330,7 +330,7 @@ function CarrierForm({ carrier, onSubmit, onCancel, replicationTargets }: Carrie
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="courier_phone">Telefono (opcional)</Label>
+                    <Label htmlFor="courier_phone">Teléfono (opcional)</Label>
                     <Input
                       id="courier_phone"
                       type="tel"

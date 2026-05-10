@@ -556,7 +556,7 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
                 <form onSubmit={submitIdentity} className="space-y-5">
                   <div className="grid grid-cols-3 gap-4">
                     <div className="col-span-2">
-                      <Label>RUC<FieldHint>Numero de RUC sin guion ni DV.</FieldHint></Label>
+                      <Label>RUC<FieldHint>Número de RUC sin guion ni DV.</FieldHint></Label>
                       <Input
                         placeholder="80012345"
                         {...identityForm.register('ruc')}
@@ -632,7 +632,7 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
                 {activitiesDraft.map((row, i) => (
                   <div key={i} className="grid grid-cols-12 gap-2 items-end">
                     <div className="col-span-3">
-                      {i === 0 && <Label>Codigo</Label>}
+                      {i === 0 && <Label>Código</Label>}
                       <Input
                         placeholder="47190"
                         value={row.codigo}
@@ -722,7 +722,7 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
                       </Select>
                     </div>
                     <div>
-                      <Label>Numero de documento</Label>
+                      <Label>Número de documento</Label>
                       <Input placeholder="5712264" {...representanteForm.register('documento_numero')} />
                     </div>
                   </div>
@@ -753,8 +753,8 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
               <CardContent>
                 <form onSubmit={submitDomicilio} className="space-y-5">
                   <div>
-                    <Label>Direccion</Label>
-                    <Input placeholder="Av. Espana 1234" {...domicilioForm.register('direccion')} />
+                    <Label>Dirección</Label>
+                    <Input placeholder="Av. España 1234" {...domicilioForm.register('direccion')} />
                   </div>
                   <div className="grid grid-cols-4 gap-4">
                     <div>
@@ -813,7 +813,7 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
                 <form onSubmit={submitStore} className="space-y-5">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label>Codigo de establecimiento</Label>
+                      <Label>Código de establecimiento</Label>
                       <Input placeholder="001" maxLength={3} {...establecimientoForm.register('establecimiento_codigo')} />
                     </div>
                     <div>
@@ -822,15 +822,15 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
                     </div>
                   </div>
                   <div>
-                    <Label>Direccion del establecimiento</Label>
-                    <Input placeholder="Av. Espana 1234, Asuncion" {...establecimientoForm.register('establecimiento_direccion')} />
+                    <Label>Dirección del establecimiento</Label>
+                    <Input placeholder="Av. España 1234, Asunción" {...establecimientoForm.register('establecimiento_direccion')} />
                   </div>
                   <div>
-                    <Label>Telefono</Label>
+                    <Label>Teléfono</Label>
                     <Input placeholder="021-123456" {...establecimientoForm.register('establecimiento_telefono')} />
                   </div>
                   <div>
-                    <Label>Numero de timbrado (8 digitos)</Label>
+                    <Label>Número de timbrado (8 dígitos)</Label>
                     <Input placeholder="12345678" maxLength={8} {...establecimientoForm.register('timbrado')} />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
@@ -992,7 +992,7 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
                 <form onSubmit={submitLinkExisting} className="space-y-5">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label>Codigo de establecimiento</Label>
+                      <Label>Código de establecimiento</Label>
                       <Input placeholder="001" maxLength={3} {...establecimientoForm.register('establecimiento_codigo')} />
                     </div>
                     <div>
@@ -1001,15 +1001,15 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
                     </div>
                   </div>
                   <div>
-                    <Label>Direccion del establecimiento</Label>
-                    <Input placeholder="Av. Espana 1234, Asuncion" {...establecimientoForm.register('establecimiento_direccion')} />
+                    <Label>Dirección del establecimiento</Label>
+                    <Input placeholder="Av. España 1234, Asunción" {...establecimientoForm.register('establecimiento_direccion')} />
                   </div>
                   <div>
-                    <Label>Telefono</Label>
+                    <Label>Teléfono</Label>
                     <Input placeholder="021-123456" {...establecimientoForm.register('establecimiento_telefono')} />
                   </div>
                   <div>
-                    <Label>Numero de timbrado (8 digitos)</Label>
+                    <Label>Número de timbrado (8 dígitos)</Label>
                     <Input placeholder="12345678" maxLength={8} {...establecimientoForm.register('timbrado')} />
                   </div>
                   <div className="grid grid-cols-2 gap-4">

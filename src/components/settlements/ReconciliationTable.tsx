@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { formatCurrency } from '@/utils/currency';
 import { CheckCircle2, XCircle } from 'lucide-react';
 
 export interface ReconciliationOrder {
@@ -55,13 +56,6 @@ const FAILURE_REASONS = [
   { value: 'other', label: 'Otro' },
 ];
 
-const formatCurrency = (amount: number): string => {
-  return new Intl.NumberFormat('es-PY', {
-    style: 'decimal',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount) + ' Gs';
-};
 
 export function ReconciliationTable({
   orders,
@@ -87,7 +81,7 @@ export function ReconciliationTable({
             </TableHead>
             <TableHead>Pedido</TableHead>
             <TableHead>Cliente</TableHead>
-            <TableHead className="hidden md:table-cell">Direccion</TableHead>
+            <TableHead className="hidden md:table-cell">Dirección</TableHead>
             <TableHead className="text-right">COD</TableHead>
             <TableHead className="w-32">Estado</TableHead>
             <TableHead className="w-44">Motivo</TableHead>

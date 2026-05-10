@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { logger } from '@/utils/logger';
+import { formatCurrency as canonicalFormatCurrency } from '@/utils/currency';
 import {
   CommandDialog,
   CommandEmpty,
@@ -371,16 +372,11 @@ export function GlobalSearch() {
     return labels[status] || status;
   }, []);
 
-  // Format currency
+  // Format currency using the canonical formatter so search results show
+  // the same Gs/USD/ARS string the rest of the dashboard renders. The hook
+  // form is preserved to keep the existing memoization.
   const formatCurrency = useCallback((amount: number) => {
-    const currency = currentStore?.currency || 'USD';
-    const locale = currency === 'PYG' ? 'es-PY' : currency === 'EUR' ? 'es-ES' : currency === 'ARS' ? 'es-AR' : 'en-US';
-
-    return new Intl.NumberFormat(locale, {
-      style: 'currency',
-      currency: currency,
-      minimumFractionDigits: currency === 'PYG' ? 0 : 2,
-    }).format(amount);
+    return canonicalFormatCurrency(amount, currentStore?.currency);
   }, [currentStore?.currency]);
 
   // Keyboard shortcut handler

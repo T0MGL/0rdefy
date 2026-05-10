@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Plus, Pencil, Trash2, Package, Loader2, Box, HelpCircle, Tag } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { formatCurrency } from '@/utils/currency';
 import {
   Tooltip,
   TooltipContent,
@@ -368,13 +369,7 @@ export function ProductVariantsManager({
     }
   };
 
-  const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('es-PY', {
-      style: 'currency',
-      currency: 'PYG',
-      minimumFractionDigits: 0
-    }).format(price);
-  };
+  const formatPrice = (price: number) => formatCurrency(price);
 
   const currentUnitsPerPack = parseInt(bundleForm.units_per_pack, 10) || 1;
   const calculatedPacks = Math.floor(parentStock / currentUnitsPerPack);

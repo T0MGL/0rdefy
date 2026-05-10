@@ -699,7 +699,7 @@ export function CarrierOperatorsManager({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="op-phone">Telefono (opcional)</Label>
+              <Label htmlFor="op-phone">Teléfono (opcional)</Label>
               <Input
                 id="op-phone"
                 type="tel"

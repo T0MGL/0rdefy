@@ -590,7 +590,7 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
               </Select>
             </div>
             <div>
-              <Label>Numero de documento</Label>
+              <Label>Número de documento</Label>
               <Input
                 placeholder="5712264"
                 {...identityForm.register('representante_legal_documento_numero')}
@@ -624,7 +624,7 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
           </header>
 
           <div>
-            <Label>Direccion</Label>
+            <Label>Dirección</Label>
             <Input
               placeholder="Av. Espana 1234"
               {...identityForm.register('domicilio_fiscal_direccion')}
@@ -676,7 +676,7 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label>Codigo establecimiento</Label>
+              <Label>Código establecimiento</Label>
               <Input maxLength={3} {...storeForm.register('establecimiento_codigo')} />
               {storeForm.formState.errors.establecimiento_codigo && (
                 <p className="text-xs text-destructive mt-1">
@@ -696,13 +696,13 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
           </div>
 
           <div>
-            <Label>Direccion del establecimiento</Label>
+            <Label>Dirección del establecimiento</Label>
             <Input {...storeForm.register('establecimiento_direccion')} />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label>Telefono</Label>
+              <Label>Teléfono</Label>
               <Input {...storeForm.register('establecimiento_telefono')} />
             </div>
             <div>
@@ -717,7 +717,7 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
           </div>
 
           <div>
-            <Label>Numero de timbrado (8 digitos)</Label>
+            <Label>Número de timbrado (8 dígitos)</Label>
             <Input maxLength={8} {...storeForm.register('timbrado')} />
             {storeForm.formState.errors.timbrado && (
               <p className="text-xs text-destructive mt-1">

@@ -18,6 +18,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { formatCurrency } from '@/utils/currency';
 import type { PackingListResponse, PickingSession } from '@/services/warehouse.service';
 
 interface SessionSummaryProps {
@@ -194,7 +195,7 @@ export function SessionSummary({
                     </Badge>
                     {order.cod_amount && order.cod_amount > 0 && (
                       <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
-                        COD: {new Intl.NumberFormat('es-PY').format(order.cod_amount)} Gs
+                        COD: {formatCurrency(order.cod_amount)}
                       </Badge>
                     )}
                   </div>

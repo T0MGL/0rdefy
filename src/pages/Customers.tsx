@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { MetricCard } from '@/components/MetricCard';
+import { metricLabels } from '@/lib/metric-labels';
 import { MetricCardSkeleton } from '@/components/LoadingSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
@@ -454,24 +455,24 @@ export default function Customers() {
         ) : (
           <>
             <MetricCard
-              title="Total Clientes"
+              title={metricLabels.totalCustomers.title}
               value={stats?.overview.total_customers ?? 0}
               icon={<Users className="text-primary" size={24} />}
             />
             <MetricCard
-              title="Clientes Recurrentes"
+              title={metricLabels.returningCustomers.title}
               value={stats?.overview.repeat_customers ?? 0}
               icon={<Users className="text-green-600" size={24} />}
               subtitle={`${repeatPct}% del total`}
             />
             <MetricCard
-              title="Pedidos Promedio"
+              title={metricLabels.customerOrders.title}
               value={(stats?.overview.avg_orders_per_customer ?? 0).toFixed(1)}
               icon={<ShoppingBag className="text-blue-600" size={24} />}
-              subtitle="por cliente"
+              subtitle={metricLabels.customerOrders.subtitle}
             />
             <MetricCard
-              title="Valor Promedio"
+              title={metricLabels.customerLifetimeValue.title}
               value={formatCurrency(stats?.overview.avg_lifetime_value ?? 0)}
               icon={<DollarSign className="text-emerald-600" size={24} />}
               subtitle="valor de vida"
@@ -604,7 +605,7 @@ export default function Customers() {
               <TableRow>
                 <TableHead>Nombre</TableHead>
                 <TableHead className="hidden md:table-cell">Email</TableHead>
-                <TableHead>Telefono</TableHead>
+                <TableHead>Teléfono</TableHead>
                 <TableHead className="hidden md:table-cell">Ciudad</TableHead>
                 <TableHead className="text-center">Pedidos</TableHead>
                 <TableHead className="text-right">Total Gastado</TableHead>

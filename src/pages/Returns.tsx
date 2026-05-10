@@ -20,6 +20,7 @@ import { MetricCard } from '@/components/MetricCard';
 import { formatCurrency } from '@/utils/currency';
 import { analyticsService, ReturnsMetrics } from '@/services/analytics.service';
 import { isStrictDelivered, isStrictInTransit } from '@/lib/status';
+import { metricLabels } from '@/lib/metric-labels';
 import { logger } from '@/utils/logger';
 import {
   Select,
@@ -418,7 +419,7 @@ export default function Returns() {
       {returnsMetrics && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
-            title="Tasa de Devolución"
+            title={metricLabels.returnRate.title}
             value={`${returnsMetrics.returnRate}%`}
             subtitle={`${returnsMetrics.returnedOrders} de ${returnsMetrics.deliveredOrders + returnsMetrics.returnedOrders} pedidos`}
             icon={<TrendingDown className="text-red-600" size={20} />}

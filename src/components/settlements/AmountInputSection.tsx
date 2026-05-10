@@ -5,6 +5,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { AlertTriangle, DollarSign, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatCurrency } from '@/utils/currency';
 
 interface AmountInputSectionProps {
   totalCodExpected: number;
@@ -16,13 +17,6 @@ interface AmountInputSectionProps {
   onConfirmDiscrepancyChange: (confirm: boolean) => void;
 }
 
-const formatCurrency = (amount: number): string => {
-  return new Intl.NumberFormat('es-PY', {
-    style: 'decimal',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount) + ' Gs';
-};
 
 export function AmountInputSection({
   totalCodExpected,

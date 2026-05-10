@@ -59,6 +59,7 @@ import { useToast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { logger } from '@/utils/logger';
+import { formatCurrency } from '@/utils/currency';
 import { generateReconciliationPDF } from './ReconciliationPDF';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -69,13 +70,6 @@ const getAuthHeaders = () => ({
   'Content-Type': 'application/json',
 });
 
-const formatCurrency = (amount: number): string => {
-  return new Intl.NumberFormat('es-PY', {
-    style: 'decimal',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount) + ' Gs';
-};
 
 // Types
 interface DeliveryDateGroup {

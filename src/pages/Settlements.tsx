@@ -24,6 +24,7 @@ import { FeatureBlockedPage } from '@/components/FeatureGate';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { onboardingService } from '@/services/onboarding.service';
 import { logger } from '@/utils/logger';
+import { formatCurrency } from '@/utils/currency';
 import {
   CourierDateGroupCard,
   ReconciliationTable,
@@ -365,13 +366,6 @@ const getAuthHeaders = () => ({
   'Content-Type': 'application/json',
 });
 
-const formatCurrency = (amount: number): string => {
-  return new Intl.NumberFormat('es-PY', {
-    style: 'decimal',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount) + ' Gs';
-};
 
 // Main tab type
 type MainTab = 'conciliaciones' | 'cuentas' | 'pagos';

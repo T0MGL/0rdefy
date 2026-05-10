@@ -10,6 +10,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatCurrency } from '@/utils/currency';
 
 interface ReconciliationSummaryProps {
   carrierName: string;
@@ -28,13 +29,6 @@ interface ReconciliationSummaryProps {
   isProcessing: boolean;
 }
 
-const formatCurrency = (amount: number): string => {
-  return new Intl.NumberFormat('es-PY', {
-    style: 'decimal',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount) + ' Gs';
-};
 
 export function ReconciliationSummary({
   carrierName,

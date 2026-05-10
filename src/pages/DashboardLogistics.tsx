@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { analyticsService, LogisticsMetrics, IncidentsMetrics } from '@/services/analytics.service';
 import { isPending, isStrictDelivered } from '@/lib/status';
+import { metricLabels } from '@/lib/metric-labels';
 import { codMetricsService } from '@/services/cod-metrics.service';
 import { ordersService } from '@/services/orders.service';
 import { InfoTooltip } from '@/components/InfoTooltip';
@@ -428,7 +429,7 @@ export default function DashboardLogistics() {
           <h2 className="text-2xl font-bold mb-4 text-card-foreground">Métricas COD (Contra Entrega)</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <MetricCard
-              title="Cobrado Hoy"
+              title={metricLabels.collectedCash.title}
               value={formatCurrency(codMetrics.collected_today || 0)}
               icon={<CheckCircle2 className="text-green-600" size={20} />}
               variant="accent"
@@ -440,7 +441,7 @@ export default function DashboardLogistics() {
               variant="secondary"
             />
             <MetricCard
-              title="Pedidos en Entrega"
+              title={metricLabels.inDeliveryOrders.title}
               value={codMetrics.orders_in_delivery || 0}
               icon={<Truck className="text-blue-600" size={20} />}
             />
@@ -483,7 +484,7 @@ export default function DashboardLogistics() {
                 icon={<AlertCircle className="text-red-600" size={20} />}
               />
               <MetricCard
-                title="Tiempo Prom. Confirmación"
+                title={metricLabels.avgConfirmationTime.title}
                 value={`${(confirmationMetrics?.avgConfirmationTime || 0).toFixed(1)}h`}
                 icon={<Clock className="text-blue-600" size={20} />}
               />

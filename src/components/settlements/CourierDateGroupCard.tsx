@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Truck, Package, DollarSign, Calendar, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { formatCurrency } from '@/utils/currency';
 
 export interface CourierDateGroup {
   carrier_id: string;
@@ -33,13 +34,6 @@ interface CourierDateGroupCardProps {
   onSelect: () => void;
 }
 
-const formatCurrency = (amount: number): string => {
-  return new Intl.NumberFormat('es-PY', {
-    style: 'decimal',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount) + ' Gs';
-};
 
 export function CourierDateGroupCard({ group, onSelect }: CourierDateGroupCardProps) {
   const formattedDate = format(new Date(group.dispatch_date + 'T12:00:00'), 'EEEE, d MMMM', { locale: es });

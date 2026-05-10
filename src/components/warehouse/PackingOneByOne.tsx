@@ -40,6 +40,7 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { formatCurrency } from '@/utils/currency';
 import { useToast } from '@/hooks/use-toast';
 import type { OrderForPacking, PackingListResponse, PackingProgressItem, AvailableItem } from '@/services/warehouse.service';
 import { getProductVariantKey } from '@/services/warehouse.service';
@@ -466,7 +467,7 @@ export function PackingOneByOne({
                 {/* COD Badge - only show if positive (avoid JS 0 && x = 0 gotcha) */}
                 {currentOrder.cod_amount > 0 && (
                   <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-base px-3 py-1">
-                    COD: {new Intl.NumberFormat('es-PY').format(currentOrder.cod_amount)} Gs
+                    COD: {formatCurrency(currentOrder.cod_amount)}
                   </Badge>
                 )}
 

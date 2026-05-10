@@ -276,7 +276,7 @@ export function InviteCourierDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="invite-phone">Telefono (opcional)</Label>
+            <Label htmlFor="invite-phone">Teléfono (opcional)</Label>
             <Input
               id="invite-phone"
               type="tel"

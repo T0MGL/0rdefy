@@ -106,7 +106,7 @@ export function CustomerForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="cf-phone">Telefono</Label>
+          <Label htmlFor="cf-phone">Teléfono</Label>
           <Input
             id="cf-phone"
             type="tel"
@@ -122,14 +122,14 @@ export function CustomerForm({
       {/* Section 2: Direccion */}
       <fieldset className="space-y-4">
         <legend className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-          Direccion
+          Dirección
         </legend>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="cf-address">Direccion</Label>
+            <Label htmlFor="cf-address">Dirección</Label>
             <Input
               id="cf-address"
-              placeholder="Av. Mariscal Lopez 1234"
+              placeholder="Av. Mariscal López 1234"
               value={formData.address}
               onChange={(e) => update('address', e.target.value)}
             />
@@ -138,7 +138,7 @@ export function CustomerForm({
             <Label htmlFor="cf-city">Ciudad</Label>
             <Input
               id="cf-city"
-              placeholder="Asuncion"
+              placeholder="Asunción"
               value={formData.city}
               onChange={(e) => update('city', e.target.value)}
             />
@@ -156,7 +156,7 @@ export function CustomerForm({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cf-postal-code">Codigo Postal</Label>
+            <Label htmlFor="cf-postal-code">Código Postal</Label>
             <Input
               id="cf-postal-code"
               placeholder="1234"
