@@ -32,12 +32,16 @@ export const POST_PENDING_STATUSES: ReadonlySet<string> = new Set([
 
 // Statuses that count as "dispatched" (left the warehouse). Used for the
 // delivery rate denominator. Cancelled orders only count if they were already
-// shipped before being cancelled.
+// shipped before being cancelled. `settled` is the post-148c terminal-success
+// state, treated identically to `delivered` for math: it left the warehouse
+// AND the carrier paid us. Excluding it (the original bug) made stores that
+// settle their orders look like they had a 100% drop in deliveries.
 export const DISPATCHED_STATUSES: ReadonlySet<string> = new Set([
     'ready_to_ship',
     'shipped',
     'in_transit',
     'delivered',
+    'settled',
     'returned',
     'delivery_failed',
     'not_delivered',
