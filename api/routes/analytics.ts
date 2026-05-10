@@ -1197,55 +1197,59 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
 analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) => {
     try {
         const { lookbackDays = '30' } = req.query;
+        const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
 
-        // Get all orders for the lookback period (to calculate historical delivery rate)
-        const lookbackDate = new Date();
-        lookbackDate.setDate(lookbackDate.getDate() - parseInt(lookbackDays as string, 10));
+        // Lookback window anchored to store-local midnight, not UTC. Same
+        // window an Asuncion merchant sees on their dashboard.
+        const lookbackDays_n = Math.max(1, parseInt(lookbackDays as string, 10) || 30);
+        const lookbackStartLocal = addDaysInTimezone(-lookbackDays_n, storeTz);
 
-        // OPTIMIZATION: Only select required fields for cash projection
-        // Exclude deleted and test orders at database level
         const { data: historicalOrders, error: historicalError } = await supabaseAdmin
             .from('orders')
-            .select('id, created_at, total_price, sleeves_status')
+            .select('id, created_at, total_price, sleeves_status, shipped_at')
             .eq('store_id', req.storeId)
             .is('deleted_at', null)
             .or('is_test.is.null,is_test.eq.false')
-            .gte('created_at', lookbackDate.toISOString())
+            .gte('created_at', startOfDayIso(lookbackStartLocal, storeTz))
 
         if (historicalError) throw historicalError;
 
-        // Get all active orders (not cancelled) - OPTIMIZATION: Only required fields
         const { data: activeOrders, error: activeError } = await supabaseAdmin
             .from('orders')
-            .select('id, total_price, sleeves_status')
+            .select('id, total_price, sleeves_status, shipped_at, currency')
             .eq('store_id', req.storeId)
             .is('deleted_at', null)
             .or('is_test.is.null,is_test.eq.false')
             .neq('sleeves_status', 'cancelled')
+            .neq('sleeves_status', 'rejected')
 
         if (activeError) throw activeError;
 
         const historical = historicalOrders || [];
         const active = activeOrders || [];
 
-        // Calculate historical delivery rate
-        const shippedOrders = historical.filter(o =>
-            o.sleeves_status === 'shipped' || o.sleeves_status === 'delivered'
-        ).length;
-        const deliveredOrders = historical.filter(o => o.sleeves_status === 'delivered').length;
-        const historicalDeliveryRate = shippedOrders > 0 ? (deliveredOrders / shippedOrders) : 0.85; // Default 85% if no data
+        // Historical delivery rate uses the canonical isDispatched + isDelivered
+        // helpers. The previous formula (delivered / [shipped, delivered])
+        // returned 100% for every store post-148c because no row carries the
+        // legacy 'shipped' status. This produced a falsely optimistic cash
+        // projection across the board.
+        const dispatchedOrders = historical.filter(o => isDispatched(o.sleeves_status, o.shipped_at)).length;
+        const deliveredOrders = historical.filter(o => isDelivered(o.sleeves_status) || o.sleeves_status === 'settled').length;
+        const historicalDeliveryRate = dispatchedOrders > 0
+            ? (deliveredOrders / dispatchedOrders)
+            : 0.85;
 
-        // ===== CASH ALREADY IN (Delivered orders) =====
+        // Cash already in: delivered + settled.
         const deliveredRevenue = active
-            .filter(o => o.sleeves_status === 'delivered')
+            .filter(o => isDelivered(o.sleeves_status) || o.sleeves_status === 'settled')
             .reduce((sum, o) => sum + (Number(o.total_price) || 0), 0);
 
-        // ===== CASH IN TRANSIT (Shipped but not delivered) =====
+        // Cash in transit: any in_transit_statuses pipeline state. Previously
+        // hardcoded sleeves_status='shipped' which post-148c always returned 0.
         const shippedRevenue = active
-            .filter(o => o.sleeves_status === 'shipped')
+            .filter(o => isInTransit(o.sleeves_status))
             .reduce((sum, o) => sum + (Number(o.total_price) || 0), 0);
 
-        // Expected cash from shipped orders (adjusted by historical delivery rate)
         const expectedFromShipped = shippedRevenue * historicalDeliveryRate;
 
         // ===== CASH PIPELINE (Ready to ship, In preparation, Confirmed) =====
@@ -1287,14 +1291,15 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
         // Optimistic projection (includes everything - confirmed + awaiting_carrier)
         const optimisticProjection = moderateProjection + expectedFromConfirmed + expectedFromAwaitingCarrier;
 
-        // ===== DAILY AVERAGE (for future projections) =====
-        // Calculate average daily revenue from delivered orders in last 30 days
-        const last30Days = new Date();
-        last30Days.setDate(last30Days.getDate() - 30);
+        // Average daily revenue from terminal-success orders in the last 30
+        // days (store-local). Used as the daily-pace input to future-period
+        // projections. Counts settled alongside delivered.
+        const last30LocalStart = addDaysInTimezone(-30, storeTz);
+        const last30StartIso = startOfDayIso(last30LocalStart, storeTz);
 
         const recentDelivered = historical.filter(o =>
-            o.sleeves_status === 'delivered' &&
-            new Date(o.created_at) >= last30Days
+            (isDelivered(o.sleeves_status) || o.sleeves_status === 'settled') &&
+            o.created_at >= last30StartIso
         );
 
         const avgDailyRevenue = recentDelivered.length > 0
@@ -1738,41 +1743,37 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
 
         const orders = ordersData || [];
 
-        // ===== PEDIDOS DESPACHADOS =====
-        // Pedidos que salieron del almacén (ready_to_ship, shipped, delivered, cancelled después de envío, returned)
-        const dispatchedStatuses = ['ready_to_ship', 'shipped', 'delivered', 'returned'];
-        const dispatchedOrders = orders.filter(o => dispatchedStatuses.includes(o.sleeves_status));
+        // Pedidos despachados: canonical isDispatched. Includes the full set
+        // (ready_to_ship, in_transit, shipped legacy, delivered, settled,
+        // returned, delivery_failed, not_delivered, plus cancelled-with-shipped_at).
+        // Three previous formulas in this codebase undercounted by 30-50%
+        // post-148c because they hardcoded a 4-status list.
+        const dispatchedOrders = orders.filter(o => isDispatched(o.sleeves_status, o.shipped_at));
         const totalDispatched = dispatchedOrders.length;
 
-        // ===== TASA DE PEDIDOS FALLIDOS =====
-        // Fallidos = Cancelados después de despacho + Devueltos + Entregas fallidas
-        // Un pedido "fallido" es aquel donde se invirtió en logística pero no se recuperó el dinero
+        // Failed after dispatch: returned, delivery_failed, not_delivered, plus
+        // cancelled-with-shipped_at. Pre-dispatch cancellations do not count.
         const failedAfterDispatch = orders.filter(o => {
-            // Cancelled después de que fue despachado (tiene shipped_at o fue enviado)
             if (o.sleeves_status === 'cancelled' && o.shipped_at) return true;
-            // Returned
             if (o.sleeves_status === 'returned') return true;
-            // Delivery failed
             if (o.sleeves_status === 'delivery_failed') return true;
+            if (o.sleeves_status === 'not_delivered') return true;
             return false;
         });
         const totalFailed = failedAfterDispatch.length;
 
-        // Tasa de fallidos = (Fallidos / Total Despachados) × 100
         const failedRate = totalDispatched > 0
             ? parseFloat(((totalFailed / totalDispatched) * 100).toFixed(1))
             : 0;
 
-        // Valor perdido en pedidos fallidos
         const failedOrdersValue = failedAfterDispatch.reduce((sum, o) =>
             sum + (Number(o.total_price) || 0), 0
         );
 
-        // ===== TASA DE RECHAZO EN PUERTA =====
-        // Pedidos rechazados por el cliente al momento de la entrega
-        // Típicamente: customer_refused, delivery_failed con razón de rechazo
+        // Door rejection: refused at the door. Heuristic over failed_reason
+        // and delivery_status text. Brittle but matches existing behaviour;
+        // a future migration should normalize these into an enum.
         const doorRejections = orders.filter(o => {
-            // Buscar en el campo de razón de fallo o status específico
             const rejectionReasons = ['customer_refused', 'rechazado', 'no_acepta', 'refused'];
             const failedReason = (o.failed_reason || '').toLowerCase();
             const deliveryStatus = (o.delivery_status || '').toLowerCase();
@@ -1781,27 +1782,24 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
                 rejectionReasons.some(r => failedReason.includes(r) || deliveryStatus.includes(r));
         });
 
-        // Intentos de entrega = Pedidos que llegaron a la puerta (shipped o superior)
-        const deliveryAttempts = orders.filter(o =>
-            ['shipped', 'delivered', 'delivery_failed', 'returned'].includes(o.sleeves_status)
-        ).length;
+        // Delivery attempts: every order that left the warehouse. Reuse the
+        // canonical dispatched set so the door rejection rate denominator
+        // matches the totalDispatched headline.
+        const deliveryAttempts = totalDispatched;
 
-        // Tasa de rechazo en puerta = (Rechazos / Intentos de entrega) × 100
         const doorRejectionRate = deliveryAttempts > 0
             ? parseFloat(((doorRejections.length / deliveryAttempts) * 100).toFixed(1))
             : 0;
 
-        // ===== CASH COLLECTION EFFICIENCY =====
-        // Eficiencia en el cobro de dinero en efectivo (COD)
-        // Cash Collection = (Dinero Cobrado / Dinero Esperado de Entregados) × 100
-
-        // Dinero esperado: Total de pedidos entregados (deberían haberse cobrado)
-        const deliveredOrders = orders.filter(o => o.sleeves_status === 'delivered');
+        // Cash collection: collected vs expected on terminal-success orders.
+        // Includes settled because that is the post-148c paid state.
+        const deliveredOrders = orders.filter(o =>
+            isDelivered(o.sleeves_status) || o.sleeves_status === 'settled'
+        );
         const expectedCash = deliveredOrders.reduce((sum, o) =>
             sum + (Number(o.total_price) || 0), 0
         );
 
-        // Dinero cobrado: Pedidos con payment_status = 'collected' o 'paid'
         const collectedOrders = orders.filter(o =>
             o.payment_status === 'collected' || o.payment_status === 'paid'
         );
@@ -1809,12 +1807,10 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
             sum + (Number(o.total_price) || 0), 0
         );
 
-        // Cash collection efficiency
         const cashCollectionRate = expectedCash > 0
             ? parseFloat(((collectedCash / expectedCash) * 100).toFixed(1))
             : 0;
 
-        // Dinero pendiente de cobro (entregado pero no cobrado)
         const pendingCollection = deliveredOrders.filter(o =>
             o.payment_status !== 'collected' && o.payment_status !== 'paid'
         );
@@ -1822,9 +1818,9 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
             sum + (Number(o.total_price) || 0), 0
         );
 
-        // ===== MÉTRICAS ADICIONALES ÚTILES =====
-        // Pedidos en tránsito
-        const inTransitOrders = orders.filter(o => o.sleeves_status === 'shipped');
+        // En transito: canonical isInTransit. Previously hardcoded
+        // sleeves_status='shipped' which post-148c always returns 0.
+        const inTransitOrders = orders.filter(o => isInTransit(o.sleeves_status));
         const inTransitValue = inTransitOrders.reduce((sum, o) =>
             sum + (Number(o.total_price) || 0), 0
         );
@@ -2191,18 +2187,27 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
 
         // ===== 3. CALCULATE SHIPPING COSTS BY ORDER STATUS =====
 
-        // Delivered orders - all delivered for stats
-        const allDeliveredOrders = orders.filter(o => o.sleeves_status === 'delivered');
+        // Delivered orders: terminal-success set (delivered + settled). Settled
+        // orders have already been paid by the carrier so their shipping cost
+        // is reconciled by definition. We keep them in the headline count
+        // because the merchant's "Total delivered" card includes them.
+        const allDeliveredOrders = orders.filter(o =>
+            isDelivered(o.sleeves_status) || o.sleeves_status === 'settled'
+        );
 
-        // Unreconciled delivered orders - costs that MUST be paid to carriers (pending reconciliation)
-        const unreconciledDeliveredOrders = allDeliveredOrders.filter(o => !o.reconciled_at);
+        // Unreconciled delivered orders: costs that MUST be paid to carriers.
+        // Settled orders are already paid (by definition) so they drop out.
+        const unreconciledDeliveredOrders = allDeliveredOrders.filter(o =>
+            !o.reconciled_at && o.sleeves_status === 'delivered'
+        );
         const deliveredCosts = unreconciledDeliveredOrders.reduce((sum, o) => sum + (Number(o.shipping_cost) || 0), 0);
 
-        // Keep deliveredOrders for backwards compatibility in other calculations
         const deliveredOrders = allDeliveredOrders;
 
-        // In-transit orders - future costs (pending delivery)
-        const inTransitOrders = orders.filter(o => o.sleeves_status === 'shipped');
+        // In-transit orders: canonical isInTransit. Previously hardcoded
+        // sleeves_status='shipped' which post-148c always returns 0 because
+        // the canonical state is 'in_transit'.
+        const inTransitOrders = orders.filter(o => isInTransit(o.sleeves_status));
         const inTransitCosts = inTransitOrders.reduce((sum, o) => sum + (Number(o.shipping_cost) || 0), 0);
 
         // Ready to ship - orders about to incur shipping costs
@@ -2259,13 +2264,15 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
 
             const carrier = carrierMap.get(carrierId)!;
 
-            if (order.sleeves_status === 'delivered') {
-                // Only count unreconciled delivered orders in toPayCarriers
-                if (!order.reconciled_at) {
+            if (isDelivered(order.sleeves_status) || order.sleeves_status === 'settled') {
+                // Only count unreconciled delivered orders in toPayCarriers.
+                // Settled orders are already paid (terminal state), so they
+                // drop out of the to-pay bucket regardless of reconciled_at.
+                if (!order.reconciled_at && order.sleeves_status === 'delivered') {
                     carrier.deliveredOrders++;
                     carrier.deliveredCosts += shippingCost;
                 }
-            } else if (order.sleeves_status === 'shipped') {
+            } else if (isInTransit(order.sleeves_status)) {
                 carrier.inTransitOrders++;
                 carrier.inTransitCosts += shippingCost;
             }
@@ -2314,13 +2321,14 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
             ? Math.round(totalSettlementFees / totalDeliveredFromSettlements)
             : 0;
 
-        // ===== 7. SUCCESS RATE AND PERFORMANCE =====
-        const dispatchedOrders = orders.filter(o =>
-            ['shipped', 'delivered', 'returned'].includes(o.sleeves_status)
-        ).length;
+        // Success rate uses canonical isDispatched. Three previous "dispatched"
+        // formulas in this codebase used different 3- or 4-status hardcoded
+        // lists; aligning here makes shipping-costs success rate match
+        // Dashboard delivery rate down to the unit.
+        const dispatchedCount = orders.filter(o => isDispatched(o.sleeves_status, o.shipped_at)).length;
 
-        const successRate = dispatchedOrders > 0
-            ? parseFloat(((deliveredOrders.length / dispatchedOrders) * 100).toFixed(1))
+        const successRate = dispatchedCount > 0
+            ? parseFloat(((deliveredOrders.length / dispatchedCount) * 100).toFixed(1))
             : 0;
 
         // ===== 8. AVERAGE DELIVERY TIME =====
@@ -2375,7 +2383,7 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
                 // Performance
                 performance: {
                     successRate,
-                    totalDispatched: dispatchedOrders,
+                    totalDispatched: dispatchedCount,
                     totalDelivered: deliveredOrders.length,
                 },
 
