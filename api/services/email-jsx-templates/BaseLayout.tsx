@@ -11,7 +11,7 @@ import {
   BRAND,
   CURRENT_YEAR,
   FONT_STACK,
-  LOGO_DARK_URL,
+  LOGO_URL,
   MARKETING_URL,
   SUPPORT_EMAIL,
 } from './brand';
@@ -20,108 +20,125 @@ interface BaseLayoutProps {
   preheader: string;
   children: React.ReactNode;
   /**
-   * When true (default), the standard footer with App / Sitio / Soporte links
-   * renders below the card. Disable only for legal-style emails where a
-   * minimal footer is required.
+   * When true (default), the standard footer with App / Sitio / Soporte
+   * links renders below the card. Disable only for legal-style emails
+   * where a minimal footer is required.
    */
   footer?: boolean;
 }
 
+/**
+ * Hybrid light + dark CSS strategy.
+ *
+ * Inline element styles in BaseLayout and components.tsx default to the
+ * LIGHT palette: premium off-white surface, near-black headings, lime CTA.
+ * That is what Gmail mobile (web + native iOS) and Yahoo render, since
+ * those clients ignore @media queries and strip <picture><source>.
+ *
+ * The block below layers a dark palette on top via three vectors:
+ *
+ *   1. `prefers-color-scheme: dark` -- honored by Apple Mail iOS / macOS,
+ *      Outlook on the web, Samsung Mail. Repaints the canvas, card,
+ *      headings, body text and divider to the dark tokens. The CTA
+ *      button stays lime in both modes (lime reads well on #09090b).
+ *
+ *   2. `[data-ogsc]` / `[data-ogsb]` -- Outlook.com and Outlook for Android
+ *      wrap the body in a div carrying these data attributes when their
+ *      dark renderer is active. Targeting them with !important repaints
+ *      the surfaces back to brand instead of letting Outlook's algorithmic
+ *      transform pick muted greys for us.
+ *
+ *   3. Gmail Android still applies its own algorithmic transform that no
+ *      CSS hook defeats. The light tokens are designed to survive that
+ *      transform without losing legibility (mid-tone bg, near-black
+ *      headings, ample contrast).
+ *
+ * Anti-patterns explicitly avoided:
+ *   - `color-scheme: dark only` meta. Forces dark even on clients that
+ *     would otherwise render light correctly. Caused the previous
+ *     iteration's white-on-white Gmail iOS rendering bug.
+ *   - `prefers-color-scheme: light` block that re-paints to dark. Anti
+ *     pattern; clients that opt into light should get light.
+ *   - Dark-baked logo PNG. The transparent solid-lime wordmark works on
+ *     both surfaces, so a single asset covers both modes.
+ */
+const HYBRID_CSS = `
+  body, table, td {
+    -webkit-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+  }
+
+  a.ord-cta-anchor {
+    background-color: ${BRAND.primary} !important;
+    color: ${BRAND.ctaText} !important;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    body, .ord-bg {
+      background-color: ${BRAND.dark.bg} !important;
+      color: ${BRAND.dark.body} !important;
+    }
+    .ord-card {
+      background-color: ${BRAND.dark.card} !important;
+      border-color: ${BRAND.dark.cardBorder} !important;
+    }
+    .ord-heading { color: ${BRAND.dark.heading} !important; }
+    .ord-body { color: ${BRAND.dark.body} !important; }
+    .ord-secondary { color: ${BRAND.dark.secondary} !important; }
+    .ord-muted { color: ${BRAND.dark.muted} !important; }
+    .ord-divider {
+      border-color: ${BRAND.dark.divider} !important;
+      background-color: ${BRAND.dark.divider} !important;
+    }
+    .ord-panel {
+      background-color: ${BRAND.dark.panel} !important;
+    }
+    .ord-row-border {
+      border-color: ${BRAND.dark.divider} !important;
+    }
+    .ord-step-text { color: ${BRAND.dark.body} !important; }
+  }
+
+  [data-ogsc] body, [data-ogsb] body,
+  [data-ogsc] .ord-bg, [data-ogsb] .ord-bg {
+    background-color: ${BRAND.dark.bg} !important;
+    color: ${BRAND.dark.body} !important;
+  }
+  [data-ogsc] .ord-card, [data-ogsb] .ord-card {
+    background-color: ${BRAND.dark.card} !important;
+    border-color: ${BRAND.dark.cardBorder} !important;
+  }
+  [data-ogsc] .ord-heading, [data-ogsb] .ord-heading {
+    color: ${BRAND.dark.heading} !important;
+  }
+  [data-ogsc] .ord-body, [data-ogsb] .ord-body {
+    color: ${BRAND.dark.body} !important;
+  }
+  [data-ogsc] .ord-secondary, [data-ogsb] .ord-secondary {
+    color: ${BRAND.dark.secondary} !important;
+  }
+  [data-ogsc] .ord-muted, [data-ogsb] .ord-muted {
+    color: ${BRAND.dark.muted} !important;
+  }
+  [data-ogsc] .ord-panel, [data-ogsb] .ord-panel {
+    background-color: ${BRAND.dark.panel} !important;
+  }
+  [data-ogsc] a.ord-cta-anchor, [data-ogsb] a.ord-cta-anchor {
+    background-color: ${BRAND.primary} !important;
+    color: ${BRAND.ctaText} !important;
+  }
+`;
+
 const footerLinkStyle: React.CSSProperties = {
-  color: BRAND.textMuted,
+  color: BRAND.light.muted,
   textDecoration: 'none',
   fontSize: '12px',
 };
 
 const footerSeparatorStyle: React.CSSProperties = {
-  color: BRAND.divider,
+  color: BRAND.light.divider,
   fontSize: '12px',
 };
-
-/**
- * Force-dark CSS block.
- *
- * Layered tactics, validated against Litmus / Email on Acid / Customer.io
- * (2024-2025) and the Outlook app data-attribute references:
- *
- *  - `prefers-color-scheme: light` block forces our dark palette on Apple
- *    Mail / iOS Mail clients whose user is on a light system. We want dark
- *    always, so we override regardless of the OS preference.
- *  - `[data-ogsc]` / `[data-ogsb]` selectors target Outlook app (Android)
- *    and Outlook.com when their dark renderer wraps content; they re-paint
- *    the card and footer back to brand colors.
- *  - Gmail Android and Outlook desktop (classic) still apply their own
- *    algorithmic transform. There is no CSS hook that defeats them; we
- *    minimize damage with `bgcolor` legacy attrs (handled inline below)
- *    and by using midtone colors that survive inversion.
- *
- * The inline `style="..." !important` is what Outlook.com web honors; CSS
- * declarations without !important get stripped by its sanitizer.
- */
-const FORCE_DARK_CSS = `
-  :root { color-scheme: dark only; supported-color-schemes: dark only; }
-  body, .ord-bg, .ord-card, .ord-footer-bg {
-    background-color: ${BRAND.bg} !important;
-    color: ${BRAND.text} !important;
-  }
-  .ord-card {
-    background-color: ${BRAND.card} !important;
-    border-color: ${BRAND.cardBorder} !important;
-  }
-  .ord-footer-bg { background-color: ${BRAND.bg} !important; }
-  .ord-text { color: ${BRAND.text} !important; }
-  .ord-text-muted { color: ${BRAND.textMuted} !important; }
-  .ord-text-secondary { color: ${BRAND.textSecondary} !important; }
-  .ord-primary-bg { background-color: ${BRAND.primary} !important; }
-  .ord-primary-fg { color: ${BRAND.primary} !important; }
-  .ord-on-primary { color: ${BRAND.bg} !important; }
-  a.ord-cta-anchor {
-    background-color: ${BRAND.primary} !important;
-    color: ${BRAND.bg} !important;
-  }
-
-  @media (prefers-color-scheme: light) {
-    body, .ord-bg, .ord-card, .ord-footer-bg {
-      background-color: ${BRAND.bg} !important;
-      color: ${BRAND.text} !important;
-    }
-    .ord-card {
-      background-color: ${BRAND.card} !important;
-      border-color: ${BRAND.cardBorder} !important;
-    }
-    .ord-text { color: ${BRAND.text} !important; }
-    .ord-text-muted { color: ${BRAND.textMuted} !important; }
-    .ord-text-secondary { color: ${BRAND.textSecondary} !important; }
-    a.ord-cta-anchor {
-      background-color: ${BRAND.primary} !important;
-      color: ${BRAND.bg} !important;
-    }
-  }
-
-  [data-ogsc] .ord-bg, [data-ogsb] .ord-bg,
-  [data-ogsc] body, [data-ogsb] body {
-    background-color: ${BRAND.bg} !important;
-    color: ${BRAND.text} !important;
-  }
-  [data-ogsc] .ord-card, [data-ogsb] .ord-card {
-    background-color: ${BRAND.card} !important;
-    border-color: ${BRAND.cardBorder} !important;
-  }
-  [data-ogsc] .ord-text, [data-ogsb] .ord-text { color: ${BRAND.text} !important; }
-  [data-ogsc] .ord-text-muted, [data-ogsb] .ord-text-muted {
-    color: ${BRAND.textMuted} !important;
-  }
-  [data-ogsc] .ord-text-secondary, [data-ogsb] .ord-text-secondary {
-    color: ${BRAND.textSecondary} !important;
-  }
-  [data-ogsc] a.ord-cta-anchor, [data-ogsb] a.ord-cta-anchor {
-    background-color: ${BRAND.primary} !important;
-    color: ${BRAND.bg} !important;
-  }
-
-  .ord-logo-dark { display: block !important; }
-  .ord-logo-light { display: none !important; mso-hide: all; }
-`;
 
 export function BaseLayout({
   preheader,
@@ -133,18 +150,18 @@ export function BaseLayout({
       <Head>
         <meta httpEquiv="Content-Type" content="text/html; charset=UTF-8" />
         <meta name="x-apple-disable-message-reformatting" />
-        <meta name="color-scheme" content="dark only" />
-        <meta name="supported-color-schemes" content="dark only" />
-        <style>{FORCE_DARK_CSS}</style>
+        <meta name="color-scheme" content="light dark" />
+        <meta name="supported-color-schemes" content="light dark" />
+        <style>{HYBRID_CSS}</style>
       </Head>
       <Preview>{preheader}</Preview>
       <Body
-        className="ord-bg"
+        className="ord-bg ord-body"
         style={{
           margin: 0,
           padding: 0,
-          backgroundColor: BRAND.bg,
-          color: BRAND.text,
+          backgroundColor: BRAND.light.bg,
+          color: BRAND.light.body,
           fontFamily: FONT_STACK,
           WebkitFontSmoothing: 'antialiased',
         }}
@@ -155,10 +172,10 @@ export function BaseLayout({
           cellPadding={0}
           cellSpacing={0}
           border={0}
-          bgcolor={BRAND.bg}
+          bgcolor={BRAND.light.bg}
           className="ord-bg"
           style={{
-            backgroundColor: BRAND.bg,
+            backgroundColor: BRAND.light.bg,
             margin: 0,
             padding: 0,
             borderCollapse: 'collapse',
@@ -167,11 +184,11 @@ export function BaseLayout({
           <tbody>
             <tr>
               <td
-                bgcolor={BRAND.bg}
+                bgcolor={BRAND.light.bg}
                 align="center"
                 className="ord-bg"
                 style={{
-                  backgroundColor: BRAND.bg,
+                  backgroundColor: BRAND.light.bg,
                   padding: '40px 16px 24px',
                 }}
               >
@@ -181,10 +198,8 @@ export function BaseLayout({
                   cellPadding={0}
                   cellSpacing={0}
                   border={0}
-                  bgcolor={BRAND.bg}
                   className="ord-bg"
                   style={{
-                    backgroundColor: BRAND.bg,
                     width: '100%',
                     maxWidth: '560px',
                     borderCollapse: 'collapse',
@@ -193,61 +208,41 @@ export function BaseLayout({
                   <tbody>
                     <tr>
                       <td
-                        bgcolor={BRAND.bg}
                         align="center"
                         className="ord-bg"
                         style={{
-                          backgroundColor: BRAND.bg,
                           padding: '0 0 32px',
                         }}
                       >
                         <Link href={APP_URL}>
-                          {/*
-                           * <picture> swaps the asset based on the client's
-                           * color-scheme preference. Apple Mail / iOS Mail /
-                           * Samsung honor it. Gmail and Outlook ignore the
-                           * <source> and fall back to the <img>, which is the
-                           * dark-baked variant -- so the asset already has the
-                           * brand bg #09090b painted in and never shows a
-                           * transparent halo when an aggressive client
-                           * inverts the surrounding page.
-                           */}
-                          <picture>
-                            <source
-                              srcSet={LOGO_DARK_URL}
-                              media="(prefers-color-scheme: dark)"
-                            />
-                            <img
-                              src={LOGO_DARK_URL}
-                              alt="Ordefy"
-                              width={140}
-                              height={40}
-                              className="ord-logo-dark"
-                              style={{
-                                display: 'inline-block',
-                                maxWidth: '140px',
-                                height: 'auto',
-                                border: 0,
-                                outline: 'none',
-                                textDecoration: 'none',
-                                backgroundColor: BRAND.bg,
-                              }}
-                            />
-                          </picture>
+                          <img
+                            src={LOGO_URL}
+                            alt="Ordefy"
+                            width={140}
+                            height={49}
+                            style={{
+                              display: 'inline-block',
+                              maxWidth: '140px',
+                              height: 'auto',
+                              border: 0,
+                              outline: 'none',
+                              textDecoration: 'none',
+                            }}
+                          />
                         </Link>
                       </td>
                     </tr>
 
                     <tr>
                       <td
-                        bgcolor={BRAND.card}
+                        bgcolor={BRAND.light.card}
                         className="ord-card"
                         style={{
-                          backgroundColor: BRAND.card,
-                          border: `1px solid ${BRAND.cardBorder}`,
+                          backgroundColor: BRAND.light.card,
+                          border: `1px solid ${BRAND.light.cardBorder}`,
                           borderRadius: '12px',
                           padding: '40px 36px',
-                          color: BRAND.text,
+                          color: BRAND.light.body,
                         }}
                       >
                         {children}
@@ -258,11 +253,9 @@ export function BaseLayout({
                       <>
                         <tr>
                           <td
-                            bgcolor={BRAND.bg}
                             align="center"
                             className="ord-bg"
                             style={{
-                              backgroundColor: BRAND.bg,
                               padding: '28px 0 12px',
                             }}
                           >
@@ -277,14 +270,14 @@ export function BaseLayout({
                                   <td style={{ padding: '0 12px' }}>
                                     <Link
                                       href={APP_URL}
-                                      className="ord-text-muted"
+                                      className="ord-muted"
                                       style={footerLinkStyle}
                                     >
                                       App
                                     </Link>
                                   </td>
                                   <td
-                                    className="ord-text-muted"
+                                    className="ord-muted"
                                     style={footerSeparatorStyle}
                                   >
                                     |
@@ -292,14 +285,14 @@ export function BaseLayout({
                                   <td style={{ padding: '0 12px' }}>
                                     <Link
                                       href={MARKETING_URL}
-                                      className="ord-text-muted"
+                                      className="ord-muted"
                                       style={footerLinkStyle}
                                     >
                                       Sitio web
                                     </Link>
                                   </td>
                                   <td
-                                    className="ord-text-muted"
+                                    className="ord-muted"
                                     style={footerSeparatorStyle}
                                   >
                                     |
@@ -307,7 +300,7 @@ export function BaseLayout({
                                   <td style={{ padding: '0 12px' }}>
                                     <Link
                                       href={`mailto:${SUPPORT_EMAIL}`}
-                                      className="ord-text-muted"
+                                      className="ord-muted"
                                       style={footerLinkStyle}
                                     >
                                       Soporte
@@ -320,14 +313,12 @@ export function BaseLayout({
                         </tr>
                         <tr>
                           <td
-                            bgcolor={BRAND.bg}
                             align="center"
-                            className="ord-bg ord-text-muted"
+                            className="ord-bg ord-muted"
                             style={{
-                              backgroundColor: BRAND.bg,
                               padding: '0 0 8px',
                               fontSize: '11px',
-                              color: BRAND.textMuted,
+                              color: BRAND.light.muted,
                               lineHeight: 1.5,
                             }}
                           >
@@ -339,14 +330,12 @@ export function BaseLayout({
                     ) : (
                       <tr>
                         <td
-                          bgcolor={BRAND.bg}
                           align="center"
-                          className="ord-bg ord-text-muted"
+                          className="ord-bg ord-muted"
                           style={{
-                            backgroundColor: BRAND.bg,
                             padding: '28px 0 8px',
                             fontSize: '11px',
-                            color: BRAND.textMuted,
+                            color: BRAND.light.muted,
                             lineHeight: 1.5,
                           }}
                         >

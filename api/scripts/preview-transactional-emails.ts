@@ -39,31 +39,32 @@ import {
 const OUT_DIR = '/tmp/ordefy-emails';
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
-// Inline the production logos as data: URIs for offline previews. Both the
-// transparent and the dark-baked variants are inlined so any combination of
-// <picture><source>/<img> in the rendered HTML resolves locally without
-// needing the asset to be live on the CDN.
-const transparentLogoPath = path.resolve(__dirname, '../../public/email/logo.png');
-const darkLogoPath = path.resolve(__dirname, '../../public/email/logo-dark.png');
-const transparentLogoUri = fs.existsSync(transparentLogoPath)
-  ? `data:image/png;base64,${fs.readFileSync(transparentLogoPath).toString('base64')}`
+// Inline the production wordmark as a data: URI so previews render offline,
+// independent of whether the asset has been deployed to the CDN yet.
+const logoPath = path.resolve(__dirname, '../../public/email/logo.png');
+const logoOnDarkPath = path.resolve(
+  __dirname,
+  '../../public/email/logo-on-dark.png',
+);
+const logoUri = fs.existsSync(logoPath)
+  ? `data:image/png;base64,${fs.readFileSync(logoPath).toString('base64')}`
   : null;
-const darkLogoUri = fs.existsSync(darkLogoPath)
-  ? `data:image/png;base64,${fs.readFileSync(darkLogoPath).toString('base64')}`
+const logoOnDarkUri = fs.existsSync(logoOnDarkPath)
+  ? `data:image/png;base64,${fs.readFileSync(logoOnDarkPath).toString('base64')}`
   : null;
 
 function persist(slug: string, rendered: RenderedEmail) {
   let html = rendered.html;
-  if (darkLogoUri) {
+  if (logoOnDarkUri) {
     html = html.replaceAll(
-      'https://app.ordefy.io/email/logo-dark.png',
-      darkLogoUri,
+      'https://app.ordefy.io/email/logo-on-dark.png',
+      logoOnDarkUri,
     );
   }
-  if (transparentLogoUri) {
+  if (logoUri) {
     html = html.replaceAll(
       'https://app.ordefy.io/email/logo.png',
-      transparentLogoUri,
+      logoUri,
     );
   }
   fs.writeFileSync(path.join(OUT_DIR, `${slug}.html`), html);

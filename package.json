@@ -150,6 +150,7 @@
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^15.15.0",
     "patch-package": "^8.0.1",
+    "sharp": "^0.34.5",
     "typescript-eslint": "^8.38.0"
   }
 }

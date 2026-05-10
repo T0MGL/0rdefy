@@ -6,13 +6,23 @@
  * ctaButton, infoTable, etc). Templates compose these instead of pasting
  * inline styles.
  *
- * Visual constraints:
- *   - Dark canvas tokens come from `brand.ts`. Never hardcode hex.
- *   - Spacing scale: 4 / 8 / 14 / 18 / 24 / 32 / 40 px. Avoid arbitrary values.
- *   - Buttons render as <a> with table-wrapped padding so Outlook respects the
- *     hit area. Do NOT replace with the Button component from
- *     @react-email/components: it adds its own table wrapper that conflicts
- *     with the tight padding pattern we use in the legacy templates.
+ * Color strategy:
+ *   Inline styles default to LIGHT tokens (`BRAND.light.*`). Each element
+ *   carries an `ord-*` utility class that the dark `@media` block in
+ *   BaseLayout.tsx targets to flip surfaces and text on clients that honor
+ *   `prefers-color-scheme: dark`. Outlook web and Outlook for Android pick
+ *   up the same flips via the `[data-ogsc] / [data-ogsb]` selectors. Gmail
+ *   mobile renders the inline light defaults (it strips the @media block),
+ *   which is exactly what we want because Gmail mobile would force light
+ *   anyway.
+ *
+ * Spacing scale: 4 / 8 / 14 / 18 / 24 / 32 / 40 px. Avoid arbitrary values.
+ *
+ * Buttons:
+ *   Render as <a> with table-wrapped padding so Outlook respects the hit
+ *   area. Do NOT replace with the Button component from
+ *   @react-email/components: it adds its own table wrapper that conflicts
+ *   with the tight padding pattern this stack relies on.
  */
 
 import * as React from 'react';
@@ -25,7 +35,7 @@ const headingStyle: React.CSSProperties = {
   margin: '0 0 8px',
   fontSize: '22px',
   fontWeight: 700,
-  color: BRAND.white,
+  color: BRAND.light.heading,
   lineHeight: 1.3,
   letterSpacing: '-0.3px',
 };
@@ -33,21 +43,21 @@ const headingStyle: React.CSSProperties = {
 const subheadingStyle: React.CSSProperties = {
   margin: '0 0 24px',
   fontSize: '14px',
-  color: BRAND.textSecondary,
+  color: BRAND.light.secondary,
   lineHeight: 1.5,
 };
 
 const paragraphStyle: React.CSSProperties = {
   margin: '0 0 16px',
   fontSize: '15px',
-  color: BRAND.text,
+  color: BRAND.light.body,
   lineHeight: 1.6,
 };
 
 const smallTextStyle: React.CSSProperties = {
   margin: 0,
   fontSize: '12px',
-  color: BRAND.textMuted,
+  color: BRAND.light.muted,
   lineHeight: 1.5,
 };
 
@@ -56,7 +66,7 @@ export interface HeadingProps {
 }
 export function Heading({ children }: HeadingProps) {
   return (
-    <Text className="ord-text" style={headingStyle}>
+    <Text className="ord-heading" style={headingStyle}>
       {children}
     </Text>
   );
@@ -64,7 +74,7 @@ export function Heading({ children }: HeadingProps) {
 
 export function SubHeading({ children }: HeadingProps) {
   return (
-    <Text className="ord-text-secondary" style={subheadingStyle}>
+    <Text className="ord-secondary" style={subheadingStyle}>
       {children}
     </Text>
   );
@@ -72,7 +82,7 @@ export function SubHeading({ children }: HeadingProps) {
 
 export function Paragraph({ children }: HeadingProps) {
   return (
-    <Text className="ord-text" style={paragraphStyle}>
+    <Text className="ord-body" style={paragraphStyle}>
       {children}
     </Text>
   );
@@ -80,7 +90,7 @@ export function Paragraph({ children }: HeadingProps) {
 
 export function SmallText({ children }: HeadingProps) {
   return (
-    <Text className="ord-text-muted" style={smallTextStyle}>
+    <Text className="ord-muted" style={smallTextStyle}>
       {children}
     </Text>
   );
@@ -91,20 +101,20 @@ export function SmallText({ children }: HeadingProps) {
 export interface CTAButtonProps {
   href: string;
   children: React.ReactNode;
-  /** Use 'secondary' for low-emphasis actions (outlined, dark). */
+  /** Use 'secondary' for low-emphasis actions (outlined). */
   variant?: 'primary' | 'secondary';
 }
 
 const secondaryButtonAnchor: React.CSSProperties = {
   display: 'inline-block',
   backgroundColor: 'transparent',
-  color: BRAND.text,
+  color: BRAND.light.body,
   fontSize: '14px',
   fontWeight: 500,
   textDecoration: 'none',
   padding: '10px 24px',
   borderRadius: '8px',
-  border: `1px solid ${BRAND.cardBorder}`,
+  border: `1px solid ${BRAND.light.cardBorder}`,
   fontFamily: FONT_STACK,
 };
 
@@ -120,6 +130,8 @@ const secondaryButtonAnchor: React.CSSProperties = {
  *   - `ord-cta-anchor` class targeted by the [data-ogsc] / [data-ogsb]
  *     selectors in BaseLayout, so the Outlook app and Outlook.com keep
  *     the brand colors after their dark-mode transform.
+ *   - Lime stays lime in both light and dark modes; the dark @media block
+ *     in BaseLayout does not override the CTA color tokens.
  */
 export function CTAButton({
   href,
@@ -153,7 +165,6 @@ export function CTAButton({
                     <td
                       bgcolor={BRAND.primary}
                       align="center"
-                      className="ord-primary-bg"
                       style={{
                         backgroundColor: BRAND.primary,
                         borderRadius: '8px',
@@ -165,7 +176,7 @@ export function CTAButton({
                         style={{
                           display: 'inline-block',
                           backgroundColor: BRAND.primary,
-                          color: BRAND.bg,
+                          color: BRAND.ctaText,
                           fontSize: '15px',
                           fontWeight: 700,
                           textDecoration: 'none',
@@ -202,7 +213,7 @@ export function CTAButton({
           <td align="center">
             <a
               href={href}
-              className="ord-text"
+              className="ord-body"
               style={secondaryButtonAnchor}
             >
               {children}
@@ -224,10 +235,11 @@ export function InlineLink({ href, children }: InlineLinkProps) {
   return (
     <REmailLink
       href={href}
-      className="ord-primary-fg"
       style={{
-        color: BRAND.primary,
-        textDecoration: 'none',
+        color: BRAND.primaryHover,
+        textDecoration: 'underline',
+        textDecorationColor: BRAND.primary,
+        textUnderlineOffset: '2px',
         fontWeight: 500,
       }}
     >
@@ -239,7 +251,16 @@ export function InlineLink({ href, children }: InlineLinkProps) {
 // ---------- Divider ----------------------------------------------------------
 
 export function Divider() {
-  return <Hr style={{ borderColor: BRAND.divider, margin: '24px 0' }} />;
+  return (
+    <Hr
+      className="ord-divider"
+      style={{
+        borderColor: BRAND.light.divider,
+        borderTopWidth: '1px',
+        margin: '24px 0',
+      }}
+    />
+  );
 }
 
 // ---------- Info table -------------------------------------------------------
@@ -256,8 +277,8 @@ export interface InfoTableProps {
 /**
  * Two-column key/value list. The label column is fixed-width (120px) so values
  * align across rows; this is the same layout the legacy template literals
- * produced. Background is `footerBg` to give the panel a subtle, darker tone
- * separate from the surrounding card.
+ * produced. Background uses a subtle panel tone so the list reads as a grouped
+ * unit inside the card.
  */
 export function InfoTable({ rows }: InfoTableProps) {
   return (
@@ -267,11 +288,11 @@ export function InfoTable({ rows }: InfoTableProps) {
       cellSpacing={0}
       border={0}
       width="100%"
-      bgcolor={BRAND.footerBg}
-      className="ord-footer-bg"
+      bgcolor={BRAND.light.panel}
+      className="ord-panel"
       style={{
         margin: '20px 0',
-        backgroundColor: BRAND.footerBg,
+        backgroundColor: BRAND.light.panel,
         borderRadius: '8px',
         borderCollapse: 'separate',
       }}
@@ -280,11 +301,11 @@ export function InfoTable({ rows }: InfoTableProps) {
         {rows.map((r, i) => (
           <tr key={i}>
             <td
-              className="ord-text-muted"
+              className="ord-muted"
               style={{
                 padding: i === 0 ? '14px 16px 6px' : '6px 16px 6px',
                 fontSize: '13px',
-                color: BRAND.textMuted,
+                color: BRAND.light.muted,
                 whiteSpace: 'nowrap',
                 verticalAlign: 'top',
                 width: '120px',
@@ -293,7 +314,7 @@ export function InfoTable({ rows }: InfoTableProps) {
               {r.label}
             </td>
             <td
-              className="ord-text"
+              className="ord-body"
               style={{
                 padding:
                   i === 0
@@ -302,7 +323,7 @@ export function InfoTable({ rows }: InfoTableProps) {
                       ? '6px 16px 14px 0'
                       : '6px 16px 6px 0',
                 fontSize: '14px',
-                color: BRAND.text,
+                color: BRAND.light.body,
                 fontWeight: 500,
               }}
             >
@@ -357,13 +378,12 @@ export function StepsList({ steps }: StepsListProps) {
                       align="center"
                       width={24}
                       height={24}
-                      className="ord-primary-bg ord-on-primary"
                       style={{
                         width: '24px',
                         height: '24px',
                         borderRadius: '50%',
                         backgroundColor: BRAND.primary,
-                        color: BRAND.bg,
+                        color: BRAND.ctaText,
                         fontSize: '12px',
                         fontWeight: 700,
                         textAlign: 'center',
@@ -377,11 +397,11 @@ export function StepsList({ steps }: StepsListProps) {
               </table>
             </td>
             <td
-              className="ord-text"
+              className="ord-body ord-step-text"
               style={{
                 padding: '6px 0 6px 12px',
                 fontSize: '14px',
-                color: BRAND.text,
+                color: BRAND.light.body,
                 lineHeight: 1.5,
               }}
             >
@@ -430,13 +450,14 @@ export function ItemsTable({
         <tr>
           <th
             align="left"
+            className="ord-muted ord-row-border"
             style={{
               padding: '8px 0',
               fontSize: '11px',
-              color: BRAND.textMuted,
+              color: BRAND.light.muted,
               textTransform: 'uppercase',
               letterSpacing: '0.5px',
-              borderBottom: `1px solid ${BRAND.divider}`,
+              borderBottom: `1px solid ${BRAND.light.divider}`,
               fontWeight: 500,
             }}
           >
@@ -444,13 +465,14 @@ export function ItemsTable({
           </th>
           <th
             align="center"
+            className="ord-muted ord-row-border"
             style={{
               padding: '8px',
               fontSize: '11px',
-              color: BRAND.textMuted,
+              color: BRAND.light.muted,
               textTransform: 'uppercase',
               letterSpacing: '0.5px',
-              borderBottom: `1px solid ${BRAND.divider}`,
+              borderBottom: `1px solid ${BRAND.light.divider}`,
               fontWeight: 500,
             }}
           >
@@ -458,13 +480,14 @@ export function ItemsTable({
           </th>
           <th
             align="right"
+            className="ord-muted ord-row-border"
             style={{
               padding: '8px 0',
               fontSize: '11px',
-              color: BRAND.textMuted,
+              color: BRAND.light.muted,
               textTransform: 'uppercase',
               letterSpacing: '0.5px',
-              borderBottom: `1px solid ${BRAND.divider}`,
+              borderBottom: `1px solid ${BRAND.light.divider}`,
               fontWeight: 500,
             }}
           >
@@ -476,34 +499,37 @@ export function ItemsTable({
         {items.map((item, i) => (
           <tr key={i}>
             <td
+              className="ord-body ord-row-border"
               style={{
                 padding: '10px 0',
                 fontSize: '14px',
-                color: BRAND.text,
-                borderBottom: `1px solid ${BRAND.divider}`,
+                color: BRAND.light.body,
+                borderBottom: `1px solid ${BRAND.light.divider}`,
               }}
             >
               {item.name}
             </td>
             <td
               align="center"
+              className="ord-secondary ord-row-border"
               style={{
                 padding: '10px 8px',
                 fontSize: '14px',
-                color: BRAND.textSecondary,
-                borderBottom: `1px solid ${BRAND.divider}`,
+                color: BRAND.light.secondary,
+                borderBottom: `1px solid ${BRAND.light.divider}`,
               }}
             >
               {item.quantity}
             </td>
             <td
               align="right"
+              className="ord-body ord-row-border"
               style={{
                 padding: '10px 0',
                 fontSize: '14px',
-                color: BRAND.text,
+                color: BRAND.light.body,
                 fontWeight: 500,
-                borderBottom: `1px solid ${BRAND.divider}`,
+                borderBottom: `1px solid ${BRAND.light.divider}`,
               }}
             >
               {item.price}
@@ -515,10 +541,11 @@ export function ItemsTable({
             <td
               colSpan={2}
               align="right"
+              className={row.emphasis ? 'ord-heading' : 'ord-secondary'}
               style={{
                 padding: row.emphasis ? '12px 0 0' : '8px 0',
                 fontSize: row.emphasis ? '15px' : '13px',
-                color: row.emphasis ? BRAND.white : BRAND.textSecondary,
+                color: row.emphasis ? BRAND.light.heading : BRAND.light.secondary,
                 fontWeight: row.emphasis ? 700 : 400,
               }}
             >
@@ -526,10 +553,11 @@ export function ItemsTable({
             </td>
             <td
               align="right"
+              className={row.emphasis ? '' : 'ord-body'}
               style={{
                 padding: row.emphasis ? '12px 0 0' : '8px 0',
                 fontSize: row.emphasis ? '16px' : '14px',
-                color: row.emphasis ? BRAND.primary : BRAND.text,
+                color: row.emphasis ? BRAND.primaryHover : BRAND.light.body,
                 fontWeight: row.emphasis ? 700 : 400,
               }}
             >

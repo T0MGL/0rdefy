@@ -37,7 +37,7 @@ const greetingStyle: React.CSSProperties = {
   margin: '4px 0 28px',
   fontSize: '26px',
   fontWeight: 700,
-  color: BRAND.white,
+  color: BRAND.light.heading,
   lineHeight: 1.25,
   letterSpacing: '-0.3px',
 };
@@ -45,7 +45,7 @@ const greetingStyle: React.CSSProperties = {
 const introLine: React.CSSProperties = {
   margin: '0 0 18px',
   fontSize: '11px',
-  color: BRAND.textMuted,
+  color: BRAND.light.muted,
   lineHeight: 1.5,
   fontWeight: 700,
   textTransform: 'uppercase',
@@ -55,14 +55,14 @@ const introLine: React.CSSProperties = {
 const factLine: React.CSSProperties = {
   margin: '0 0 8px',
   fontSize: '15px',
-  color: BRAND.text,
+  color: BRAND.light.body,
   lineHeight: 1.65,
 };
 
 const factLineLast: React.CSSProperties = {
   margin: '0',
   fontSize: '15px',
-  color: BRAND.text,
+  color: BRAND.light.heading,
   lineHeight: 1.65,
   fontWeight: 600,
 };
@@ -70,14 +70,14 @@ const factLineLast: React.CSSProperties = {
 const paragraph: React.CSSProperties = {
   margin: '0 0 14px',
   fontSize: '15px',
-  color: BRAND.text,
+  color: BRAND.light.body,
   lineHeight: 1.7,
 };
 
 const sectionLabel: React.CSSProperties = {
   margin: '0 0 18px',
   fontSize: '11px',
-  color: BRAND.textMuted,
+  color: BRAND.light.muted,
   textTransform: 'uppercase',
   letterSpacing: '1.6px',
   fontWeight: 700,
@@ -86,14 +86,14 @@ const sectionLabel: React.CSSProperties = {
 const closingBlock: React.CSSProperties = {
   margin: '0 0 14px',
   fontSize: '16px',
-  color: BRAND.text,
+  color: BRAND.light.body,
   lineHeight: 1.7,
 };
 
 const closingFinal: React.CSSProperties = {
   margin: '0 0 28px',
   fontSize: '16px',
-  color: BRAND.white,
+  color: BRAND.light.heading,
   lineHeight: 1.7,
   fontWeight: 600,
 };
@@ -101,7 +101,7 @@ const closingFinal: React.CSSProperties = {
 const buttonStyle: React.CSSProperties = {
   display: 'inline-block',
   backgroundColor: BRAND.primary,
-  color: BRAND.bg,
+  color: BRAND.ctaText,
   fontSize: '15px',
   fontWeight: 700,
   textDecoration: 'none',
@@ -111,7 +111,7 @@ const buttonStyle: React.CSSProperties = {
 };
 
 const subtleLink: React.CSSProperties = {
-  color: BRAND.textSecondary,
+  color: BRAND.light.secondary,
   textDecoration: 'underline',
   fontSize: '13px',
 };
@@ -120,7 +120,7 @@ const heroWrap: React.CSSProperties = {
   margin: '0 0 30px',
   borderRadius: '12px',
   overflow: 'hidden',
-  border: `1px solid ${BRAND.cardBorder}`,
+  border: `1px solid ${BRAND.light.cardBorder}`,
   lineHeight: 0,
 };
 
@@ -128,15 +128,15 @@ const chartWrap: React.CSSProperties = {
   margin: '24px 0 6px',
   borderRadius: '10px',
   overflow: 'hidden',
-  backgroundColor: BRAND.bg,
-  border: `1px solid ${BRAND.cardBorder}`,
+  backgroundColor: BRAND.light.panel,
+  border: `1px solid ${BRAND.light.cardBorder}`,
   lineHeight: 0,
 };
 
 const chartCaption: React.CSSProperties = {
   margin: '0 0 28px',
   fontSize: '12px',
-  color: BRAND.textMuted,
+  color: BRAND.light.muted,
   textAlign: 'center',
   fontStyle: 'italic',
   letterSpacing: '0.2px',
@@ -174,10 +174,11 @@ function StatsGrid({ stats }: { stats: MilestoneStat[] }) {
               <td
                 key={j}
                 width="50%"
+                className="ord-panel ord-row-border"
                 style={{
                   width: '50%',
-                  backgroundColor: BRAND.bg,
-                  border: `1px solid ${BRAND.cardBorder}`,
+                  backgroundColor: BRAND.light.panel,
+                  border: `1px solid ${BRAND.light.cardBorder}`,
                   borderRadius: '12px',
                   padding: '22px 20px 20px',
                   verticalAlign: 'top',
@@ -187,7 +188,7 @@ function StatsGrid({ stats }: { stats: MilestoneStat[] }) {
                   style={{
                     fontSize: '30px',
                     fontWeight: 800,
-                    color: BRAND.primary,
+                    color: BRAND.primaryHover,
                     lineHeight: 1.05,
                     letterSpacing: '-0.6px',
                     marginBottom: '10px',
@@ -196,9 +197,10 @@ function StatsGrid({ stats }: { stats: MilestoneStat[] }) {
                   {stat.value}
                 </div>
                 <div
+                  className="ord-secondary"
                   style={{
                     fontSize: '12px',
-                    color: BRAND.textSecondary,
+                    color: BRAND.light.secondary,
                     lineHeight: 1.45,
                     letterSpacing: '0.1px',
                   }}
@@ -233,18 +235,20 @@ function FeatureStat({ value, label }: { value: string; label: string }) {
       <tbody>
         <tr>
           <td
+            className="ord-panel ord-row-border"
             style={{
-              backgroundColor: BRAND.bg,
-              border: `1px solid ${BRAND.cardBorder}`,
+              backgroundColor: BRAND.light.panel,
+              border: `1px solid ${BRAND.light.cardBorder}`,
               borderRadius: '12px',
               padding: '24px 24px 22px',
               verticalAlign: 'middle',
             }}
           >
             <div
+              className="ord-muted"
               style={{
                 fontSize: '11px',
-                color: BRAND.textMuted,
+                color: BRAND.light.muted,
                 textTransform: 'uppercase',
                 letterSpacing: '1.6px',
                 fontWeight: 700,
@@ -257,7 +261,7 @@ function FeatureStat({ value, label }: { value: string; label: string }) {
               style={{
                 fontSize: '34px',
                 fontWeight: 800,
-                color: BRAND.primary,
+                color: BRAND.primaryHover,
                 lineHeight: 1.05,
                 letterSpacing: '-0.8px',
               }}
@@ -306,22 +310,29 @@ export function MilestoneEmail(data: MilestoneEmailData) {
         </Section>
       ) : null}
 
-      <Text style={introLine}>Esto pasó en {data.storeName}</Text>
+      <Text className="ord-muted" style={introLine}>
+        Esto pasó en {data.storeName}
+      </Text>
 
-      <Text style={factLine}>
+      <Text className="ord-body" style={factLine}>
         Tu primera orden en {data.storeName} entró el {data.firstOrderDate} a las{' '}
         {data.firstOrderTime}.
       </Text>
-      <Text style={factLine}>
+      <Text className="ord-body" style={factLine}>
         Era una compra de {data.firstOrderAmount}.
       </Text>
-      <Text style={factLineLast}>
+      <Text className="ord-heading" style={factLineLast}>
         Hoy llegaste a la número {data.milestoneValue} en {data.storeName}.
       </Text>
 
-      <Hr style={{ borderColor: BRAND.divider, margin: '34px 0 26px' }} />
+      <Hr
+        className="ord-divider"
+        style={{ borderColor: BRAND.light.divider, margin: '34px 0 26px' }}
+      />
 
-      <Text style={sectionLabel}>En el medio</Text>
+      <Text className="ord-muted" style={sectionLabel}>
+        En el medio
+      </Text>
 
       <StatsGrid stats={stats} />
 
@@ -346,7 +357,7 @@ export function MilestoneEmail(data: MilestoneEmailData) {
               }}
             />
           </Section>
-          <Text style={chartCaption}>
+          <Text className="ord-muted" style={chartCaption}>
             {data.daysElapsed
               ? `${data.milestoneValue} órdenes en ${data.daysElapsed} días, desde el ${data.firstOrderDate}.`
               : `Desde tu primera orden el ${data.firstOrderDate}.`}
@@ -354,22 +365,30 @@ export function MilestoneEmail(data: MilestoneEmailData) {
         </>
       ) : null}
 
-      <Hr style={{ borderColor: BRAND.divider, margin: '20px 0 32px' }} />
+      <Hr
+        className="ord-divider"
+        style={{ borderColor: BRAND.light.divider, margin: '20px 0 32px' }}
+      />
 
-      <Text style={closingBlock}>Esto no son solo números.</Text>
+      <Text className="ord-body" style={closingBlock}>
+        Esto no son solo números.
+      </Text>
 
-      <Text style={closingBlock}>
+      <Text className="ord-body" style={closingBlock}>
         Es que el sistema funcionó {data.milestoneValue}{' '}
         {data.milestoneValue === 1 ? 'vez' : 'veces'} sin que toques nada.
       </Text>
 
-      <Text style={closingFinal}>Y que vos lo estás haciendo bien.</Text>
+      <Text className="ord-heading" style={closingFinal}>
+        Y que vos lo estás haciendo bien.
+      </Text>
 
       <Text
+        className="ord-body"
         style={{
           margin: '0 0 26px',
           fontSize: '16px',
-          color: BRAND.text,
+          color: BRAND.light.body,
           lineHeight: 1.5,
         }}
       >
@@ -377,10 +396,11 @@ export function MilestoneEmail(data: MilestoneEmailData) {
       </Text>
 
       <Text
+        className="ord-heading"
         style={{
           margin: '0 0 2px',
           fontSize: '15px',
-          color: BRAND.text,
+          color: BRAND.light.heading,
           lineHeight: 1.5,
           fontWeight: 600,
         }}
@@ -388,24 +408,29 @@ export function MilestoneEmail(data: MilestoneEmailData) {
         Gastón
       </Text>
       <Text
+        className="ord-secondary"
         style={{
           margin: '0',
           fontSize: '13px',
-          color: BRAND.textSecondary,
+          color: BRAND.light.secondary,
           lineHeight: 1.5,
         }}
       >
         Fundador de Ordefy
       </Text>
 
-      <Hr style={{ borderColor: BRAND.divider, margin: '38px 0 28px' }} />
+      <Hr
+        className="ord-divider"
+        style={{ borderColor: BRAND.light.divider, margin: '38px 0 28px' }}
+      />
 
       <Section style={{ textAlign: 'center' }}>
         <Text
+          className="ord-muted"
           style={{
             margin: '0 0 16px',
             fontSize: '11px',
-            color: BRAND.textMuted,
+            color: BRAND.light.muted,
             textTransform: 'uppercase',
             letterSpacing: '1.6px',
             fontWeight: 700,
@@ -413,11 +438,14 @@ export function MilestoneEmail(data: MilestoneEmailData) {
         >
           Mostralo si te dan ganas
         </Text>
-        <Button href={data.shareUrl} style={buttonStyle}>
+        <Button href={data.shareUrl} className="ord-cta-anchor" style={buttonStyle}>
           Compartí este logro
         </Button>
-        <Text style={{ margin: '16px 0 0', fontSize: '12px', color: BRAND.textMuted }}>
-          <Link href={data.shareUrl} style={subtleLink}>
+        <Text
+          className="ord-muted"
+          style={{ margin: '16px 0 0', fontSize: '12px', color: BRAND.light.muted }}
+        >
+          <Link href={data.shareUrl} className="ord-secondary" style={subtleLink}>
             Ver mi resumen completo
           </Link>
         </Text>

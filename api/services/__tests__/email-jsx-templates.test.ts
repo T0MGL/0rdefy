@@ -6,17 +6,20 @@
  *
  * What this asserts (per template):
  *   - render*Email returns { subject, html, text } without throwing.
- *   - HTML contains the brand bgcolor (#09090b on outer container, never
- *     stripped by Gmail Android because we set the legacy `bgcolor` attr).
- *   - HTML contains the wordmark img URL (logo-dark.png variant, dark-baked
- *     to survive forced dark-mode color inversion in Gmail iOS / Outlook).
- *   - HTML contains a key piece of dynamic copy (rules out a regression where
- *     a template renders but ignores its data).
+ *   - HTML opts into the hybrid color scheme: meta `color-scheme` is
+ *     "light dark" (NOT "dark only" — that was the v2 anti-pattern that
+ *     caused the white-on-white Gmail iOS bug).
+ *   - HTML contains the dark `prefers-color-scheme: dark` media block so
+ *     Apple Mail / Outlook web flip to dark when the user prefers it.
+ *   - HTML contains the [data-ogsc] / [data-ogsb] Outlook overrides.
+ *   - HTML carries the legacy `bgcolor` attribute on the outer table so
+ *     Outlook desktop and Yahoo render the brand surface (light off-white).
+ *   - HTML references the cropped wordmark URL (logo.png), NOT the
+ *     legacy logo-dark.png that the previous generator emitted.
+ *   - CTA carries the brand lime (#b0e636).
+ *   - HTML contains a key piece of dynamic copy (rules out a regression
+ *     where a template renders but ignores its data).
  *   - Plain-text fallback is non-empty and contains the same key copy.
- *
- * Spot-fixed bug guard: BaseLayout MUST render `bgcolor="#09090b"` on the
- * outer <table>. The previous template-literal stack omitted it, which is
- * why the legacy emails appeared white-background on Outlook/Yahoo.
  */
 
 import { describe, it } from 'node:test';
@@ -39,44 +42,65 @@ const {
   renderGenericEmail,
 } = await import('../email-jsx-templates');
 
-const LOGO_DARK = 'https://app.ordefy.io/email/logo-dark.png';
-const BG = '#09090b';
+const LOGO_URL = 'https://app.ordefy.io/email/logo.png';
+const LIGHT_BG = '#fafafa';
+const PRIMARY = '#b0e636';
 const FUTURE = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
 function expectBaseShell(html: string, text: string, mustContain: string) {
   assert.ok(html.length > 1000, 'HTML must be non-trivial');
+
   assert.ok(
-    html.includes(LOGO_DARK),
-    'HTML must reference the dark-baked wordmark URL',
+    html.includes(LOGO_URL),
+    'HTML must reference the cropped wordmark URL (logo.png)',
   );
+  assert.ok(
+    !html.includes('/email/logo-dark.png'),
+    'HTML must not reference the legacy logo-dark.png placeholder asset',
+  );
+
   assert.ok(
     html.toLowerCase().includes('bgcolor'),
     'HTML must use the legacy bgcolor attribute on outer table',
   );
-  assert.ok(html.includes(BG), `HTML must contain dark bg ${BG}`);
+  assert.ok(
+    html.includes(LIGHT_BG),
+    `HTML must contain the light brand bg ${LIGHT_BG}`,
+  );
+
   assert.ok(
     html.includes('color-scheme'),
-    'HTML must declare color-scheme meta for dark-mode signaling',
+    'HTML must declare a color-scheme meta',
   );
   assert.ok(
-    html.includes('dark only'),
-    'HTML must opt into dark only via meta color-scheme',
+    html.includes('"light dark"'),
+    'HTML must opt into hybrid color-scheme (light dark)',
   );
   assert.ok(
-    html.includes('prefers-color-scheme'),
-    'HTML must include the prefers-color-scheme media query for force-dark',
+    !html.includes('"dark only"'),
+    'HTML must not declare dark-only color-scheme (anti-pattern)',
+  );
+
+  assert.ok(
+    html.includes('prefers-color-scheme: dark'),
+    'HTML must include the prefers-color-scheme: dark media query',
   );
   assert.ok(
     html.includes('data-ogsc') && html.includes('data-ogsb'),
     'HTML must include the [data-ogsc] / [data-ogsb] Outlook overrides',
   );
+
   assert.ok(
-    !html.includes('dark light') && !html.includes('light dark'),
-    'HTML must not advertise light support (dark-only emails)',
+    html.toLowerCase().includes(PRIMARY.toLowerCase()),
+    `HTML must contain brand lime ${PRIMARY}`,
   );
+
   assert.ok(html.includes(mustContain), `HTML must contain "${mustContain}"`);
   assert.ok(text.length > 0, 'Plain-text fallback must be non-empty');
-  assert.ok(text.includes(mustContain), `Plain text must contain "${mustContain}"`);
+  assert.ok(
+    text.includes(mustContain),
+    `Plain text must contain "${mustContain}"`,
+  );
 }
 
 describe('email-jsx-templates render shell', () => {

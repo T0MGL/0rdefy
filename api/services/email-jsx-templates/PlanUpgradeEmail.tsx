@@ -23,7 +23,7 @@ export interface PlanUpgradeEmailData {
 const badgeStyle: React.CSSProperties = {
   display: 'inline-block',
   backgroundColor: BRAND.primary,
-  color: BRAND.bg,
+  color: BRAND.ctaText,
   fontSize: '11px',
   fontWeight: 600,
   padding: '3px 10px',
