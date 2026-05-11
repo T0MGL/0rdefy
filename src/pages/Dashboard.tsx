@@ -758,24 +758,16 @@ export default function Dashboard() {
                       title={
                         <div className="flex items-center">
                           <span>IVA Recolectado ({dashboardOverview.taxRate}%)</span>
-                          <InfoTooltip content="Monto total de impuestos recaudados sobre las ventas." />
+                          <InfoTooltip content="IVA recolectado sobre los pedidos efectivamente entregados (solo facturación real)." />
                         </div>
                       }
-                      value={formatCurrency(dashboardOverview.taxCollected)}
-                      change={
-                        dashboardOverview.changes?.taxCollected !== null
-                          ? Math.abs(dashboardOverview.changes?.taxCollected || 0)
-                          : undefined
-                      }
-                      trend={
-                        dashboardOverview.changes?.taxCollected !== null
-                          ? dashboardOverview.changes?.taxCollected >= 0
-                            ? 'up'
-                            : 'down'
-                          : undefined
-                      }
+                      value={formatCurrency(
+                        dashboardOverview.realTaxCollected ?? dashboardOverview.taxCollected
+                      )}
+                      change={getChange('realTaxCollected')}
+                      trend={getTrend('realTaxCollected')}
                       icon={<Receipt className="text-orange-600" size={20} />}
-                      subtitle="Incluido en facturación"
+                      subtitle="Solo pedidos entregados"
                     />
                   </div>
                 )}

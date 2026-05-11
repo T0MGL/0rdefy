@@ -589,6 +589,9 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             roas: calculateChange(currentMetrics.roas, previousMetrics.roas),
             deliveryRate: calculateChange(currentMetrics.deliveryRate, previousMetrics.deliveryRate),
             taxCollected: calculateChange(currentMetrics.taxCollected, previousMetrics.taxCollected),
+            realTaxCollected: calculateChange(currentMetrics.realTaxCollected, previousMetrics.realTaxCollected),
+            realRoas: calculateChange(currentMetrics.realRoas, previousMetrics.realRoas),
+            realRoi: calculateChange(currentMetrics.realRoi, previousMetrics.realRoi),
             costPerOrder: calculateChange(costPerOrder, previousCostPerOrder),
             averageOrderValue: calculateChange(averageOrderValue, previousAverageOrderValue),
         };
@@ -686,6 +689,9 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                     roas: changes.roas,
                     deliveryRate: changes.deliveryRate,
                     taxCollected: changes.taxCollected,
+                    realTaxCollected: changes.realTaxCollected,
+                    realRoas: changes.realRoas,
+                    realRoi: changes.realRoi,
                     costPerOrder: changes.costPerOrder,
                     averageOrderValue: changes.averageOrderValue,
                 }

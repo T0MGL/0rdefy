@@ -87,6 +87,9 @@ export interface DashboardOverview {
     roas: number | null;
     deliveryRate: number | null;
     taxCollected: number | null;
+    realTaxCollected?: number | null;
+    realRoas?: number | null;
+    realRoi?: number | null;
     costPerOrder: number | null;
     averageOrderValue: number | null;
   };
