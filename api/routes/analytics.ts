@@ -538,8 +538,23 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
         );
         const confirmedOrdersCount = confirmedOrders.length;
 
-        // Cost per order should only count confirmed orders (orders that incurred real costs)
+        // Cost per order: legacy variant (numerator includes all-period costs,
+        // denominator excludes pending/cancelled/rejected). Kept for backwards
+        // compat; UI prefers realCostPerOrder which is internally consistent.
         const costPerOrder = confirmedOrdersCount > 0 ? (totalCosts / confirmedOrdersCount) : 0;
+
+        // Real cost per order: realCosts (delivered-only product/delivery
+        // costs + confirmation fees of delivered + full marketing spend)
+        // divided by delivered count. Same set in num and denom, which is
+        // what the user actually wants to read in the dashboard.
+        const deliveredCount = currentPeriodOrders.filter(o => isDelivered(o.sleeves_status)).length;
+        const realCostPerOrder = deliveredCount > 0 ? (currentMetrics.realCosts / deliveredCount) : 0;
+
+        const previousDeliveredCount = previousPeriodOrders.filter(o => isDelivered(o.sleeves_status)).length;
+        const previousRealCostPerOrder = previousDeliveredCount > 0
+            ? (previousMetrics.realCosts / previousDeliveredCount)
+            : 0;
+
         const averageOrderValue = totalOrders > 0 ? (revenue / totalOrders) : 0;
 
         // ===== CALCULATE PERCENTAGE CHANGES (Current period vs Previous period) =====
@@ -592,6 +607,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             realTaxCollected: calculateChange(currentMetrics.realTaxCollected, previousMetrics.realTaxCollected),
             realRoas: calculateChange(currentMetrics.realRoas, previousMetrics.realRoas),
             realRoi: calculateChange(currentMetrics.realRoi, previousMetrics.realRoi),
+            realCostPerOrder: calculateChange(realCostPerOrder, previousRealCostPerOrder),
             costPerOrder: calculateChange(costPerOrder, previousCostPerOrder),
             averageOrderValue: calculateChange(averageOrderValue, previousAverageOrderValue),
         };
@@ -654,6 +670,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 // Other metrics
                 deliveryRate: parseFloat(deliveryRate.toFixed(1)),
                 costPerOrder: Math.round(costPerOrder),
+                realCostPerOrder: Math.round(realCostPerOrder),
                 averageOrderValue: Math.round(averageOrderValue),
                 taxCollected: Math.round(taxCollected), // IVA recolectado
                 taxRate: parseFloat(taxRate.toFixed(2)), // Tasa de IVA configurada
@@ -692,6 +709,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                     realTaxCollected: changes.realTaxCollected,
                     realRoas: changes.realRoas,
                     realRoi: changes.realRoi,
+                    realCostPerOrder: changes.realCostPerOrder,
                     costPerOrder: changes.costPerOrder,
                     averageOrderValue: changes.averageOrderValue,
                 }

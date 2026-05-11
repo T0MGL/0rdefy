@@ -55,7 +55,8 @@ export interface DashboardOverview {
   deliveryRate: number;
   taxCollected: number; // IVA recolectado incluido en los ingresos
   taxRate: number; // Tasa de IVA configurada en el onboarding (ej: 10 para 10%)
-  costPerOrder: number; // Costo promedio por pedido
+  costPerOrder: number; // Costo promedio por pedido (legacy: numerator usa todos los pedidos, denominador excluye pending/cancelled/rejected)
+  realCostPerOrder?: number; // Costo real por pedido entregado (realCosts / deliveredCount) - base consistente
   averageOrderValue: number; // Ticket promedio (valor promedio por pedido)
   changes?: {
     totalOrders: number | null;
@@ -90,6 +91,7 @@ export interface DashboardOverview {
     realTaxCollected?: number | null;
     realRoas?: number | null;
     realRoi?: number | null;
+    realCostPerOrder?: number | null;
     costPerOrder: number | null;
     averageOrderValue: number | null;
   };

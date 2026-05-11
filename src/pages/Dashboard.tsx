@@ -652,13 +652,16 @@ export default function Dashboard() {
                       title={
                         <div className="flex items-center">
                           Costo por Pedido
-                          <InfoTooltip content="Costo promedio total de adquirir y procesar un pedido." />
+                          <InfoTooltip content="Costo total promedio por pedido entregado (productos, envío, confirmación y publicidad sobre pedidos entregados)." />
                         </div>
                       }
-                      value={formatCurrency(dashboardOverview.costPerOrder)}
-                      change={getChange('costPerOrder')}
-                      trend={getTrend('costPerOrder')}
+                      value={formatCurrency(
+                        dashboardOverview.realCostPerOrder ?? dashboardOverview.costPerOrder
+                      )}
+                      change={getChange('realCostPerOrder')}
+                      trend={getTrend('realCostPerOrder')}
                       icon={<Package2 className="text-gray-600" size={20} />}
+                      subtitle="Solo pedidos entregados"
                     />
                   </div>
                 )}
