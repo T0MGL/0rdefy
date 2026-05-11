@@ -505,7 +505,7 @@ export function pendingCash(
 // source of the "load 5M for the month, see 5M on day 1" bug.
 //
 // Inputs:
-//   - row: { amount, date, period_start, period_end } — string dates in
+//   - row: { amount, date, period_start, period_end }: string dates in
 //     YYYY-MM-DD, matching the storage format of additional_values.
 //   - windowStart, windowEnd: inclusive bounds, YYYY-MM-DD.
 //
