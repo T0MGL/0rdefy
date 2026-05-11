@@ -70,12 +70,11 @@ export default function Dashboard() {
   const [viewMode, setViewMode] = useState<DashboardViewMode>(readStoredViewMode);
   const hasLoadedMetricsRef = useRef(false);
 
-  const { user, stores, permissions, loading: authLoading, currentStore, refreshStores } = useAuth();
+  const { stores, permissions, loading: authLoading, currentStore, refreshStores } = useAuth();
   const { subscription, canUpgrade, hasFeature } = useSubscription();
   const { globalViewEnabled } = useGlobalView();
   const [globalViewStores, setGlobalViewStores] = useState<{ id: string; name: string }[]>([]);
 
-  const greetingName = user?.name?.trim().split(/\s+/)[0] ?? '';
   const hasAnalyticsAccess = !authLoading && permissions.canAccessModule(Module.ANALYTICS);
   const hasMultipleStores = (stores?.length || 0) >= 2;
   const hasIntelligenceAccess = hasFeature('revenue_intelligence');
@@ -306,14 +305,6 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {greetingName && (
-        <div>
-          <h2 className="text-2xl md:text-3xl font-bold text-card-foreground">
-            Hola, {greetingName}.
-          </h2>
-        </div>
-      )}
-
       {isFreePlan && (
         <Card className="p-4 border-primary/30 bg-primary/5">
           <div className="flex items-start justify-between gap-4">

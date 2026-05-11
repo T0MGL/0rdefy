@@ -347,7 +347,7 @@ export function Header() {
           }}
         >
           <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-card-foreground truncate max-w-[200px] md:max-w-none">
-            Hola, {user?.name?.split(' ')[0] || user?.email?.split('@')[0] || 'Usuario'}.
+            Hola, {user?.name?.split(' ')[0] || user?.email?.split('@')[0] || 'Usuario'} <span className="inline-block">👋</span>
           </h1>
         </div>
 
