@@ -70,11 +70,12 @@ export default function Dashboard() {
   const [viewMode, setViewMode] = useState<DashboardViewMode>(readStoredViewMode);
   const hasLoadedMetricsRef = useRef(false);
 
-  const { stores, permissions, loading: authLoading, currentStore, refreshStores } = useAuth();
+  const { user, stores, permissions, loading: authLoading, currentStore, refreshStores } = useAuth();
   const { subscription, canUpgrade, hasFeature } = useSubscription();
   const { globalViewEnabled } = useGlobalView();
   const [globalViewStores, setGlobalViewStores] = useState<{ id: string; name: string }[]>([]);
 
+  const greetingName = user?.name?.trim().split(/\s+/)[0] ?? '';
   const hasAnalyticsAccess = !authLoading && permissions.canAccessModule(Module.ANALYTICS);
   const hasMultipleStores = (stores?.length || 0) >= 2;
   const hasIntelligenceAccess = hasFeature('revenue_intelligence');
