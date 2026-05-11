@@ -854,8 +854,8 @@ export default function Dashboard() {
                       </h3>
                       <p className="text-sm text-muted-foreground mt-1">
                         Top productos, márgenes por SKU, comparativos, exportables.
-                        {revenueProjection
-                          ? ` Proyección actual: ${formatCurrency(revenueProjection.projected)}.`
+                        {revenueProjection?.shouldShow
+                          ? ` Proyección actual: ${formatCurrency(revenueProjection.projectedRevenue)}.`
                           : ''}
                       </p>
                     </div>

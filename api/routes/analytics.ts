@@ -38,6 +38,7 @@ import {
     isReturned,
     isSettled,
 } from '../utils/order-status';
+import { isOrderCod } from '../utils/payment';
 
 export const analyticsRouter = Router();
 
@@ -1841,11 +1842,14 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
             };
         }
 
-        // Get all orders in the period - OPTIMIZATION: Only required fields
+        // Soft-deleted and test orders filtered at the DB level so logistics
+        // metrics agree with the rest of the dashboard (mig 183).
         const { data: ordersData, error: ordersError } = await supabaseAdmin
             .from('orders')
-            .select('id, sleeves_status, shipped_at, total_price, delivery_status, failed_reason, payment_status, created_at, delivered_at, delivery_attempts, shipping_cost, currency')
+            .select('id, sleeves_status, shipped_at, total_price, delivery_status, failed_reason, payment_status, payment_method, prepaid_method, reconciled_at, created_at, delivered_at, delivery_attempts, shipping_cost, currency')
             .eq('store_id', req.storeId)
+            .is('deleted_at', null)
+            .or('is_test.is.null,is_test.eq.false')
             .gte('created_at', dateFilter.start.toISOString())
             .lte('created_at', dateFilter.end.toISOString())
 
@@ -1901,19 +1905,20 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
             ? parseFloat(((doorRejections.length / deliveryAttempts) * 100).toFixed(1))
             : 0;
 
-        // Cash collection: collected vs expected on terminal-success orders.
-        // Includes settled because that is the post-148c paid state.
-        const deliveredOrders = orders.filter(o =>
-            isDeliveredOrSettled(o.sleeves_status)
+        // Cash collection (mig 183): anchored on reconciled_at (objective
+        // courier-closeout evidence) instead of payment_status (a mutable
+        // flag the legacy reconciliation paths forgot to set). Denominator
+        // is COD-only, since prepaid is already settled before shipping.
+        const codTerminalOrders = orders.filter(o =>
+            isDeliveredOrSettled(o.sleeves_status) &&
+            isOrderCod(o.payment_method, o.prepaid_method)
         );
-        const expectedCash = deliveredOrders.reduce((sum, o) =>
+        const expectedCash = codTerminalOrders.reduce((sum, o) =>
             sum + (Number(o.total_price) || 0), 0
         );
 
-        const collectedOrders = orders.filter(o =>
-            o.payment_status === 'collected' || o.payment_status === 'paid'
-        );
-        const collectedCash = collectedOrders.reduce((sum, o) =>
+        const reconciledCodOrders = codTerminalOrders.filter(o => o.reconciled_at != null);
+        const collectedCash = reconciledCodOrders.reduce((sum, o) =>
             sum + (Number(o.total_price) || 0), 0
         );
 
@@ -1921,11 +1926,13 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
             ? parseFloat(((collectedCash / expectedCash) * 100).toFixed(1))
             : 0;
 
-        const pendingCollection = deliveredOrders.filter(o =>
-            o.payment_status !== 'collected' && o.payment_status !== 'paid'
-        );
+        const pendingCollection = codTerminalOrders.filter(o => o.reconciled_at == null);
         const pendingCashAmount = pendingCollection.reduce((sum, o) =>
             sum + (Number(o.total_price) || 0), 0
+        );
+
+        const deliveredOrders = orders.filter(o =>
+            isDeliveredOrSettled(o.sleeves_status)
         );
 
         // En transito: canonical isInTransit. Previously hardcoded

@@ -37,6 +37,7 @@ import {
     revenueReal,
     type CanonicalOrder,
 } from '../utils/metrics-canonical';
+import { isOrderCod } from '../utils/payment';
 
 export const codMetricsRouter = Router();
 
@@ -48,6 +49,9 @@ codMetricsRouter.use(requireModule(Module.ANALYTICS));
 interface CodOrderRow extends CanonicalOrder {
     id: string;
     payment_status: string | null;
+    payment_method: string | null;
+    prepaid_method: string | null;
+    reconciled_at: string | null;
     delivery_attempts: number | null;
     created_at: string;
     updated_at: string;
@@ -73,7 +77,7 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
 
         const { data: orders, error } = await supabaseAdmin
             .from('orders')
-            .select('id, sleeves_status, payment_status, total_price, delivery_attempts, created_at, updated_at, shipped_at, currency, deleted_at, is_test')
+            .select('id, sleeves_status, payment_status, payment_method, prepaid_method, reconciled_at, total_price, delivery_attempts, created_at, updated_at, shipped_at, currency, deleted_at, is_test')
             .eq('store_id', req.storeId)
             .is('deleted_at', null)
             .gte('created_at', startIso)
@@ -92,11 +96,20 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
         const confirmation_rate_pct = confirmationRate(list);
 
         const deliveredOrders = list.filter((o) => isTerminalSuccess(o.sleeves_status));
-        const paidOrders = list.filter((o) => o.payment_status === 'collected');
+
+        // Payment success rate (mig 183): anchored on reconciled_at instead
+        // of payment_status, COD-only. See /api/analytics/logistics-metrics
+        // for the parallel formula.
+        const codDeliveredOrders = deliveredOrders.filter((o) =>
+            isOrderCod(o.payment_method, o.prepaid_method),
+        );
+        const reconciledCodOrders = codDeliveredOrders.filter((o) => o.reconciled_at != null);
         const payment_success_rate =
-            deliveredOrders.length > 0
-                ? Math.round((paidOrders.length / deliveredOrders.length) * 100)
+            codDeliveredOrders.length > 0
+                ? Math.round((reconciledCodOrders.length / codDeliveredOrders.length) * 100)
                 : 0;
+
+        const paidOrders = list.filter((o) => o.payment_status === 'collected');
 
         const ordersWithAttempts = list.filter((o) => (o.delivery_attempts ?? 0) > 0);
         const totalAttempts = ordersWithAttempts.reduce(

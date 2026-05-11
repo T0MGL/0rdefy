@@ -174,8 +174,9 @@ export default function DashboardLogistics() {
           totalPending: pendingOrders,
           totalConfirmed: confirmedOrders,
           avgConfirmationTime: 0,
-          changes: null,
-        } as ConfirmationMetrics;
+          confirmationsToday: confirmedOrders,
+          pendingToday: pendingOrders,
+        };
 
         setDashboardOverview(basicOverview);
         setConfirmationMetrics(basicConfirmation);
