@@ -19,6 +19,7 @@ import { calculateRevenueProjection } from '@/utils/recommendationEngine';
 import { formatCurrency } from '@/utils/currency';
 import { logger } from '@/utils/logger';
 import { formatLocalDate } from '@/utils/timeUtils';
+import { getPeriodSuffix, getPeriodSubtitle } from '@/utils/dateRangeLabels';
 import {
   DollarSign,
   TrendingDown,
@@ -79,7 +80,23 @@ export default function Dashboard() {
   const hasMultipleStores = (stores?.length || 0) >= 2;
   const hasIntelligenceAccess = hasFeature('revenue_intelligence');
 
-  const { getDateRange } = useDateRange();
+  const { getDateRange, selectedRange, customRange } = useDateRange();
+
+  // Period labels propagate to every metric card title so we never ship a card
+  // that says "Hoy" when the user picked "Desde siempre". Pre-computed once so
+  // we don't recompute the same string four times per render.
+  const periodSuffix = useMemo(
+    () => getPeriodSuffix(selectedRange, customRange),
+    [selectedRange, customRange],
+  );
+  const periodSuffixShort = useMemo(
+    () => getPeriodSuffix(selectedRange, customRange, true),
+    [selectedRange, customRange],
+  );
+  const periodSubtitle = useMemo(
+    () => getPeriodSubtitle(selectedRange, customRange),
+    [selectedRange, customRange],
+  );
 
   const [dashboardOverview, setDashboardOverview] = useState<DashboardOverview | null>(null);
   const [chartData, setChartData] = useState<ChartData[]>([]);
@@ -403,8 +420,8 @@ export default function Dashboard() {
           <MetricCard
             title={
               <div className="flex items-center">
-                Facturación Real Hoy
-                <InfoTooltip content="Ingresos reales del período: total de pedidos entregados más ingresos adicionales registrados (incluye costos, antes de descontar nada)." />
+                Facturación Real
+                <InfoTooltip content={`Ingresos reales del período seleccionado (${periodSuffix}): total de pedidos entregados más ingresos adicionales registrados (incluye costos, antes de descontar nada).`} />
               </div>
             }
             value={formatCurrency(dashboardOverview.realRevenue ?? dashboardOverview.revenue)}
@@ -412,13 +429,13 @@ export default function Dashboard() {
             trend={getTrend('realRevenue')}
             icon={<DollarSign className="text-primary" size={24} />}
             variant="primary"
-            subtitle="Solo pedidos entregados"
+            subtitle={`Solo pedidos entregados · ${periodSubtitle}`}
           />
           <MetricCard
             title={
               <div className="flex items-center">
                 Beneficio Neto Real
-                <InfoTooltip content="Ganancia real después de descontar costos de productos, envío, confirmación y publicidad. Solo pedidos entregados." />
+                <InfoTooltip content={`Ganancia real después de descontar costos de productos, envío, confirmación y publicidad. Solo pedidos entregados del período seleccionado (${periodSuffix}).`} />
               </div>
             }
             value={formatCurrency(dashboardOverview.realNetProfit ?? dashboardOverview.netProfit)}
@@ -426,13 +443,13 @@ export default function Dashboard() {
             trend={getTrend('realNetProfit')}
             icon={<TrendingUp className="text-green-600" size={24} />}
             variant="accent"
-            subtitle="Solo pedidos entregados"
+            subtitle={`Solo pedidos entregados · ${periodSubtitle}`}
           />
           <MetricCard
             title={
               <div className="flex items-center">
-                Tasa de Entrega (7d)
-                <InfoTooltip content="Porcentaje de pedidos entregados exitosamente sobre el total despachado en los últimos 7 días." />
+                {`Tasa de Entrega (${periodSuffixShort})`}
+                <InfoTooltip content={`Porcentaje de pedidos entregados exitosamente sobre el total despachado en el período seleccionado (${periodSuffix}).`} />
               </div>
             }
             value={`${dashboardOverview.deliveryRate}%`}
@@ -440,6 +457,7 @@ export default function Dashboard() {
             trend={getTrend('deliveryRate')}
             icon={<Truck className="text-purple-600" size={24} />}
             variant="purple"
+            subtitle={periodSubtitle}
           />
         </div>
       </div>
@@ -472,7 +490,7 @@ export default function Dashboard() {
               trend={getTrend('projectedRevenue')}
               icon={<Activity className="text-cyan-600" size={24} />}
               variant="secondary"
-              subtitle="Entregados + en tránsito"
+              subtitle={`Entregados + en tránsito · ${periodSubtitle}`}
               dense
             />
             <MetricCard
@@ -480,7 +498,7 @@ export default function Dashboard() {
                 <div className="flex items-center">
                   Beneficio Neto Proyectado
                   <InfoTooltip
-                    content={`Beneficio Neto Real + ganancia esperada de los pedidos en tránsito, ponderada por la tasa de entrega histórica${projectionRateSuffix}. Resta costos de productos, envío, confirmación y publicidad proyectados con la misma ponderación.`}
+                    content={`Beneficio Neto Real + ganancia esperada de los pedidos en tránsito, ponderada por la tasa de entrega histórica${projectionRateSuffix}. Resta costos de productos, envío, confirmación y publicidad proyectados con la misma ponderación. Período: ${periodSuffix}.`}
                   />
                 </div>
               }
@@ -493,20 +511,21 @@ export default function Dashboard() {
               trend={getTrend('projectedNetProfit')}
               icon={<TrendingUp className="text-emerald-600" size={24} />}
               variant="secondary"
-              subtitle="Entregados + en tránsito"
+              subtitle={`Entregados + en tránsito · ${periodSubtitle}`}
               dense
             />
             <MetricCard
               title={
                 <div className="flex items-center">
                   Ticket Promedio
-                  <InfoTooltip content="Valor promedio de venta por cada pedido realizado." />
+                  <InfoTooltip content={`Valor promedio de venta por cada pedido realizado en el período seleccionado (${periodSuffix}).`} />
                 </div>
               }
               value={formatCurrency(dashboardOverview.averageOrderValue)}
               change={getChange('averageOrderValue')}
               trend={getTrend('averageOrderValue')}
               icon={<ShoppingCart className="text-orange-600" size={24} />}
+              subtitle={periodSubtitle}
               dense
             />
           </div>
