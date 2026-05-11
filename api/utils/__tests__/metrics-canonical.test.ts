@@ -29,6 +29,7 @@ import {
     netProfitReal,
     orderCountsByBucket,
     pendingCash,
+    realCostPerOrder,
     revenueProyectado,
     revenueReal,
     returnRate,
@@ -389,6 +390,39 @@ describe('pendingCash', () => {
             { ...o({ sleeves_status: 'in_transit', total_price: 1000 }), payment_status: 'collected' }, // collected, not pending
         ];
         assert.equal(pendingCash(orders), 150);
+    });
+});
+
+describe('realCostPerOrder', () => {
+    it('returns 0 when there are no delivered orders', () => {
+        const orders = [
+            o({ sleeves_status: 'pending', total_price: 100 }),
+            o({ sleeves_status: 'cancelled', total_price: 200 }),
+            o({ sleeves_status: 'in_transit', total_price: 150 }),
+        ];
+        assert.equal(realCostPerOrder(orders, 50000), 0);
+    });
+
+    it('divides realCosts by delivered count only', () => {
+        const orders = [
+            o({ sleeves_status: 'delivered', total_price: 100 }),
+            o({ sleeves_status: 'delivered', total_price: 100 }),
+            o({ sleeves_status: 'settled', total_price: 100 }),
+            o({ sleeves_status: 'pending', total_price: 100 }),
+            o({ sleeves_status: 'cancelled', total_price: 100 }),
+        ];
+        // 3 delivered (delivered + settled count as terminal success).
+        // realCosts of 90 -> 30 per delivered order.
+        assert.equal(realCostPerOrder(orders, 90), 30);
+    });
+
+    it('drops off-currency orders before counting', () => {
+        const orders = [
+            o({ sleeves_status: 'delivered', total_price: 100, currency: 'PYG' }),
+            o({ sleeves_status: 'delivered', total_price: 100, currency: 'PYG' }),
+            o({ sleeves_status: 'delivered', total_price: 100, currency: 'USD' }), // dropped
+        ];
+        assert.equal(realCostPerOrder(orders, 60, 'PYG'), 30);
     });
 });
 

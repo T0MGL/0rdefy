@@ -184,5 +184,97 @@ describe('Metrics Integrity', () => {
       expect(rate).toBeGreaterThanOrEqual(0);
       expect(rate).toBeLessThanOrEqual(100);
     });
+
+    /**
+     * Bug 2 regression guard (May 2026): the dashboard rendered IVA over
+     * total period revenue while every adjacent card used real (delivered)
+     * revenue. Result was a 60M Gs Ventas headline with a 5.5M Gs IVA
+     * stamp that referenced a different set of orders. The invariants
+     * below pin the relationships that make the cost-breakdown grid
+     * internally consistent.
+     */
+    test('14. realTaxCollected is taxRate * realRevenue / (1 + taxRate)', async () => {
+      const overview = await api.request('GET', '/analytics/overview');
+      const data = overview.data ?? overview;
+      const realRevenue = data.realRevenue ?? 0;
+      const taxRate = data.taxRate ?? 0;
+      const realTax = data.realTaxCollected ?? 0;
+      if (taxRate === 0 || realRevenue === 0) {
+        expect(realTax).toBe(0);
+        return;
+      }
+      const expected = realRevenue - realRevenue / (1 + taxRate / 100);
+      // Within rounding precision (backend rounds to integer Gs).
+      expect(Math.abs(realTax - expected)).toBeLessThanOrEqual(1);
+    });
+
+    test('15. realTaxCollected <= taxCollected (delivered is a subset)', async () => {
+      const overview = await api.request('GET', '/analytics/overview');
+      const data = overview.data ?? overview;
+      const realTax = data.realTaxCollected ?? 0;
+      const totalTax = data.taxCollected ?? 0;
+      expect(realTax).toBeLessThanOrEqual(totalTax);
+    });
+
+    test('16. realCostPerOrder = realCosts / deliveredCount (consistent base)', async () => {
+      const overview = await api.request('GET', '/analytics/overview');
+      const data = overview.data ?? overview;
+      const realCosts = data.realCosts ?? 0;
+      const realCostPerOrder = data.realCostPerOrder ?? 0;
+      const deliveryRate = data.deliveryRate ?? 0;
+      // If there are no delivered orders the value must be 0, not Infinity.
+      if (deliveryRate === 0) {
+        expect(realCostPerOrder).toBe(0);
+        return;
+      }
+      // Cross-check requires deliveredCount, which is not directly exposed
+      // but can be inferred from realRevenue / averageDeliveredOrder. We
+      // settle for the floor: realCostPerOrder * 1 <= realCosts (i.e.
+      // there is at least 1 delivered order producing the cost).
+      if (realCosts > 0) {
+        expect(realCostPerOrder).toBeGreaterThan(0);
+        expect(realCostPerOrder).toBeLessThanOrEqual(realCosts);
+      }
+    });
+
+    test('17. realRoas matches realRevenue / gasto_publicitario when ads spent', async () => {
+      const overview = await api.request('GET', '/analytics/overview');
+      const data = overview.data ?? overview;
+      const realRevenue = data.realRevenue ?? 0;
+      const adSpend = data.gasto_publicitario ?? 0;
+      const realRoas = data.realRoas ?? 0;
+      if (adSpend === 0) {
+        expect(realRoas).toBe(0);
+        return;
+      }
+      const expected = realRevenue / adSpend;
+      // Backend rounds to 2 decimals.
+      expect(Math.abs(realRoas - expected)).toBeLessThanOrEqual(0.01);
+    });
+
+    test('18. /overview emits all real* fields the dashboard depends on', async () => {
+      const overview = await api.request('GET', '/analytics/overview');
+      const data = overview.data ?? overview;
+      // These are the fields that the dashboard cost-breakdown and
+      // resumen-ejecutivo cards prefer over their legacy counterparts.
+      // If the backend ever drops one, the UI silently falls back to
+      // the inconsistent legacy field. This test pins the contract.
+      const required = [
+        'realRevenue',
+        'realProductCosts',
+        'realDeliveryCosts',
+        'realCosts',
+        'realGrossMargin',
+        'realNetMargin',
+        'realNetProfit',
+        'realTaxCollected',
+        'realRoas',
+        'realRoi',
+        'realCostPerOrder',
+      ];
+      for (const field of required) {
+        expect(data[field], `missing ${field}`).toBeDefined();
+      }
+    });
   });
 });

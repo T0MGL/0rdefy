@@ -393,6 +393,26 @@ export function vatCollected(
 }
 
 // =====================================================================
+// 3.15b Costo por Pedido (real)
+// =====================================================================
+// realCosts / deliveredCount. Both sides reference the delivered set so the
+// figure is internally consistent. Caller passes the already-computed
+// realCosts (productos delivered + envio delivered + confirmacion delivered
+// + gasto_publicitario full) to avoid recalculation drift.
+export function realCostPerOrder(
+    orders: CanonicalOrder[],
+    realCosts: number,
+    currency?: string,
+): number {
+    const filtered = currency
+        ? orders.filter((o) => o.currency === currency)
+        : orders;
+    const delivered = filtered.filter((o) => isTerminalSuccess(o.sleeves_status));
+    if (delivered.length === 0) return 0;
+    return realCosts / delivered.length;
+}
+
+// =====================================================================
 // 3.16 Cantidad de Pedidos (status buckets)
 // =====================================================================
 // Returns a dict that sums to the total order count. Invariant the caller
