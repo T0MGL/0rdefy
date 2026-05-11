@@ -490,6 +490,163 @@ export function pendingCash(
         .reduce((s, o) => s + num(o.total_price), 0);
 }
 
+// =====================================================================
+// 3.17 Marketing expense proration over a query window
+// =====================================================================
+// Marketing/ad spend rows in `additional_values` can optionally carry a
+// (period_start, period_end) span. When set, the row is treated as a flat
+// daily allocation and only the days that overlap the dashboard query
+// window are counted. Rows without a period behave as before: 100% of the
+// amount is attributed to `date` and counts iff `date` falls inside the
+// window.
+//
+// This helper is pure and unit-testable so every endpoint that aggregates
+// marketing spend consumes the same formula. Drift here was the original
+// source of the "load 5M for the month, see 5M on day 1" bug.
+//
+// Inputs:
+//   - row: { amount, date, period_start, period_end } — string dates in
+//     YYYY-MM-DD, matching the storage format of additional_values.
+//   - windowStart, windowEnd: inclusive bounds, YYYY-MM-DD.
+//
+// Returns: amount portion attributable to [windowStart, windowEnd].
+export interface ProratableExpense {
+    amount: number | string | null | undefined;
+    date: string | null | undefined;
+    period_start?: string | null;
+    period_end?: string | null;
+}
+
+// Days between two YYYY-MM-DD calendar dates, inclusive. Operates on the
+// string representation directly (UTC arithmetic on midnight epochs) to
+// stay timezone-neutral. The caller is responsible for passing window
+// bounds already formatted in the store's local timezone.
+function daysInclusive(startYmd: string, endYmd: string): number {
+    const s = Date.UTC(
+        Number(startYmd.slice(0, 4)),
+        Number(startYmd.slice(5, 7)) - 1,
+        Number(startYmd.slice(8, 10)),
+    );
+    const e = Date.UTC(
+        Number(endYmd.slice(0, 4)),
+        Number(endYmd.slice(5, 7)) - 1,
+        Number(endYmd.slice(8, 10)),
+    );
+    if (!Number.isFinite(s) || !Number.isFinite(e) || e < s) return 0;
+    return Math.round((e - s) / 86_400_000) + 1;
+}
+
+export function proratedAmountInWindow(
+    row: ProratableExpense,
+    windowStart: string,
+    windowEnd: string,
+): number {
+    const amount = num(row.amount);
+    if (amount <= 0) return 0;
+
+    const ps = row.period_start ? String(row.period_start).slice(0, 10) : null;
+    const pe = row.period_end ? String(row.period_end).slice(0, 10) : null;
+
+    // Legacy single-date row: count if the calendar day falls in the window.
+    if (!ps || !pe) {
+        const d = row.date ? String(row.date).slice(0, 10) : null;
+        if (!d) return 0;
+        if (d < windowStart || d > windowEnd) return 0;
+        return amount;
+    }
+
+    // Period row: prorate over the overlap. Daily rate is amount /
+    // (period_end - period_start + 1). The contribution to the window is
+    // dailyRate * overlapDays. Overlap is the intersection of
+    // [ps, pe] with [windowStart, windowEnd].
+    const periodDays = daysInclusive(ps, pe);
+    if (periodDays <= 0) return 0;
+
+    const overlapStart = ps > windowStart ? ps : windowStart;
+    const overlapEnd = pe < windowEnd ? pe : windowEnd;
+    if (overlapEnd < overlapStart) return 0;
+
+    const overlapDays = daysInclusive(overlapStart, overlapEnd);
+    if (overlapDays <= 0) return 0;
+
+    return (amount / periodDays) * overlapDays;
+}
+
+// Convenience: total marketing spend attributable to [windowStart, windowEnd]
+// across a list of rows. Routes use this directly instead of inlining the
+// reduce so the call site stays single-line and the formula is exercised by
+// the unit tests below.
+export function sumMarketingInWindow(
+    rows: ProratableExpense[],
+    windowStart: string,
+    windowEnd: string,
+): number {
+    return rows.reduce(
+        (sum, r) => sum + proratedAmountInWindow(r, windowStart, windowEnd),
+        0,
+    );
+}
+
+// Daily allocation: returns a map { 'YYYY-MM-DD': amount } summing the
+// per-day contribution of every row that touches the window. Single-date
+// rows contribute their full amount to their `date`. Period rows
+// contribute (amount / periodDays) to each day in [period_start, period_end]
+// intersected with [windowStart, windowEnd].
+//
+// Used by the chart endpoints so the daily bar reflects the prorated
+// amount, not a single spike on the load date.
+export function dailyMarketingAllocation(
+    rows: ProratableExpense[],
+    windowStart: string,
+    windowEnd: string,
+): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const r of rows) {
+        const amount = num(r.amount);
+        if (amount <= 0) continue;
+
+        const ps = r.period_start ? String(r.period_start).slice(0, 10) : null;
+        const pe = r.period_end ? String(r.period_end).slice(0, 10) : null;
+
+        if (!ps || !pe) {
+            const d = r.date ? String(r.date).slice(0, 10) : null;
+            if (!d) continue;
+            if (d < windowStart || d > windowEnd) continue;
+            out[d] = (out[d] ?? 0) + amount;
+            continue;
+        }
+
+        const periodDays = daysInclusive(ps, pe);
+        if (periodDays <= 0) continue;
+
+        const overlapStart = ps > windowStart ? ps : windowStart;
+        const overlapEnd = pe < windowEnd ? pe : windowEnd;
+        if (overlapEnd < overlapStart) continue;
+
+        const daily = amount / periodDays;
+        // Walk day by day. Cheap: max ~365 iterations per row, and
+        // periods are typically <= 31 days. Loop in UTC midnight epochs.
+        const startMs = Date.UTC(
+            Number(overlapStart.slice(0, 4)),
+            Number(overlapStart.slice(5, 7)) - 1,
+            Number(overlapStart.slice(8, 10)),
+        );
+        const endMs = Date.UTC(
+            Number(overlapEnd.slice(0, 4)),
+            Number(overlapEnd.slice(5, 7)) - 1,
+            Number(overlapEnd.slice(8, 10)),
+        );
+        for (let t = startMs; t <= endMs; t += 86_400_000) {
+            const y = new Date(t).getUTCFullYear();
+            const m = String(new Date(t).getUTCMonth() + 1).padStart(2, '0');
+            const d = String(new Date(t).getUTCDate()).padStart(2, '0');
+            const key = `${y}-${m}-${d}`;
+            out[key] = (out[key] ?? 0) + daily;
+        }
+    }
+    return out;
+}
+
 // Helper for tests / debug. Snapshot the canonical formulas applied to a
 // specific dataset. Wraps the most common card surface.
 export function snapshot(

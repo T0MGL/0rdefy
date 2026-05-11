@@ -18,6 +18,7 @@ import {
     cancellationRate,
     confirmationRate,
     customerLtv,
+    dailyMarketingAllocation,
     deliveryRate,
     deliveryRateDecimal,
     filterActive,
@@ -29,6 +30,7 @@ import {
     netProfitReal,
     orderCountsByBucket,
     pendingCash,
+    proratedAmountInWindow,
     realCostPerOrder,
     revenueProyectado,
     revenueReal,
@@ -36,8 +38,10 @@ import {
     roas,
     roi,
     snapshot,
+    sumMarketingInWindow,
     vatCollected,
     type OrderWithCosts,
+    type ProratableExpense,
 } from '../metrics-canonical';
 
 const o = (overrides: Partial<OrderWithCosts>): OrderWithCosts => ({
@@ -447,5 +451,259 @@ describe('snapshot regression fixture', () => {
         const sum = snap.buckets.delivered + snap.buckets.inTransit + snap.buckets.pending +
                     snap.buckets.cancelled + snap.buckets.returned + snap.buckets.other;
         assert.equal(sum, snap.buckets.total);
+    });
+});
+
+// ---------------------------------------------------------------------
+// Marketing expense proration
+// ---------------------------------------------------------------------
+// Fixtures mix legacy single-date rows with new period rows. The math is
+// arithmetic so floating-point comparisons use assert.equal with rounded
+// values where appropriate, or assert.ok with epsilon when the formula
+// produces fractions of a guarani.
+
+const expense = (overrides: Partial<ProratableExpense>): ProratableExpense => ({
+    amount: overrides.amount ?? 0,
+    date: overrides.date ?? null,
+    period_start: overrides.period_start ?? null,
+    period_end: overrides.period_end ?? null,
+});
+
+describe('proratedAmountInWindow (single-date legacy rows)', () => {
+    it('attributes the full amount when date falls inside the window', () => {
+        const row = expense({ amount: 5_000_000, date: '2026-05-09' });
+        assert.equal(
+            proratedAmountInWindow(row, '2026-05-01', '2026-05-31'),
+            5_000_000,
+        );
+    });
+
+    it('contributes zero when date is outside the window', () => {
+        const row = expense({ amount: 5_000_000, date: '2026-04-30' });
+        assert.equal(
+            proratedAmountInWindow(row, '2026-05-01', '2026-05-31'),
+            0,
+        );
+    });
+
+    it('counts the boundary days (window is inclusive on both ends)', () => {
+        const row = expense({ amount: 100, date: '2026-05-01' });
+        assert.equal(proratedAmountInWindow(row, '2026-05-01', '2026-05-01'), 100);
+        const row2 = expense({ amount: 100, date: '2026-05-31' });
+        assert.equal(proratedAmountInWindow(row2, '2026-05-01', '2026-05-31'), 100);
+    });
+
+    it('returns zero on zero-or-negative amount', () => {
+        assert.equal(
+            proratedAmountInWindow(expense({ amount: 0, date: '2026-05-09' }), '2026-05-01', '2026-05-31'),
+            0,
+        );
+        assert.equal(
+            proratedAmountInWindow(expense({ amount: -10, date: '2026-05-09' }), '2026-05-01', '2026-05-31'),
+            0,
+        );
+    });
+
+    it('handles ISO timestamps as input dates by truncating to YYYY-MM-DD', () => {
+        const row = expense({ amount: 1000, date: '2026-05-09T18:30:00Z' });
+        assert.equal(
+            proratedAmountInWindow(row, '2026-05-01', '2026-05-31'),
+            1000,
+        );
+    });
+});
+
+describe('proratedAmountInWindow (period rows)', () => {
+    it('full period inside window: full amount counts', () => {
+        const row = expense({
+            amount: 3_000_000,
+            date: '2026-05-01',
+            period_start: '2026-05-01',
+            period_end: '2026-05-30', // 30 days
+        });
+        const got = proratedAmountInWindow(row, '2026-05-01', '2026-05-31');
+        assert.equal(Math.round(got), 3_000_000);
+    });
+
+    it('Gaston scenario: 5M Gs over May, query a single day -> daily rate', () => {
+        const row = expense({
+            amount: 5_000_000,
+            date: '2026-05-09',
+            period_start: '2026-05-01',
+            period_end: '2026-05-31', // 31 days
+        });
+        // Single-day window inside the period -> amount / 31 contribution
+        const got = proratedAmountInWindow(row, '2026-05-09', '2026-05-09');
+        const expected = 5_000_000 / 31;
+        assert.ok(Math.abs(got - expected) < 0.01, `expected ~${expected}, got ${got}`);
+    });
+
+    it('partial overlap on the left edge: prorate by overlap days', () => {
+        // Expense covers May (31 days), query is Apr 25 - May 10 (16 days).
+        // Overlap is May 1 - May 10 = 10 days. Contribution = amount*10/31.
+        const row = expense({
+            amount: 3_100, // round number: amount/31 = 100/day
+            date: '2026-05-01',
+            period_start: '2026-05-01',
+            period_end: '2026-05-31',
+        });
+        const got = proratedAmountInWindow(row, '2026-04-25', '2026-05-10');
+        assert.equal(Math.round(got), 1000); // 100 * 10 days
+    });
+
+    it('partial overlap on the right edge', () => {
+        // Period May 1-31 (31 days), query May 20 - Jun 15. Overlap = May 20-31 = 12 days.
+        const row = expense({
+            amount: 3_100,
+            date: '2026-05-01',
+            period_start: '2026-05-01',
+            period_end: '2026-05-31',
+        });
+        const got = proratedAmountInWindow(row, '2026-05-20', '2026-06-15');
+        assert.equal(Math.round(got), 1200); // 100 * 12 days
+    });
+
+    it('window fully inside period: window length is the overlap', () => {
+        // Period covers all of 2026 (365 days), query is just one week.
+        const row = expense({
+            amount: 36_500, // 100/day
+            date: '2026-01-01',
+            period_start: '2026-01-01',
+            period_end: '2026-12-31',
+        });
+        const got = proratedAmountInWindow(row, '2026-05-05', '2026-05-11');
+        assert.equal(Math.round(got), 700); // 100 * 7 days
+    });
+
+    it('no overlap: returns zero', () => {
+        const row = expense({
+            amount: 3_000_000,
+            date: '2026-05-01',
+            period_start: '2026-05-01',
+            period_end: '2026-05-31',
+        });
+        assert.equal(
+            proratedAmountInWindow(row, '2026-06-01', '2026-06-30'),
+            0,
+        );
+        assert.equal(
+            proratedAmountInWindow(row, '2026-04-01', '2026-04-30'),
+            0,
+        );
+    });
+
+    it('one-day period: behaves like a single-date row', () => {
+        const row = expense({
+            amount: 999,
+            date: '2026-05-09',
+            period_start: '2026-05-09',
+            period_end: '2026-05-09',
+        });
+        assert.equal(proratedAmountInWindow(row, '2026-05-09', '2026-05-09'), 999);
+        assert.equal(proratedAmountInWindow(row, '2026-05-01', '2026-05-31'), 999);
+        assert.equal(proratedAmountInWindow(row, '2026-05-10', '2026-05-31'), 0);
+    });
+});
+
+describe('sumMarketingInWindow', () => {
+    it('sums mixed legacy and period rows correctly', () => {
+        const rows: ProratableExpense[] = [
+            // Legacy single-date row inside window
+            expense({ amount: 1000, date: '2026-05-15' }),
+            // Period row, full month, half overlap
+            expense({
+                amount: 3_100, // 100/day on 31 days
+                date: '2026-05-01',
+                period_start: '2026-05-01',
+                period_end: '2026-05-31',
+            }),
+            // Legacy row outside window
+            expense({ amount: 5000, date: '2026-04-01' }),
+            // Period row entirely outside
+            expense({
+                amount: 999,
+                date: '2026-06-01',
+                period_start: '2026-06-01',
+                period_end: '2026-06-30',
+            }),
+        ];
+        // Window: May 10 - May 24 (15 days)
+        const got = sumMarketingInWindow(rows, '2026-05-10', '2026-05-24');
+        // legacy 15-may = 1000, period: 100 * 15 days overlap = 1500
+        assert.equal(Math.round(got), 2500);
+    });
+
+    it('empty input returns 0', () => {
+        assert.equal(sumMarketingInWindow([], '2026-05-01', '2026-05-31'), 0);
+    });
+});
+
+describe('dailyMarketingAllocation', () => {
+    it('spreads a period row uniformly across overlap days', () => {
+        const rows: ProratableExpense[] = [
+            expense({
+                amount: 700, // 100/day
+                date: '2026-05-01',
+                period_start: '2026-05-01',
+                period_end: '2026-05-07',
+            }),
+        ];
+        const got = dailyMarketingAllocation(rows, '2026-05-03', '2026-05-05');
+        assert.deepEqual(Object.keys(got).sort(), ['2026-05-03', '2026-05-04', '2026-05-05']);
+        assert.equal(Math.round(got['2026-05-03']), 100);
+        assert.equal(Math.round(got['2026-05-04']), 100);
+        assert.equal(Math.round(got['2026-05-05']), 100);
+    });
+
+    it('legacy single-date row contributes full amount to its date only', () => {
+        const rows: ProratableExpense[] = [
+            expense({ amount: 5_000_000, date: '2026-05-09' }),
+        ];
+        const got = dailyMarketingAllocation(rows, '2026-05-01', '2026-05-31');
+        assert.deepEqual(Object.keys(got), ['2026-05-09']);
+        assert.equal(got['2026-05-09'], 5_000_000);
+    });
+
+    it('sum of per-day allocation equals sumMarketingInWindow', () => {
+        const rows: ProratableExpense[] = [
+            expense({ amount: 1234, date: '2026-05-09' }),
+            expense({
+                amount: 3_100,
+                date: '2026-05-01',
+                period_start: '2026-05-01',
+                period_end: '2026-05-31',
+            }),
+            expense({
+                amount: 600,
+                date: '2026-04-25',
+                period_start: '2026-04-25',
+                period_end: '2026-05-06', // 12 days, 50/day
+            }),
+        ];
+        const windowStart = '2026-05-01';
+        const windowEnd = '2026-05-15';
+
+        const total = sumMarketingInWindow(rows, windowStart, windowEnd);
+        const daily = dailyMarketingAllocation(rows, windowStart, windowEnd);
+        const dailySum = Object.values(daily).reduce((s, v) => s + v, 0);
+
+        assert.ok(
+            Math.abs(total - dailySum) < 0.01,
+            `total ${total} != dailySum ${dailySum}`,
+        );
+    });
+
+    it('returns empty object when no rows touch the window', () => {
+        const rows: ProratableExpense[] = [
+            expense({ amount: 1000, date: '2026-04-01' }),
+            expense({
+                amount: 1000,
+                date: '2026-06-01',
+                period_start: '2026-06-01',
+                period_end: '2026-06-30',
+            }),
+        ];
+        const got = dailyMarketingAllocation(rows, '2026-05-01', '2026-05-31');
+        assert.deepEqual(got, {});
     });
 });
