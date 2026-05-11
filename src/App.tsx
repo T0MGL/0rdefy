@@ -30,11 +30,7 @@ const DemoTour = lazy(() => import("@/components/demo-tour").then(m => ({ defaul
 // TypeScript declaration for Shopify App Bridge
 declare global {
   interface Window {
-    shopify?: {
-      id?: {
-        getToken: () => Promise<string>;
-      };
-    };
+    shopify?: any;
   }
 }
 

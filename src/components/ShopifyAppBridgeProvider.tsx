@@ -2,9 +2,6 @@
 // SHOPIFY APP BRIDGE PROVIDER (Official NPM Implementation)
 // ================================================================
 import React, { useEffect, useState, useRef } from 'react';
-import createApp from '@shopify/app-bridge';
-import { getSessionToken } from '@shopify/app-bridge/utilities';
-import type { ClientApplication } from '@shopify/app-bridge';
 import { logger } from '@/utils/logger';
 
 // API key must come from environment variables (Vite exposes only VITE_* vars)
@@ -20,7 +17,7 @@ declare global {
 
 export function ShopifyAppBridgeProvider({ children }: { children: React.ReactNode }) {
   const [isReady, setIsReady] = useState(false);
-  const appRef = useRef<ClientApplication<any> | null>(null);
+  const appRef = useRef<any | null>(null);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -87,6 +84,8 @@ export function ShopifyAppBridgeProvider({ children }: { children: React.ReactNo
           host: savedHost
         });
 
+        const { default: createApp } = await import('@shopify/app-bridge');
+
         // Create the app instance
         const app = createApp(config);
         appRef.current = app;
@@ -106,9 +105,10 @@ export function ShopifyAppBridgeProvider({ children }: { children: React.ReactNo
       }
     };
 
-    const generateToken = async (app: ClientApplication<any>) => {
+    const generateToken = async (app: any) => {
       try {
         logger.log('🔑 [SHOPIFY] Generating session token...');
+        const { getSessionToken } = await import('@shopify/app-bridge/utilities');
         const token = await getSessionToken(app);
 
         if (token) {

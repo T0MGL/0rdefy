@@ -5,24 +5,7 @@ import { logger } from '@/utils/logger';
 declare global {
   interface Window {
     __SHOPIFY_EMBEDDED__?: boolean;
-    shopify?: {
-      environment?: {
-        embedded?: boolean;
-        mobile?: boolean;
-        pos?: boolean;
-      };
-      // App Bridge 3.0 exposes createApp under window.shopify
-      createApp?: (config: {
-        apiKey: string;
-        host: string;
-        shop?: string;
-        forceRedirect?: boolean;
-      }) => {
-        idToken: () => Promise<string>;
-        dispatch: (action: any) => void;
-        subscribe: (callback: (data: any) => void) => () => void;
-      };
-    };
+    shopify?: any;
   }
 }
 
