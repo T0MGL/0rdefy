@@ -449,11 +449,18 @@ export interface Ad {
 
 export interface AdditionalValue {
   id: string;
-  category: 'gasto_publicitario' | 'sales' | 'employees' | 'operational';
+  // Backend persists 'marketing' as the category for ad spend. The labels
+  // shown to users ("Gasto Publicitario") are mapped in the UI layer.
+  category: 'marketing' | 'sales' | 'employees' | 'operational';
   description: string;
   amount: number;
   date: string;
   type: 'expense' | 'income';
+  // Optional coverage period. When set, the dashboard prorates the amount
+  // over [period_start, period_end] instead of attributing 100% to `date`.
+  // Both must be set together or both omitted (DB constraint, migration 184).
+  period_start?: string | null;
+  period_end?: string | null;
 }
 
 export interface Integration {

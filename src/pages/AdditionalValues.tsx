@@ -46,18 +46,63 @@ function AdditionalValueForm({ value, onSubmit, onCancel }: { value?: Additional
     amount: value?.amount || 0,
     type: value?.type || 'expense',
     date: value?.date || formatLocalDate(new Date(), storeTimezone),
+    period_start: value?.period_start ?? '',
+    period_end: value?.period_end ?? '',
   });
+  // Reveal the period inputs only when the user opts in or when editing a
+  // row that already carries a period. Keeps the default "single date" flow
+  // friction-free, which is what most categories (sales, employees) need.
+  const [usePeriod, setUsePeriod] = useState<boolean>(
+    !!(value?.period_start && value?.period_end),
+  );
+
+  // Helpful default: a 30-day window starting on `date`. Shown the moment
+  // the user enables "cubre un periodo" if no value pre-existed.
+  const ensureDefaultPeriod = () => {
+    if (formData.period_start && formData.period_end) return;
+    const base = new Date(formData.date);
+    const end = new Date(base);
+    end.setDate(end.getDate() + 29);
+    setFormData((prev) => ({
+      ...prev,
+      period_start: prev.period_start || formData.date,
+      period_end: prev.period_end || formatLocalDate(end, storeTimezone),
+    }));
+  };
+
+  const periodInvalid =
+    usePeriod &&
+    (!formData.period_start ||
+      !formData.period_end ||
+      formData.period_end < formData.period_start);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(formData);
+    if (periodInvalid) return;
+    const payload: Record<string, unknown> = {
+      category: formData.category,
+      description: formData.description,
+      amount: formData.amount,
+      type: formData.type,
+      date: formData.date,
+    };
+    // Send explicit nulls when the user has turned off the period on an
+    // existing row, so the backend clears the columns.
+    if (usePeriod) {
+      payload.period_start = formData.period_start;
+      payload.period_end = formData.period_end;
+    } else if (value?.period_start || value?.period_end) {
+      payload.period_start = null;
+      payload.period_end = null;
+    }
+    onSubmit(payload);
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
         <label className="text-sm font-medium">Categoría *</label>
-        <Select value={formData.category} onValueChange={(val) => setFormData({ ...formData, category: val })}>
+        <Select value={formData.category} onValueChange={(val) => setFormData({ ...formData, category: val as AdditionalValue['category'] })}>
           <SelectTrigger>
             <SelectValue placeholder="Selecciona categoría" />
           </SelectTrigger>
@@ -116,11 +161,67 @@ function AdditionalValueForm({ value, onSubmit, onCancel }: { value?: Additional
         />
       </div>
 
+      <div className="space-y-2 rounded-md border border-border bg-muted/30 p-3">
+        <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+          <input
+            type="checkbox"
+            checked={usePeriod}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setUsePeriod(next);
+              if (next) ensureDefaultPeriod();
+            }}
+            className="h-4 w-4"
+          />
+          Este gasto cubre un período
+        </label>
+        <p className="text-xs text-muted-foreground">
+          Si lo dejas desactivado, el monto se atribuye 100% al día seleccionado. Si lo activas, el dashboard distribuye el monto proporcionalmente a lo largo del período.
+        </p>
+        {usePeriod && (
+          <div className="grid grid-cols-2 gap-3 pt-2">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Desde</label>
+              <DateInput
+                value={formData.period_start}
+                onChange={(val) => setFormData({ ...formData, period_start: val })}
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Hasta</label>
+              <DateInput
+                value={formData.period_end}
+                onChange={(val) => setFormData({ ...formData, period_end: val })}
+                required
+              />
+            </div>
+            {periodInvalid && (
+              <p className="col-span-2 text-xs text-red-600">
+                "Hasta" debe ser igual o posterior a "Desde".
+              </p>
+            )}
+            {!periodInvalid && formData.period_start && formData.period_end && formData.amount > 0 && (() => {
+              const start = new Date(formData.period_start);
+              const end = new Date(formData.period_end);
+              const days = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+              if (days <= 0) return null;
+              const daily = formData.amount / days;
+              return (
+                <p className="col-span-2 text-xs text-muted-foreground">
+                  {days} día{days === 1 ? '' : 's'} · {formatCurrency(daily)}/día prorrateado
+                </p>
+              );
+            })()}
+          </div>
+        )}
+      </div>
+
       <div className="flex gap-2 pt-4">
         <Button type="button" variant="outline" onClick={onCancel} className="flex-1">
           Cancelar
         </Button>
-        <Button type="submit" className="flex-1 bg-primary hover:bg-primary/90">
+        <Button type="submit" disabled={periodInvalid} className="flex-1 bg-primary hover:bg-primary/90">
           {value ? 'Actualizar' : 'Registrar'}
         </Button>
       </div>
@@ -482,7 +583,7 @@ export default function AdditionalValues() {
                     <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Descripción</th>
                     <th className="text-center py-4 px-6 text-sm font-medium text-muted-foreground">Tipo</th>
                     <th className="text-right py-4 px-6 text-sm font-medium text-muted-foreground">Monto</th>
-                    <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Fecha</th>
+                    <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Fecha / Período</th>
                     <th className="text-center py-4 px-6 text-sm font-medium text-muted-foreground">Acciones</th>
                   </tr>
                 </thead>
@@ -508,8 +609,29 @@ export default function AdditionalValues() {
                             {value.type === 'expense' ? 'Gasto' : 'Ingreso'}
                           </Badge>
                         </td>
-                        <td className="py-4 px-6 text-right text-sm font-semibold">{formatCurrency(value.amount)}</td>
-                        <td className="py-4 px-6 text-sm">{value.date}</td>
+                        <td className="py-4 px-6 text-right text-sm font-semibold">
+                          {formatCurrency(value.amount)}
+                          {value.period_start && value.period_end && (() => {
+                            const days = Math.round(
+                              (new Date(value.period_end).getTime() - new Date(value.period_start).getTime()) / 86_400_000,
+                            ) + 1;
+                            if (days <= 0) return null;
+                            return (
+                              <div className="text-xs font-normal text-muted-foreground">
+                                {formatCurrency(value.amount / days)}/día · {days}d
+                              </div>
+                            );
+                          })()}
+                        </td>
+                        <td className="py-4 px-6 text-sm">
+                          {value.period_start && value.period_end ? (
+                            <span title={`Período: ${value.period_start} → ${value.period_end}`}>
+                              {value.period_start} → {value.period_end}
+                            </span>
+                          ) : (
+                            value.date
+                          )}
+                        </td>
                         <td className="py-4 px-6">
                           <div className="flex items-center justify-center gap-2">
                             <Button variant="ghost" size="icon" onClick={() => handleEdit(value)}><Edit size={16} /></Button>
