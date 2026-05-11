@@ -850,11 +850,17 @@ settlementsRouter.post(
         if (discrepancy_notes.length > 2000) {
           return res.status(400).json({ error: 'Notas demasiado largas (max 2000 caracteres)' });
         }
-        // Basic sanitization: strip ASCII control characters (0x00-0x1F + 0x7F). Downstream
-        // queries are parameterized so SQLi is not a vector; this only keeps the notes
-        // display-safe (no weird control bytes leaking into PDFs or the UI).
-        const STRIP_CTRL = new RegExp('[\\u0000-\\u001F\\u007F]', 'g');
-        notes = discrepancy_notes.replace(STRIP_CTRL, '').trim();
+        // Basic sanitization: strip ASCII control characters. Downstream
+        // queries are parameterized so SQLi is not a vector; this only keeps
+        // the notes display-safe (no weird control bytes leaking into PDFs or
+        // the UI).
+        notes = Array.from(discrepancy_notes)
+          .filter((char) => {
+            const code = char.charCodeAt(0);
+            return code > 31 && code !== 127;
+          })
+          .join('')
+          .trim();
         if (notes.length === 0) notes = undefined;
       }
 
@@ -1726,4 +1732,3 @@ settlementsRouter.get('/movement-health', requirePermission(Module.CARRIERS, Per
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
-
