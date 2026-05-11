@@ -22,6 +22,16 @@ import { useAuth } from '@/contexts/AuthContext';
 import { formatLocalDate } from '@/utils/timeUtils';
 import { logger } from '@/utils/logger';
 
+// Parse a YYYY-MM-DD string as a UTC midnight Date. `new Date('YYYY-MM-DD')`
+// is parsed as UTC by spec, but downstream `.getTime()` math is fine either
+// way only because we always pair start and end through the same parser.
+// Keeping it explicit avoids the off-by-one that hits when the browser TZ
+// is east of UTC and the runtime decides to interpret the string locally.
+function parseDateUtc(value: string): Date {
+  const [y, m, d] = value.split('-').map(Number);
+  return new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+}
+
 const categoryIcons: Record<string, JSX.Element> = {
   marketing: <DollarSign className="text-accent" size={24} />,
   sales: <TrendingUp className="text-primary" size={24} />,
@@ -220,8 +230,8 @@ function AdditionalValueForm({ value, onSubmit, onCancel }: { value?: Additional
               </p>
             )}
             {!periodInvalid && formData.period_start && formData.period_end && formData.amount > 0 && (() => {
-              const start = new Date(formData.period_start);
-              const end = new Date(formData.period_end);
+              const start = parseDateUtc(formData.period_start);
+              const end = parseDateUtc(formData.period_end);
               const days = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
               if (days <= 0) return null;
               const daily = formData.amount / days;
@@ -632,7 +642,7 @@ export default function AdditionalValues() {
                           {formatCurrency(value.amount)}
                           {value.period_start && value.period_end && (() => {
                             const days = Math.round(
-                              (new Date(value.period_end).getTime() - new Date(value.period_start).getTime()) / 86_400_000,
+                              (parseDateUtc(value.period_end).getTime() - parseDateUtc(value.period_start).getTime()) / 86_400_000,
                             ) + 1;
                             if (days <= 0) return null;
                             return (
