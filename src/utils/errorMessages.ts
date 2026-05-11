@@ -7,6 +7,7 @@ export interface ErrorContext {
   module?: string;
   action?: string;
   entity?: string;
+  variant?: 'default' | 'destructive';
   details?: Record<string, any>;
 }
 

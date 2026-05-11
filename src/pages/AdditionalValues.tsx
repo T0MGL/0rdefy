@@ -95,7 +95,7 @@ function AdditionalValueForm({ value, onSubmit, onCancel }: { value?: Additional
         </div>
         <div className="space-y-2">
           <label className="text-sm font-medium">Tipo *</label>
-          <Select value={formData.type} onValueChange={(val) => setFormData({ ...formData, type: val })}>
+          <Select value={formData.type} onValueChange={(val: AdditionalValue['type']) => setFormData({ ...formData, type: val })}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -193,7 +193,7 @@ function RecurringValueForm({ value, onSubmit, onCancel }: { value?: RecurringAd
         </div>
         <div className="space-y-2">
           <label className="text-sm font-medium">Tipo *</label>
-          <Select value={formData.type} onValueChange={(val) => setFormData({ ...formData, type: val })}>
+          <Select value={formData.type} onValueChange={(val: AdditionalValue['type']) => setFormData({ ...formData, type: val })}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>

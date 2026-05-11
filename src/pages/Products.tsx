@@ -325,7 +325,6 @@ export default function Products() {
         module: 'products',
         action: 'delete',
         entity: 'producto',
-        variant: 'destructive',
       });
     }
   };
@@ -337,7 +336,8 @@ export default function Products() {
 
         await productsService.update(selectedProduct.id, {
           ...data,
-          profitability: data.price > 0 ? ((data.price - totalCost) / data.price * 100).toFixed(1) : '0.0',
+          cost: data.cost ?? 0,
+          profitability: data.price > 0 ? Number(((data.price - totalCost) / data.price * 100).toFixed(1)) : 0,
           sales: selectedProduct.sales,
         });
 
@@ -360,7 +360,8 @@ export default function Products() {
 
         await productsService.create({
           ...data,
-          profitability: data.price > 0 ? ((data.price - totalCost) / data.price * 100).toFixed(1) : '0.0',
+          cost: data.cost ?? 0,
+          profitability: data.price > 0 ? Number(((data.price - totalCost) / data.price * 100).toFixed(1)) : 0,
           sales: 0,
         });
 
@@ -380,7 +381,6 @@ export default function Products() {
         module: 'products',
         action: selectedProduct ? 'update' : 'create',
         entity: 'producto',
-        variant: 'destructive',
       });
     }
   };

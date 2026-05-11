@@ -8,7 +8,10 @@ export interface Carrier {
   license_plate?: string;
   is_active: boolean;
   notes?: string;
+  carrier_type?: 'internal' | 'external' | string;
+  status?: 'active' | 'inactive' | string;
   total_deliveries?: number;
+  totalShipments?: number;
   successful_deliveries?: number;
   failed_deliveries?: number;
   delivery_rate?: number;

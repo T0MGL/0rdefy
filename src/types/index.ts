@@ -12,6 +12,7 @@ export interface DashboardOverview {
   productCosts?: number; // Costo de productos solamente
   costs: number; // Costos totales (productos + envío + gasto publicitario)
   deliveryCosts?: number; // Costos de envío
+  confirmationCosts?: number; // Costos de confirmación/operación
   gasto_publicitario: number;
   // Gross profit and margin (Revenue - Product Costs only)
   grossProfit: number; // Beneficio bruto (Ingresos - Costos de productos)
@@ -122,7 +123,11 @@ export interface Order {
   // Source of truth lives inside order_line_items[].image_url; this is a derived shortcut.
   image_url?: string;
   date: string;
+  created_at?: string;
   phone: string;
+  customer_name?: string;
+  customer_phone?: string;
+  shipping_address?: string;
   phone_backup?: string;
   confirmedByWhatsApp?: boolean;
   confirmationTimestamp?: string;
@@ -140,6 +145,7 @@ export interface Order {
   delivery_failure_reason?: string;
   courier_notes?: string; // Notas del transportista durante confirmación/falla
   delivered_at?: string;
+  delivery_date?: string;
   reconciled_at?: string;
   // Set by promote_orders_to_settled() when the linked settlement is paid.
   // Distinct from reconciled_at: reconciled_at means "courier reported
@@ -190,6 +196,7 @@ export interface Order {
   // Order line items (for Shopify orders)
   order_line_items?: Array<{
     id: string;
+    title?: string;
     product_id?: string;
     variant_id?: string; // Local variant ID (Migration 097)
     product_name: string;
@@ -257,6 +264,8 @@ export interface CreateOrderInput {
   internal_notes?: string;
   delivery_preferences?: Record<string, unknown>;
   bundle_selections?: BundleSelection[] | null;
+  customer_ruc?: string;
+  customer_ruc_dv?: number;
 }
 
 export interface UpdateOrderInput extends Partial<CreateOrderInput> {
@@ -425,6 +434,8 @@ export interface ProductVariantLegacy {
 
 export interface Ad {
   id: string;
+  name?: string;
+  campaign?: string;
   platform: string;
   campaign_name: string;
   investment: number;
@@ -549,7 +560,7 @@ export interface Alert {
 
 export interface Recommendation {
   id: string;
-  type: 'pricing' | 'inventory' | 'gasto_publicitario' | 'carrier';
+  type: 'pricing' | 'inventory' | 'gasto_publicitario' | 'marketing' | 'carrier';
   title: string;
   description: string;
   impact: string;

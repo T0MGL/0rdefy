@@ -605,8 +605,14 @@ El link expira en 7 dias.`;
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => {
-                          if (confirm(`¿Cancelar la invitación para ${invitation.name}?`)) {
+                        onClick={async () => {
+                          const ok = await confirm({
+                            title: 'Cancelar invitación',
+                            description: `¿Cancelar la invitación para ${invitation.name}?`,
+                            confirmText: 'Cancelar invitación',
+                            variant: 'destructive',
+                          });
+                          if (ok) {
                             cancelInvitation.mutate(invitation.id);
                           }
                         }}

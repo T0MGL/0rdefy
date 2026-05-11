@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CheckCircle2, AlertCircle, Smartphone, Clock, Send } from 'lucide-react';
-import api from '@/services/api';
+import api from '@/services/api.client';
 import { logger } from '@/utils/logger';
 
 interface PhoneVerificationProps {

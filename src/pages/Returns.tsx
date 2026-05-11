@@ -264,7 +264,7 @@ export default function Returns() {
     updates: {
       quantity_accepted?: number;
       quantity_rejected?: number;
-      rejection_reason?: string;
+      rejection_reason?: ReturnSessionItem['rejection_reason'];
       rejection_notes?: string;
     }
   ) => {

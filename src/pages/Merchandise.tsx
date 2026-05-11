@@ -21,7 +21,7 @@ import { merchandiseService } from '@/services/merchandise.service';
 import { productsService } from '@/services/products.service';
 import { suppliersService } from '@/services/suppliers.service';
 import { getCurrencySymbol } from '@/utils/currency';
-import type { InboundShipment, InboundShipmentItem, CreateShipmentDTO, CreateShipmentItemDTO, ReceiveShipmentItemDTO, Product } from '@/types';
+import type { InboundShipment, InboundShipmentItem, CreateShipmentDTO, CreateShipmentItemDTO, ReceiveShipmentItemDTO, Product, Supplier } from '@/types';
 import { logger } from '@/utils/logger';
 
 export default function Merchandise() {
@@ -68,15 +68,6 @@ export default function Merchandise() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, hasMerchandiseFeature]);
-
-  // Plan-based feature check - merchandise requires Starter+ plan (AFTER all hooks)
-  // Wait for subscription to load to prevent flash of upgrade modal
-  if (subscriptionLoading) {
-    return null;
-  }
-  if (!hasMerchandiseFeature) {
-    return <FeatureBlockedPage feature="merchandise" />;
-  }
 
   const loadData = async (controller?: AbortController) => {
     setLoading(true);
@@ -213,6 +204,15 @@ export default function Merchandise() {
 
     return matchesSearch;
   }), [shipments, searchTerm]);
+
+  // Plan-based feature check - merchandise requires Starter+ plan.
+  // Keep this after hook setup so React hook order stays stable.
+  if (subscriptionLoading) {
+    return null;
+  }
+  if (!hasMerchandiseFeature) {
+    return <FeatureBlockedPage feature="merchandise" />;
+  }
 
   // Status badge helper
   const getStatusBadge = (status: string) => {
@@ -390,14 +390,15 @@ export default function Merchandise() {
       )}
 
       {/* Create Modal */}
-      <CreateShipmentModal
-        open={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        onSubmit={handleCreateShipment}
-        products={products}
-        suppliers={suppliers}
-        loading={createLoading}
-        onProductCreated={loadData}
+        <CreateShipmentModal
+          open={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          onSubmit={handleCreateShipment}
+          products={products}
+          suppliers={suppliers}
+          storeTimezone={storeTimezone}
+          loading={createLoading}
+          onProductCreated={loadData}
       />
 
       {/* Receive Modal */}
@@ -426,11 +427,12 @@ interface CreateShipmentModalProps {
   onSubmit: (data: CreateShipmentDTO) => void;
   products: Product[];
   suppliers: Supplier[];
+  storeTimezone: string;
   loading: boolean;
   onProductCreated: () => void; // Callback to refresh products list
 }
 
-function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loading, onProductCreated }: CreateShipmentModalProps) {
+function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, storeTimezone, loading, onProductCreated }: CreateShipmentModalProps) {
   const { toast } = useToast();
   const [supplierId, setSupplierId] = useState('');
   const [carrierId, setCarrierId] = useState('');

@@ -569,7 +569,7 @@ export function Header() {
                     <AvatarImage src={(user as any).avatar_url} alt="Foto de perfil" />
                   ) : (
                     <AvatarFallback className="bg-primary text-primary-foreground text-sm font-semibold">
-                      {user?.user_metadata?.name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U'}
+                      {user?.name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U'}
                     </AvatarFallback>
                   )}
                 </Avatar>

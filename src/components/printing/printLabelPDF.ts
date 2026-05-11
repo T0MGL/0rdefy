@@ -24,7 +24,7 @@ interface LabelData {
   discountAmount?: number; // Discount applied to the order
   paymentMethod?: string;
   paymentGateway?: string; // From Shopify: 'cash_on_delivery', 'shopify_payments', etc.
-  financialStatus?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided';
+  financialStatus?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided' | 'partially_refunded' | 'partially_paid';
   prepaidMethod?: string; // Manual prepaid: 'transfer', 'efectivo_local', 'qr', 'otro'
   deliveryToken: string;
   items: Array<{

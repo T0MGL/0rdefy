@@ -21,7 +21,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ordersService } from '@/services/orders.service';
 import { productsService } from '@/services/products.service';
 import { carriersService } from '@/services/carriers.service';
-import type { Order, Product, Carrier } from '@/types';
+import type { Order, Product } from '@/types';
+import type { Carrier } from '@/services/carriers.service';
 import { formatCurrency } from '@/utils/currency';
 
 interface MetricDetailModalProps {
@@ -167,7 +168,7 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
           <div className="space-y-4">
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={carriers.slice(0, 5).map(c => ({
-                name: c.carrier_name.slice(0, 15),
+                name: (c.carrier_name || c.name || 'Sin nombre').slice(0, 15),
                 rate: c.delivery_rate || 0
               }))}>
                 <CartesianGrid strokeDasharray="3 3" />

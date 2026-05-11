@@ -148,6 +148,7 @@ export const ordersService = {
       if (upsellProductId && upsellProductName) {
         lineItems.push({
           product_id: upsellProductId,
+          variant_id: null,
           product_name: upsellProductName,
           variant_title: 'Upsell',
           quantity: upsellQuantity,
@@ -323,7 +324,7 @@ export const ordersService = {
         throw new Error(errorData.message || `Error HTTP: ${response.status}`);
       }
 
-      let updatedOrder = await response.json();
+      const updatedOrder = await response.json();
 
       const upsellProductId = data.upsell_product_id;
       const upsellQuantity = data.upsell_quantity;

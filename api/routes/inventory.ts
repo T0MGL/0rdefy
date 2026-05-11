@@ -168,7 +168,7 @@ inventoryRouter.get('/movements', async (req: AuthRequest, res: Response) => {
 
 inventoryRouter.get('/movements/summary', async (req: AuthRequest, res: Response) => {
     try {
-        let { date_from, date_to } = req.query as { date_from?: string; date_to?: string };
+        const { date_from, date_to } = req.query as { date_from?: string; date_to?: string };
 
         logger.info('API', `📊 [INVENTORY] Fetching summary for store ${req.storeId}`);
 

@@ -163,6 +163,8 @@ function toast({ ...props }: Toast) {
   };
 }
 
+toast.dismiss = (toastId?: string) => dispatch({ type: "DISMISS_TOAST", toastId });
+
 function useToast() {
   const [state, setState] = React.useState<State>(memoryState);
 

@@ -79,6 +79,7 @@ export interface PackingProgressItem {
   variant_id?: string | null; // NEW: variant support (Migration 108)
   product_name: string;
   product_image: string;
+  variant_title?: string | null;
   quantity_needed: number;
   quantity_packed: number;
   unit_price?: number;

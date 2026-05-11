@@ -116,6 +116,8 @@ import {
 
 type WorkflowStep = 'selection' | 'reconciliation' | 'review' | 'complete';
 
+const USE_DELIVERY_BASED_RECONCILIATION = true;
+
 // CSV Import types
 interface CSVImportRow {
   order_number: string;
@@ -1204,7 +1206,7 @@ export default function Settlements() {
             </div>
 
             {/* Delivery-based reconciliation view (primary and only path) */}
-            {true ? (
+            {USE_DELIVERY_BASED_RECONCILIATION ? (
               <PendingReconciliationView />
             ) : (
               <>

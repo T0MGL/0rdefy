@@ -422,7 +422,7 @@ export function CarrierCoverageManager({
   const stats = useMemo(() => {
     let gaConfigured = 0;
     let gaExcluded = 0;
-    let gaTotal = granAsuncionCities.length;
+    const gaTotal = granAsuncionCities.length;
 
     for (const loc of granAsuncionCities) {
       const state = cityStates.get(normalizeKey(loc.city));

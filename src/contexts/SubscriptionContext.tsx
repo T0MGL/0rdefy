@@ -25,6 +25,7 @@ export type PlanFeature =
   | 'api_write'
   | 'custom_webhooks'
   | 'pdf_excel_reports'
+  | 'revenue_intelligence'
   | 'invoicing';
 
 // Map sidebar paths to required features
@@ -65,6 +66,7 @@ const PLAN_FEATURES: Record<string, PlanFeature[]> = {
     'smart_alerts',
     'campaign_tracking',
     'pdf_excel_reports',
+    'revenue_intelligence',
     'invoicing',
   ],
   professional: [
@@ -84,6 +86,7 @@ const PLAN_FEATURES: Record<string, PlanFeature[]> = {
     'api_write',
     'custom_webhooks',
     'pdf_excel_reports',
+    'revenue_intelligence',
     'invoicing',
   ],
 };
@@ -106,6 +109,7 @@ export const FEATURE_MIN_PLAN: Record<PlanFeature, string> = {
   api_write: 'professional',
   custom_webhooks: 'professional',
   pdf_excel_reports: 'growth',
+  revenue_intelligence: 'growth',
   invoicing: 'growth',
 };
 
@@ -127,6 +131,7 @@ export const FEATURE_NAMES: Record<PlanFeature, string> = {
   api_write: 'API de Escritura',
   custom_webhooks: 'Webhooks Personalizados',
   pdf_excel_reports: 'Reportes PDF/Excel',
+  revenue_intelligence: 'Inteligencia de Ingresos',
   invoicing: 'Facturación Electrónica',
 };
 
@@ -220,6 +225,9 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         currentPeriodEnd: null,
         cancelAtPeriodEnd: false,
         trialEndsAt: null,
+        billingSource: 'stripe',
+        shopifyShopDomain: null,
+        shopifyPendingConfirmation: false,
       });
     } finally {
       if (!signal?.aborted) {

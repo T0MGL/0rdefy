@@ -245,7 +245,7 @@ export default function CarrierDetail() {
 
   const handleExport = () => {
     if (reconciliationData.orders.length === 0) {
-      toast({ title: 'Sin datos', description: 'No hay órdenes para exportar', variant: 'outline' });
+      toast({ title: 'Sin datos', description: 'No hay órdenes para exportar' });
       return;
     }
 

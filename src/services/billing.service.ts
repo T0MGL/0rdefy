@@ -2,6 +2,7 @@ import apiClient from './api.client';
 
 export interface Plan {
   plan: string;
+  name?: string;
   max_users: number;
   max_orders_per_month: number;
   max_products: number;
@@ -190,4 +191,3 @@ export const billingService = {
     return response.data;
   },
 };
-

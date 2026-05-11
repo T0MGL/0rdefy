@@ -973,9 +973,9 @@ ${link}`;
               variant="destructive"
               onClick={() => {
                 if ((subscription as Subscription | undefined)?.billingSource === 'shopify') {
-                  shopifyCancelMutation.mutate();
+                  shopifyCancelMutation.mutate(undefined);
                 } else {
-                  cancelMutation.mutate();
+                  cancelMutation.mutate(undefined);
                 }
               }}
               disabled={cancelMutation.isPending || shopifyCancelMutation.isPending}

@@ -101,6 +101,7 @@ interface OrderFormData {
   customerRucDv?: number | null;
   upsellProductId?: string;
   upsellQuantity?: number;
+  bundleSelections?: import('@/types').BundleSelection[] | null;
 }
 
 type LineItem = NonNullable<Order['order_line_items']>[number];
@@ -144,7 +145,10 @@ const getScheduledDeliveryInfo = (
   order: Order,
   storeTimezone: string,
 ): { isScheduled: boolean; date: Date | null; summary: string | null } => {
-  const prefs = order.delivery_preferences;
+  const prefs = order.delivery_preferences as {
+    not_before_date?: string | number | Date;
+    preferred_time_slot?: string;
+  } | undefined;
   if (!prefs || !prefs.not_before_date) {
     return { isScheduled: false, date: null, summary: null };
   }
@@ -1034,7 +1038,7 @@ export default function Orders() {
     let productList = '';
     if (lineItems.length > 0) {
       productList = lineItems.map(item => {
-        const baseName = item.product_name || item.title;
+        const baseName = item.product_name || item.title || 'Producto';
         const displayName = item.variant_title && item.variant_title !== 'Upsell'
           ? `${baseName} (${item.variant_title})`
           : baseName;
@@ -1090,7 +1094,7 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
     let productSummary = '';
     if (lineItems.length > 0) {
       productSummary = lineItems.map(item => {
-        const baseName = item.product_name || item.title;
+        const baseName = item.product_name || item.title || 'Producto';
         const displayName = item.variant_title && item.variant_title !== 'Upsell'
           ? `${baseName} (${item.variant_title})`
           : baseName;
