@@ -279,6 +279,18 @@ additionalValuesRouter.post('/', async (req: AuthRequest, res: Response) => {
             });
         }
 
+        // Period proration is scoped to marketing expenses only. The dashboard
+        // analytics path (sumMarketingInWindow, dailyMarketingAllocation) reads
+        // period columns only for category='marketing' AND type='expense'. Any
+        // other row would store the period silently and never have it honored,
+        // which leads to confusing reporting. Reject explicitly instead.
+        if (period_start && period_end && (type !== 'expense' || category !== 'marketing')) {
+            return res.status(400).json({
+                error: 'Validación fallida',
+                message: 'Period only allowed for marketing expense entries',
+            });
+        }
+
         const insertRow: Record<string, unknown> = {
             store_id: req.storeId,
             category,
@@ -386,6 +398,33 @@ additionalValuesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
                 updateData.period_start = null;
                 updateData.period_end = null;
             } else if (period_start !== undefined) {
+                // Period proration only applies to marketing expenses. Resolve
+                // the row's final type/category against the existing record
+                // when the request does not include them in this PATCH-style
+                // payload, then reject any non-marketing combo before persisting.
+                let finalType = type;
+                let finalCategory = category;
+                if (finalType === undefined || finalCategory === undefined) {
+                    const { data: existingRow, error: existingErr } = await supabaseAdmin
+                        .from('additional_values')
+                        .select('type, category')
+                        .eq('id', id)
+                        .eq('store_id', req.storeId)
+                        .single();
+                    if (existingErr || !existingRow) {
+                        return res.status(404).json({
+                            error: 'Valor adicional no encontrado',
+                        });
+                    }
+                    if (finalType === undefined) finalType = existingRow.type;
+                    if (finalCategory === undefined) finalCategory = existingRow.category;
+                }
+                if (finalType !== 'expense' || finalCategory !== 'marketing') {
+                    return res.status(400).json({
+                        error: 'Validación fallida',
+                        message: 'Period only allowed for marketing expense entries',
+                    });
+                }
                 updateData.period_start = String(period_start).slice(0, 10);
                 updateData.period_end = String(period_end).slice(0, 10);
             }

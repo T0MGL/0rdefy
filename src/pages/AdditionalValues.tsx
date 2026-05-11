@@ -56,6 +56,12 @@ function AdditionalValueForm({ value, onSubmit, onCancel }: { value?: Additional
     !!(value?.period_start && value?.period_end),
   );
 
+  // Period proration only makes sense for marketing expenses (the dashboard
+  // prorate path is scoped to category='marketing' AND type='expense').
+  // Allowing it on other rows would silently fail because the backend
+  // analytics queries skip non-marketing rows when computing daily spend.
+  const canUsePeriod = formData.type === 'expense' && formData.category === 'marketing';
+
   // Helpful default: a 30-day window starting on `date`. Shown the moment
   // the user enables "cubre un periodo" if no value pre-existed.
   const ensureDefaultPeriod = () => {
@@ -70,8 +76,19 @@ function AdditionalValueForm({ value, onSubmit, onCancel }: { value?: Additional
     }));
   };
 
+  // If the user flips type/category away from "marketing expense" while the
+  // period was active, drop the period silently. Avoids submitting a payload
+  // the backend would reject.
+  useEffect(() => {
+    if (!canUsePeriod && usePeriod) {
+      setUsePeriod(false);
+      setFormData((prev) => ({ ...prev, period_start: '', period_end: '' }));
+    }
+  }, [canUsePeriod, usePeriod]);
+
   const periodInvalid =
     usePeriod &&
+    canUsePeriod &&
     (!formData.period_start ||
       !formData.period_end ||
       formData.period_end < formData.period_start);
@@ -88,7 +105,7 @@ function AdditionalValueForm({ value, onSubmit, onCancel }: { value?: Additional
     };
     // Send explicit nulls when the user has turned off the period on an
     // existing row, so the backend clears the columns.
-    if (usePeriod) {
+    if (usePeriod && canUsePeriod) {
       payload.period_start = formData.period_start;
       payload.period_end = formData.period_end;
     } else if (value?.period_start || value?.period_end) {
@@ -161,6 +178,7 @@ function AdditionalValueForm({ value, onSubmit, onCancel }: { value?: Additional
         />
       </div>
 
+      {canUsePeriod && (
       <div className="space-y-2 rounded-md border border-border bg-muted/30 p-3">
         <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
           <input
@@ -216,6 +234,7 @@ function AdditionalValueForm({ value, onSubmit, onCancel }: { value?: Additional
           </div>
         )}
       </div>
+      )}
 
       <div className="flex gap-2 pt-4">
         <Button type="button" variant="outline" onClick={onCancel} className="flex-1">

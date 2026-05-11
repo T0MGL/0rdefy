@@ -20,6 +20,18 @@
 --     dashboard query path. Partial index so the cost is paid only on
 --     rows that actually use periods.
 --
+-- Scope:
+--   - The prorate path in analytics.ts / unified.ts only reads period_start
+--     and period_end for rows with category='marketing' AND type='expense'.
+--   - The API layer (POST/PUT /api/additional-values) rejects period_start /
+--     period_end on any other combination with HTTP 400. The DB allows them
+--     to be set on any row (no DB-level scope CHECK so we can broaden the
+--     feature later without a schema change) but the API is the gatekeeper.
+--   - If you ever extend proration to other categories or income rows,
+--     remember to (1) relax the API check, (2) extend the dashboard fetches
+--     to widen by period overlap (not just date), and (3) update the income
+--     aggregation in calculateMetrics so it does not double-count period rows.
+--
 -- Notes:
 --   - Idempotent: ADD COLUMN IF NOT EXISTS, ADD CONSTRAINT IF NOT EXISTS,
 --     CREATE INDEX IF NOT EXISTS. Re-running is a no-op.
