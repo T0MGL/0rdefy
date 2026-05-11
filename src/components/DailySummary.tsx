@@ -236,6 +236,13 @@ export function DailySummary() {
     }
   };
 
+  // Ventas del Período = ingreso REAL del periodo, solo pedidos entregados.
+  // El total bruto (overview.revenue, incluye pending/cancelled/rejected) se mostraba antes
+  // y confundía a los usuarios porque los cards de ROAS / margenes / costos del Desglose
+  // usan realRevenue. Ahora todos los cards del summary leen la misma base.
+  const ventasValue = overview?.realRevenue ?? overview?.revenue ?? 0;
+  const ventasChange = overview?.changes?.realRevenue ?? overview?.changes?.revenue ?? null;
+
   const metrics = [
     {
       label: getMetricLabel('Pedidos Nuevos'),
@@ -246,10 +253,10 @@ export function DailySummary() {
     },
     {
       label: getMetricLabel('Ventas del Período'),
-      value: formatCurrency(overview?.revenue ?? 0),
-      change: overview?.changes?.revenue != null ? overview.changes.revenue : null,
+      value: formatCurrency(ventasValue),
+      change: ventasChange,
       icon: DollarSign,
-      trend: overview?.changes?.revenue != null ? (overview.changes.revenue >= 0 ? 'up' as const : 'down' as const) : undefined,
+      trend: ventasChange != null ? (ventasChange >= 0 ? 'up' as const : 'down' as const) : undefined,
     },
     {
       label: 'Pendientes Confirmar',
@@ -343,11 +350,15 @@ export function DailySummary() {
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Margen de Beneficio</span>
-                    <span className="font-semibold">{overview?.profitMargin ?? 0}%</span>
+                    <span className="font-semibold">
+                      {overview?.realNetMargin ?? overview?.profitMargin ?? 0}%
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Beneficio Neto</span>
-                    <span className="font-semibold">{formatCurrency(overview?.netProfit ?? 0)}</span>
+                    <span className="font-semibold">
+                      {formatCurrency(overview?.realNetProfit ?? overview?.netProfit ?? 0)}
+                    </span>
                   </div>
                 </div>
               </div>
