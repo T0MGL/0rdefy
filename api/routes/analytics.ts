@@ -846,11 +846,17 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
             lineItemsByOrder.get(orderId)!.push(item);
         });
 
-        // Get additional values for the date range
+        // Get additional values for the date range. Marketing rows are
+        // excluded here because they are already aggregated via the
+        // prorated `dailyMarketingCosts` map (see linea ~826). Including
+        // them in this second pass would double-count marketing spend in
+        // the chart: once as `gasto_publicitario` and once as a generic
+        // `productCosts` daily expense.
         let additionalValuesQuery = supabaseAdmin
             .from('additional_values')
             .select('date, type, amount')
-            .eq('store_id', req.storeId);
+            .eq('store_id', req.storeId)
+            .neq('category', 'marketing');
 
         if (startDateParam) {
             additionalValuesQuery = additionalValuesQuery.gte('date', startDateParam);
