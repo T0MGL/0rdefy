@@ -38,6 +38,11 @@ import {
     isReturned,
     isSettled,
 } from '../utils/order-status';
+import {
+    dailyMarketingAllocation,
+    sumMarketingInWindow,
+    type ProratableExpense,
+} from '../utils/metrics-canonical';
 import { isOrderCod } from '../utils/payment';
 
 export const analyticsRouter = Router();
@@ -202,45 +207,66 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
         });
 
         // ===== GET GASTO PUBLICITARIO FROM ADDITIONAL_VALUES TABLE =====
-        // Marketing expenses are registered by users in the additional_values table
-        // with category='marketing' and type='expense'
+        // Marketing expenses are registered by users in the additional_values
+        // table with category='marketing' and type='expense'. Rows may also
+        // carry an optional (period_start, period_end) span (migration 184)
+        // meaning the amount represents a cost that covers multiple days,
+        // typical for ad-platform invoices that span a full month. The
+        // canonical helpers in metrics-canonical prorate the amount over the
+        // overlap between [period_start, period_end] and the dashboard query
+        // window. Rows without a period keep the legacy single-date behavior.
+        //
+        // We widen the SQL window to include rows whose period overlaps the
+        // dashboard window even when `date` itself is outside it. A row
+        // covering all of May, loaded with date=2026-05-01, must still count
+        // when the dashboard asks for May 20-31.
+        const previousStartLocal = formatDateInTimezone(previous7DaysStart, storeTz);
+        const currentStartLocal = formatDateInTimezone(last7DaysStart, storeTz);
+        const currentEndLocal = formatDateInTimezone(currentPeriodEnd, storeTz);
+
         const { data: marketingExpensesData, error: marketingExpensesError } = await supabaseAdmin
             .from('additional_values')
-            .select('amount, date')
+            .select('amount, date, period_start, period_end')
             .eq('store_id', req.storeId)
             .eq('category', 'marketing')
             .eq('type', 'expense')
-            .gte('date', formatDateInTimezone(previousPeriodStart, storeTz))
-            .lte('date', formatDateInTimezone(currentPeriodEnd, storeTz));
+            .or(
+                `and(date.gte.${previousStartLocal},date.lte.${currentEndLocal}),and(period_start.lte.${currentEndLocal},period_end.gte.${previousStartLocal})`,
+            );
 
         if (marketingExpensesError) {
             logger.error('SERVER', '[GET /api/analytics/overview] Marketing expenses query error:', marketingExpensesError);
         }
 
-        const marketingExpenses = marketingExpensesData || [];
+        const marketingExpenses = (marketingExpensesData || []) as ProratableExpense[];
 
-        // FIX-7 (audit 2026-05-02): compare additional_values.date (YYYY-MM-DD
-        // strings) against store-local day strings, not Date objects. Doing
-        // `new Date('2026-04-30')` parses to UTC midnight, which lands one calendar
-        // day off for stores in negative-offset timezones (Asuncion is UTC-4) and
-        // mis-attributes spend at the period boundary.
-        const currentStartLocal = formatDateInTimezone(last7DaysStart, storeTz);
-        const currentEndLocal = formatDateInTimezone(currentPeriodEnd, storeTz);
-        const previousStartLocal = formatDateInTimezone(previous7DaysStart, storeTz);
+        // FIX-7 (audit 2026-05-02): comparison happens against store-local
+        // YYYY-MM-DD strings, not Date objects. The helper itself is
+        // timezone-neutral (operates on already-formatted strings).
+        const currentGastoPublicitarioCosts = sumMarketingInWindow(
+            marketingExpenses,
+            currentStartLocal,
+            currentEndLocal,
+        );
 
-        const currentGastoPublicitarioCosts = marketingExpenses
-            .filter(m => {
-                const d = String(m.date).slice(0, 10);
-                return d >= currentStartLocal && d <= currentEndLocal;
-            })
-            .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
-
-        const previousGastoPublicitarioCosts = marketingExpenses
-            .filter(m => {
-                const d = String(m.date).slice(0, 10);
-                return d >= previousStartLocal && d < currentStartLocal;
-            })
-            .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
+        // Previous period is [previousStartLocal, day before currentStartLocal].
+        // sumMarketingInWindow uses inclusive bounds on both sides, so we
+        // subtract one day from currentStartLocal as the end of the previous
+        // window.
+        const previousEndLocal = (() => {
+            const t = Date.UTC(
+                Number(currentStartLocal.slice(0, 4)),
+                Number(currentStartLocal.slice(5, 7)) - 1,
+                Number(currentStartLocal.slice(8, 10)),
+            ) - 86_400_000;
+            const d = new Date(t);
+            return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+        })();
+        const previousGastoPublicitarioCosts = sumMarketingInWindow(
+            marketingExpenses,
+            previousStartLocal,
+            previousEndLocal,
+        );
 
         // ===== PRE-FETCH: Line items and additional values for ALL orders (both periods) =====
         const allOrderIds = orders.map(o => o.id);
@@ -769,10 +795,13 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
         const allOrders = (ordersData || []).filter(o => !o.deleted_at && o.is_test !== true);
         const { inCurrency: orders } = dropOffCurrency(allOrders, storeCurrency);
 
-        // Get gasto publicitario from additional_values table (category='marketing', type='expense')
+        // Get gasto publicitario from additional_values table
+        // (category='marketing', type='expense'). period_start/period_end
+        // (migration 184) are loaded so the daily allocation prorates rows
+        // covering a span instead of stacking the full amount on `date`.
         const { data: marketingExpensesData, error: marketingExpensesError } = await supabaseAdmin
             .from('additional_values')
-            .select('amount, date')
+            .select('amount, date, period_start, period_end')
             .eq('store_id', req.storeId)
             .eq('category', 'marketing')
             .eq('type', 'expense');
@@ -781,17 +810,24 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
             logger.error('SERVER', '[GET /api/analytics/chart] Marketing expenses query error:', marketingExpensesError);
         }
 
-        const marketingExpenses = marketingExpensesData || [];
+        const marketingExpenses = (marketingExpensesData || []) as ProratableExpense[];
 
-        // Group marketing expenses by date
-        const dailyMarketingCosts: Record<string, number> = {};
-        for (const expense of marketingExpenses) {
-            const date = expense.date; // already in YYYY-MM-DD format
-            if (!dailyMarketingCosts[date]) {
-                dailyMarketingCosts[date] = 0;
-            }
-            dailyMarketingCosts[date] += Number(expense.amount) || 0;
-        }
+        // Chart window covers from chartStartLocal through chartEndLocal
+        // (today, store-local). Build daily allocation for that window so
+        // each bar reflects the prorated contribution of every overlapping
+        // period plus the full amount of legacy single-date rows.
+        const chartStartLocal = startDateParam
+            ? String(startDateParam).slice(0, 10)
+            : addDaysInTimezone(-parseInt(days as string, 10), storeTz);
+        const chartEndLocal = endDateParam
+            ? String(endDateParam).slice(0, 10)
+            : getTodayInTimezone(storeTz);
+
+        const dailyMarketingCosts = dailyMarketingAllocation(
+            marketingExpenses,
+            chartStartLocal,
+            chartEndLocal,
+        );
 
         // Batch-fetch line items - Migration 128: Use stored unit_cost
         const orderIds = orders.map(o => o.id);
@@ -1570,15 +1606,22 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
         // historical campaigns against future orders and inflated cost per order.
         // Marketing is now subtracted at the aggregate level after the timeline
         // is built (see "marketing distribution" block below).
+        //
+        // Migration 184: rows may carry (period_start, period_end). The OR
+        // filter captures rows whose period overlaps the 90-day window even
+        // when `date` itself is outside it.
         const ninetyDaysAgoLocalDate = addDaysInTimezone(-90, storeTz);
+        const cashFlowEndLocal = getTodayInTimezone(storeTz);
         const { data: marketingExpensesData } = await supabaseAdmin
             .from('additional_values')
-            .select('amount, date')
+            .select('amount, date, period_start, period_end')
             .eq('store_id', req.storeId)
             .eq('category', 'marketing')
             .eq('type', 'expense')
-            .gte('date', ninetyDaysAgoLocalDate);
-        const marketingExpenses = (marketingExpensesData || []) as Array<{ amount: number | string; date: string }>;
+            .or(
+                `and(date.gte.${ninetyDaysAgoLocalDate},date.lte.${cashFlowEndLocal}),and(period_start.lte.${cashFlowEndLocal},period_end.gte.${ninetyDaysAgoLocalDate})`,
+            );
+        const marketingExpenses = (marketingExpensesData || []) as ProratableExpense[];
         const gastoPublicitarioPerOrder = 0; // not prorated per-order anymore
 
         // Migration 128: Fetch line items with stored unit_cost (fixes bug where order.line_items was undefined)
@@ -1774,9 +1817,12 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
 
         // FIX-10 (continued): marketing spend is subtracted at the aggregate
         // level (against the 90-day window of expenses), not prorated per order.
-        const totalMarketingSpend = marketingExpenses.reduce(
-            (sum, m) => sum + (Number(m.amount) || 0),
-            0,
+        // Migration 184: when a row carries (period_start, period_end), only
+        // the portion of the amount overlapping the 90-day window counts.
+        const totalMarketingSpend = sumMarketingInWindow(
+            marketingExpenses,
+            ninetyDaysAgoLocalDate,
+            cashFlowEndLocal,
         );
 
         const summary = {

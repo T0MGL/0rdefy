@@ -12,6 +12,39 @@ import { extractUserRole, requireModule, requirePermission, PermissionRequest } 
 import { Module, Permission } from '../permissions';
 import { RecurringValuesService } from '../services/recurring-values.service';
 import { getTodayInTimezone } from '../utils/dateUtils';
+import {
+    proratedAmountInWindow,
+    type ProratableExpense,
+} from '../utils/metrics-canonical';
+
+// Validate that period_start and period_end form a valid optional pair.
+// Returns an error message when invalid, null when valid (including the
+// both-null case). Mirrors the DB CHECK constraints from migration 184 so
+// the API rejects with a clean 400 instead of letting Postgres surface a
+// constraint violation.
+function validatePeriodPair(
+    periodStart: unknown,
+    periodEnd: unknown,
+): string | null {
+    const hasStart = periodStart !== undefined && periodStart !== null && periodStart !== '';
+    const hasEnd = periodEnd !== undefined && periodEnd !== null && periodEnd !== '';
+    if (hasStart !== hasEnd) {
+        return 'period_start and period_end must be provided together or both omitted';
+    }
+    if (hasStart && hasEnd) {
+        const s = String(periodStart).slice(0, 10);
+        const e = String(periodEnd).slice(0, 10);
+        // Cheap YYYY-MM-DD string comparison works because both are zero-padded
+        // ISO calendar dates.
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || !/^\d{4}-\d{2}-\d{2}$/.test(e)) {
+            return 'period_start and period_end must be valid YYYY-MM-DD dates';
+        }
+        if (e < s) {
+            return 'period_end must be on or after period_start';
+        }
+    }
+    return null;
+}
 
 export const additionalValuesRouter = Router();
 
@@ -104,20 +137,27 @@ additionalValuesRouter.get('/summary', async (req: AuthRequest, res: Response) =
     try {
         const { from_date, to_date } = req.query;
 
-        let query = supabaseAdmin
+        // Default window: this year. The summary needs a window because
+        // proration math is window-relative. Without explicit bounds we used
+        // to "sum everything"; that path now still works (it just uses a very
+        // wide window so any prorated row contributes its full amount).
+        const windowStart = from_date
+            ? String(from_date).slice(0, 10)
+            : '1970-01-01';
+        const windowEnd = to_date
+            ? String(to_date).slice(0, 10)
+            : '2999-12-31';
+
+        // Include rows whose `date` falls in the window OR whose period
+        // overlaps the window. The OR filter mirrors the analytics path.
+        const query = supabaseAdmin
             .from('additional_values')
-            .select('category, type, amount')
-            .eq('store_id', req.storeId);
-
-        if (from_date) {
-            query = query.gte('date', from_date);
-        }
-
-        if (to_date) {
-            query = query.lte('date', to_date);
-        }
-
-        query = query.limit(1000);
+            .select('category, type, amount, date, period_start, period_end')
+            .eq('store_id', req.storeId)
+            .or(
+                `and(date.gte.${windowStart},date.lte.${windowEnd}),and(period_start.lte.${windowEnd},period_end.gte.${windowStart})`,
+            )
+            .limit(5000);
 
         const { data, error } = await query;
 
@@ -125,27 +165,34 @@ additionalValuesRouter.get('/summary', async (req: AuthRequest, res: Response) =
             throw error;
         }
 
-        // Calculate totals by category
         const summary = {
             marketing: 0,
             sales: 0,
             employees: 0,
-            operational: 0
+            operational: 0,
         };
 
-        data?.forEach((item: any) => {
-            const amount = item.type === 'expense' ? -item.amount : item.amount;
-            if (summary.hasOwnProperty(item.category)) {
-                summary[item.category as keyof typeof summary] += amount;
+        for (const item of data ?? []) {
+            // Prorate amounts that carry a period. Legacy single-date rows
+            // get their full amount when `date` is in the window.
+            const portion = proratedAmountInWindow(
+                item as ProratableExpense,
+                windowStart,
+                windowEnd,
+            );
+            if (portion <= 0) continue;
+            const signed = item.type === 'expense' ? -portion : portion;
+            if (Object.prototype.hasOwnProperty.call(summary, item.category)) {
+                summary[item.category as keyof typeof summary] += signed;
             }
-        });
+        }
 
         res.json(summary);
     } catch (error: any) {
         logger.error('API', '[GET /api/additional-values/summary] Error:', error);
         res.status(500).json({
             error: 'Error al obtener resumen',
-            message: error.message
+            message: error.message,
         });
     }
 });
@@ -190,48 +237,64 @@ additionalValuesRouter.post('/', async (req: AuthRequest, res: Response) => {
             description,
             amount,
             type,
-            date
+            date,
+            period_start,
+            period_end,
         } = req.body;
 
         // Validation
         if (!category || !description || !amount || !type) {
             return res.status(400).json({
                 error: 'Validación fallida',
-                message: 'Category, description, amount, and type are required'
+                message: 'Category, description, amount, and type are required',
             });
         }
 
         if (!['marketing', 'sales', 'employees', 'operational'].includes(category)) {
             return res.status(400).json({
                 error: 'Validación fallida',
-                message: 'Invalid category'
+                message: 'Invalid category',
             });
         }
 
         if (!['expense', 'income'].includes(type)) {
             return res.status(400).json({
                 error: 'Validación fallida',
-                message: 'Type must be either "expense" or "income"'
+                message: 'Type must be either "expense" or "income"',
             });
         }
 
         if (amount <= 0) {
             return res.status(400).json({
                 error: 'Validación fallida',
-                message: 'Amount must be greater than 0'
+                message: 'Amount must be greater than 0',
             });
+        }
+
+        const periodError = validatePeriodPair(period_start, period_end);
+        if (periodError) {
+            return res.status(400).json({
+                error: 'Validación fallida',
+                message: periodError,
+            });
+        }
+
+        const insertRow: Record<string, unknown> = {
+            store_id: req.storeId,
+            category,
+            description,
+            amount,
+            type,
+            date: date || getTodayInTimezone(),
+        };
+        if (period_start && period_end) {
+            insertRow.period_start = String(period_start).slice(0, 10);
+            insertRow.period_end = String(period_end).slice(0, 10);
         }
 
         const { data, error } = await supabaseAdmin
             .from('additional_values')
-            .insert([{
-                store_id: req.storeId,
-                category,
-                description,
-                amount,
-                type,
-                date: date || getTodayInTimezone()
-            }])
+            .insert([insertRow])
             .select()
             .single();
 
@@ -263,19 +326,21 @@ additionalValuesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
             description,
             amount,
             type,
-            date
+            date,
+            period_start,
+            period_end,
         } = req.body;
 
         // Build update object
-        const updateData: any = {
-            updated_at: new Date().toISOString()
+        const updateData: Record<string, unknown> = {
+            updated_at: new Date().toISOString(),
         };
 
         if (category !== undefined) {
             if (!['marketing', 'sales', 'employees', 'operational'].includes(category)) {
                 return res.status(400).json({
                     error: 'Validación fallida',
-                    message: 'Invalid category'
+                    message: 'Invalid category',
                 });
             }
             updateData.category = category;
@@ -287,7 +352,7 @@ additionalValuesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
             if (amount <= 0) {
                 return res.status(400).json({
                     error: 'Validación fallida',
-                    message: 'Amount must be greater than 0'
+                    message: 'Amount must be greater than 0',
                 });
             }
             updateData.amount = amount;
@@ -297,13 +362,34 @@ additionalValuesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
             if (!['expense', 'income'].includes(type)) {
                 return res.status(400).json({
                     error: 'Validación fallida',
-                    message: 'Type must be either "expense" or "income"'
+                    message: 'Type must be either "expense" or "income"',
                 });
             }
             updateData.type = type;
         }
 
         if (date !== undefined) updateData.date = date;
+
+        // Period columns: validated together. Explicit null on either side
+        // clears the period (returns the row to legacy single-date behavior).
+        // Passing only one of the two is rejected; the DB CHECK would catch
+        // it anyway but a 400 with a readable message is friendlier.
+        if (period_start !== undefined || period_end !== undefined) {
+            const periodError = validatePeriodPair(period_start, period_end);
+            if (periodError) {
+                return res.status(400).json({
+                    error: 'Validación fallida',
+                    message: periodError,
+                });
+            }
+            if (period_start === null || period_start === '') {
+                updateData.period_start = null;
+                updateData.period_end = null;
+            } else if (period_start !== undefined) {
+                updateData.period_start = String(period_start).slice(0, 10);
+                updateData.period_end = String(period_end).slice(0, 10);
+            }
+        }
 
         const { data, error } = await supabaseAdmin
             .from('additional_values')
