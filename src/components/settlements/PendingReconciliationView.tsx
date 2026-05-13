@@ -558,19 +558,29 @@ export function PendingReconciliationView() {
     // persisted on the server.
     const totalCarrierFees = orderCarrierFees + extraChargesTotal;
     const codCollected = totalAmountCollected || 0;
-    // Positive = courier still owes the store. Negative = store overpaid.
-    const netReceivable = stats.codExpected - totalCarrierFees - failedAttemptFees - codCollected;
-    const discrepancy = codCollected - stats.codExpected;
-    const hasDiscrepancy = Math.abs(discrepancy) > 0.01;
+    // expectedNet is what the courier SHOULD hand over after netting flete.
+    // If the courier collected COD in full and pays you flete separately,
+    // codCollected == codExpected and you owe the courier totalCarrierFees;
+    // either way the math closes on the same expectedNet.
+    const expectedNet = stats.codExpected - totalCarrierFees - failedAttemptFees;
+    // gap > 0 = courier brought more than expected (overcollected).
+    // gap < 0 = courier brought less; missing money.
+    // gap ~ 0 = closed clean (typical when admin uses the "neto" preset).
+    const gap = codCollected - expectedNet;
+    const isClosed = Math.abs(gap) <= 0.01;
     return {
       orderCarrierFees,
       extraChargesTotal,
       totalCarrierFees,
       failedAttemptFees,
       codCollected,
-      netReceivable,
-      discrepancy,
-      hasDiscrepancy,
+      expectedNet,
+      gap,
+      isClosed,
+      // legacy fields kept for any external read (PDF, summary, etc).
+      netReceivable: -gap,
+      discrepancy: codCollected - stats.codExpected,
+      hasDiscrepancy: Math.abs(codCollected - stats.codExpected) > 0.01,
     };
   }, [selectedGroup, stats, totalAmountCollected, extraChargesTotal]);
 
@@ -1458,145 +1468,134 @@ export function PendingReconciliationView() {
               </div>
             </div>
 
-            {totalAmountCollected !== null && financialSummary?.hasDiscrepancy && (
-              <div
-                className={`p-3 rounded-lg ${
-                  financialSummary.discrepancy < 0
-                    ? 'bg-red-50 dark:bg-red-950/20'
-                    : 'bg-green-50 dark:bg-green-950/20'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <AlertTriangle
-                    className={`h-4 w-4 ${
-                      financialSummary.discrepancy < 0 ? 'text-red-600' : 'text-green-600'
-                    }`}
-                  />
-                  <span className="text-sm font-medium">
-                    Diferencia: {financialSummary.discrepancy > 0 ? '+' : ''}
-                    {formatCurrency(financialSummary.discrepancy)}
-                  </span>
-                </div>
-                <Textarea
-                  placeholder="Notas sobre la diferencia..."
-                  value={discrepancyNotes}
-                  onChange={e => setDiscrepancyNotes(e.target.value)}
-                  className="mt-2"
-                  rows={2}
-                />
-              </div>
-            )}
           </CardContent>
         </Card>
 
-        {/* Financial Summary */}
+        {/* Resumen claro: COD esperado − flete = Neto que debe entrar.
+            Comparamos contra lo cobrado. Si cuadra: verde con check. Si falta
+            o sobra: amber/rojo con monto exacto y textarea para notas. */}
         {totalAmountCollected !== null && financialSummary && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">Resumen Financiero</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">Resumen</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-4">
               <div className="text-xs text-muted-foreground flex items-center gap-1.5 pb-2 border-b">
                 <Calendar className="h-3.5 w-3.5" />
                 Cubre: {coveredRangeLabel}
               </div>
-              <div className="space-y-2 text-sm">
+
+              {/* Cálculo del neto que debe entregar el courier */}
+              <div className="space-y-1.5 text-sm">
                 {stats.codExpected > 0 && (
                   <div className="flex justify-between">
-                    <span>COD entregados ({stats.delivered - stats.prepaidCount})</span>
-                    <span className="text-green-600">+{formatCurrency(stats.codExpected)}</span>
+                    <span className="text-muted-foreground">
+                      COD a cobrar ({stats.delivered - stats.prepaidCount} entregados)
+                    </span>
+                    <span className="font-mono">{formatCurrency(stats.codExpected)}</span>
                   </div>
                 )}
-                {stats.prepaidCount > 0 && (
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Prepago entregados ({stats.prepaidCount})</span>
-                    <span>ya cobrado</span>
-                  </div>
-                )}
-                {stats.codExpected === 0 && stats.prepaidCount > 0 && (
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Entregados ({stats.delivered})</span>
-                    <span>todo prepago</span>
-                  </div>
-                )}
-                {stats.notDelivered > 0 && (
-                  <div className="flex justify-between">
-                    <span>Fallidos ({stats.notDelivered})</span>
-                    <span className="text-muted-foreground">0 Gs</span>
-                  </div>
-                )}
-                <Separator />
-
-                {stats.codExpected > 0 && (
-                  <>
-                    <div className="flex justify-between">
-                      <span>COD Esperado</span>
-                      <span>{formatCurrency(stats.codExpected)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>COD Cobrado</span>
-                      <span>{formatCurrency(financialSummary.codCollected)}</span>
-                    </div>
-                    {financialSummary.hasDiscrepancy && (
-                      <div
-                        className={`flex justify-between ${
-                          financialSummary.discrepancy < 0 ? 'text-red-600' : 'text-green-600'
-                        }`}
-                      >
-                        <span>Diferencia</span>
-                        <span>
-                          {financialSummary.discrepancy > 0 ? '+' : ''}
-                          {formatCurrency(financialSummary.discrepancy)}
-                        </span>
-                      </div>
-                    )}
-                    <Separator />
-                  </>
-                )}
-
                 {stats.prepaidCount > 0 && (
                   <div className="flex justify-between text-muted-foreground text-xs">
-                    <span>Prepago ({stats.prepaidCount} pedidos, ya en tu cuenta)</span>
+                    <span>+ {stats.prepaidCount} prepago entregados (ya en tu cuenta)</span>
                     <span>{formatCurrency(stats.prepaidValue)}</span>
                   </div>
                 )}
-
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Tarifas entregas ({stats.delivered} pedidos)</span>
-                  <span>-{formatCurrency(financialSummary.orderCarrierFees)}</span>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">
+                    − Flete entregas ({stats.delivered} pedidos)
+                  </span>
+                  <span className="font-mono text-amber-700 dark:text-amber-400">
+                    −{formatCurrency(financialSummary.orderCarrierFees)}
+                  </span>
                 </div>
                 {financialSummary.extraChargesTotal > 0 && (
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>
-                      Envíos extra ({extraCharges.length}{' '}
-                      {extraCharges.length === 1 ? 'línea' : 'líneas'})
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">
+                      − Envíos extra ({extraCharges.length})
                     </span>
-                    <span>-{formatCurrency(financialSummary.extraChargesTotal)}</span>
+                    <span className="font-mono text-amber-700 dark:text-amber-400">
+                      −{formatCurrency(financialSummary.extraChargesTotal)}
+                    </span>
                   </div>
                 )}
                 {stats.notDelivered > 0 && (
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>
-                      Tarifas fallidos ({stats.notDelivered} x {selectedGroup?.failed_attempt_fee_percent}%)
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">
+                      − Fees por fallidos ({stats.notDelivered} × {selectedGroup?.failed_attempt_fee_percent}%)
                     </span>
-                    <span>-{formatCurrency(financialSummary.failedAttemptFees)}</span>
+                    <span className="font-mono text-amber-700 dark:text-amber-400">
+                      −{formatCurrency(financialSummary.failedAttemptFees)}
+                    </span>
                   </div>
                 )}
-
                 <Separator />
-                <div
-                  className={`flex justify-between text-lg font-bold ${
-                    financialSummary.netReceivable >= 0 ? 'text-green-600' : 'text-red-600'
-                  }`}
-                >
-                  <span>NETO A RECIBIR</span>
-                  <span>{formatCurrency(financialSummary.netReceivable)}</span>
+                <div className="flex justify-between text-base font-semibold">
+                  <span>Neto que debe entrar al store</span>
+                  <span className="font-mono">{formatCurrency(financialSummary.expectedNet)}</span>
                 </div>
-                <p className="text-xs text-muted-foreground text-right">
-                  {financialSummary.netReceivable >= 0
-                    ? 'El courier te debe'
-                    : 'Le debes al courier'}
-                </p>
+              </div>
+
+              {/* Comparación con lo cobrado */}
+              <div
+                className={`rounded-lg p-3 border ${
+                  financialSummary.isClosed
+                    ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-900'
+                    : financialSummary.gap < 0
+                    ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900'
+                    : 'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900'
+                }`}
+              >
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Cobrado por el courier hoy</span>
+                  <span className="font-mono font-semibold">
+                    {formatCurrency(financialSummary.codCollected)}
+                  </span>
+                </div>
+                <Separator className="my-2" />
+                {financialSummary.isClosed ? (
+                  <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span className="text-sm font-medium">
+                      Cuadra exacto. El cierre está saldado.
+                    </span>
+                  </div>
+                ) : financialSummary.gap < 0 ? (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+                      <AlertTriangle className="h-4 w-4" />
+                      <span className="text-sm font-medium">
+                        Faltan {formatCurrency(Math.abs(financialSummary.gap))} por entregar
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground pl-6">
+                      El courier todavía te debe esa diferencia. Registralo en notas si querés
+                      arrastrarlo al próximo cierre.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400">
+                      <DollarSign className="h-4 w-4" />
+                      <span className="text-sm font-medium">
+                        Cobró {formatCurrency(financialSummary.gap)} de más
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground pl-6">
+                      Llegó más plata que la esperada. Puede ser propinas, redondeo o algún
+                      pedido prepago que el courier cobró en efectivo igual.
+                    </p>
+                  </div>
+                )}
+                {!financialSummary.isClosed && (
+                  <Textarea
+                    placeholder="Notas sobre la diferencia (opcional)..."
+                    value={discrepancyNotes}
+                    onChange={e => setDiscrepancyNotes(e.target.value)}
+                    className="mt-3"
+                    rows={2}
+                  />
+                )}
               </div>
             </CardContent>
           </Card>
