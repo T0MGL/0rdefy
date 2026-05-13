@@ -1509,13 +1509,21 @@ export function PendingReconciliationView() {
                     −{formatCurrency(financialSummary.orderCarrierFees)}
                   </span>
                 </div>
-                {financialSummary.extraChargesTotal > 0 && (
+                {financialSummary.extraChargesTotal !== 0 && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">
-                      − Envíos extra ({extraCharges.length})
+                      {financialSummary.extraChargesTotal > 0 ? '−' : '+'} Envíos extra (
+                      {extraCharges.length})
                     </span>
-                    <span className="font-mono text-amber-700 dark:text-amber-400">
-                      −{formatCurrency(financialSummary.extraChargesTotal)}
+                    <span
+                      className={`font-mono ${
+                        financialSummary.extraChargesTotal > 0
+                          ? 'text-amber-700 dark:text-amber-400'
+                          : 'text-emerald-700 dark:text-emerald-400'
+                      }`}
+                    >
+                      {financialSummary.extraChargesTotal > 0 ? '−' : '+'}
+                      {formatCurrency(Math.abs(financialSummary.extraChargesTotal))}
                     </span>
                   </div>
                 )}

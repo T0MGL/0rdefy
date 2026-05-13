@@ -896,7 +896,9 @@ settlementsRouter.post(
             return res.status(400).json({ error: `Envío extra ${i + 1}: descripción debe tener 1-200 caracteres` });
           }
           const amt = Number(e.amount);
-          if (!Number.isFinite(amt) || amt < 0) {
+          // Negative amounts are allowed (adjustments / shared-delivery rebates).
+          // Zero is rejected because it contributes nothing and clutters the row.
+          if (!Number.isFinite(amt) || amt === 0) {
             return res.status(400).json({ error: `Envío extra ${i + 1}: monto inválido` });
           }
           cleaned.push({ description, amount: amt });

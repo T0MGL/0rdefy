@@ -4266,7 +4266,9 @@ async function processReconciliationByCarrierFallback(
       if (description.length === 0 || description.length > 200) {
         throw new Error(`Envío extra ${i + 1}: descripción inválida (1-200 caracteres)`);
       }
-      if (!Number.isFinite(amount) || amount < 0) {
+      // Amount can be negative (adjustment, e.g. shared-delivery rebate)
+      // but cannot be exactly zero (no-op) and must be finite.
+      if (!Number.isFinite(amount) || amount === 0) {
         throw new Error(`Envío extra ${i + 1}: monto inválido`);
       }
       sanitizedExtras.push({ description, amount });

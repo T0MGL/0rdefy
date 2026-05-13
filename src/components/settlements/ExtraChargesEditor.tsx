@@ -95,7 +95,9 @@ export function ExtraChargesEditor({
   const draftValid = (() => {
     const d = draftDescription.trim();
     const a = Number(draftAmount);
-    return d.length >= 2 && d.length <= DESCRIPTION_MAX && Number.isFinite(a) && a > 0;
+    // Amount can be negative (for adjustments like "shared TSI delivery -25k").
+    // The only disqualifier is exactly zero, which contributes nothing.
+    return d.length >= 2 && d.length <= DESCRIPTION_MAX && Number.isFinite(a) && a !== 0;
   })();
 
   const handleConfirmAdd = useCallback(() => {
@@ -128,10 +130,11 @@ export function ExtraChargesEditor({
   const handleEditAmount = useCallback(
     (id: string, amountRaw: string) => {
       const amt = amountRaw === '' ? 0 : Number(amountRaw);
+      // Allow negative amounts for shared-delivery adjustments (e.g. TSI(2)
+      // where two prepaid orders ship as one physical delivery and only one
+      // flete should be charged). Server-side CHECK was relaxed accordingly.
       onChange(
-        charges.map(c =>
-          c.id === id ? { ...c, amount: Number.isFinite(amt) && amt >= 0 ? amt : 0 } : c
-        )
+        charges.map(c => (c.id === id ? { ...c, amount: Number.isFinite(amt) ? amt : 0 } : c))
       );
     },
     [charges, onChange]
@@ -152,9 +155,9 @@ export function ExtraChargesEditor({
           )}
         </div>
         <p className="text-xs text-muted-foreground mt-1 leading-snug">
-          Relays a otros couriers, servicios que el courier cobra y que no son pedidos
-          del sistema. Por ejemplo: entrega a Lucero del Interior, a transportadora TSI,
-          o una reentrega no facturada como pedido.
+          Relays a otros couriers o ajustes al flete. Por ejemplo: entrega a Lucero del
+          Interior (+25k), entrega compartida TSI con 2 pedidos pero 1 solo flete (−25k),
+          una reentrega no facturada (+30k). Usá montos negativos para descontar.
         </p>
       </CardHeader>
 
@@ -176,19 +179,20 @@ export function ExtraChargesEditor({
                   disabled={disabled}
                   aria-label="Descripción del envío extra"
                 />
-                <div className="relative w-32">
+                <div className="relative w-36">
                   <Input
                     type="number"
                     inputMode="numeric"
                     value={c.amount || ''}
                     onChange={e => handleEditAmount(c.id, e.target.value)}
                     onWheel={e => (e.target as HTMLInputElement).blur()}
-                    className="h-8 text-sm text-right font-mono pr-8"
+                    className={`h-8 text-sm text-right font-mono pr-8 ${
+                      c.amount < 0 ? 'text-emerald-600 dark:text-emerald-400' : ''
+                    }`}
                     placeholder="0"
-                    min="0"
                     step="1"
                     disabled={disabled}
-                    aria-label="Monto del envío extra en guaraníes"
+                    aria-label="Monto en guaraníes (negativo para descuento)"
                   />
                   <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">
                     Gs
@@ -258,10 +262,11 @@ export function ExtraChargesEditor({
                       handleCancelAdd();
                     }
                   }}
-                  placeholder="25000"
-                  min="0"
+                  placeholder="25000 ó -25000"
                   step="1"
-                  className="h-9 mt-1 text-right font-mono"
+                  className={`h-9 mt-1 text-right font-mono ${
+                    Number(draftAmount) < 0 ? 'text-emerald-600 dark:text-emerald-400' : ''
+                  }`}
                   disabled={disabled}
                 />
               </div>
@@ -315,8 +320,15 @@ export function ExtraChargesEditor({
         {charges.length > 0 && (
           <div className="flex items-center justify-between pt-3 border-t text-sm">
             <span className="text-muted-foreground">Total extras</span>
-            <span className="font-mono font-semibold text-amber-600 dark:text-amber-400">
-              {formatCurrency(total)}
+            <span
+              className={`font-mono font-semibold ${
+                total < 0
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-amber-600 dark:text-amber-400'
+              }`}
+            >
+              {total < 0 ? '−' : ''}
+              {formatCurrency(Math.abs(total))}
             </span>
           </div>
         )}
