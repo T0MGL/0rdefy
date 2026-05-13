@@ -465,16 +465,17 @@ export function PendingReconciliationView() {
   const stats = useMemo(() => {
     let delivered = 0;
     let notDelivered = 0;
+    let excluded = 0;
     let codExpected = 0;
     let prepaidCount = 0;
     let prepaidValue = 0;
-    let missingReasons = 0;
     let deliveredCarrierFees = 0;
     let notDeliveredCarrierFees = 0;
 
     orders.forEach(order => {
       const state = reconciliationState.get(order.id);
       const isDelivered = state?.delivered ?? true;
+      const hasFailureReason = !!state?.failure_reason;
       const fee = order.carrier_fee || 0;
       const effectiveIsCod = state?.override_prepaid ? false : order.is_cod;
 
@@ -487,20 +488,24 @@ export function PendingReconciliationView() {
           prepaidCount++;
           prepaidValue += order.total_price || 0;
         }
-      } else {
+      } else if (hasFailureReason) {
         notDelivered++;
         notDeliveredCarrierFees += fee;
-        if (!state?.failure_reason) missingReasons++;
+      } else {
+        // Unchecked without failure reason = excluded from this cycle.
+        // Stays pending for the next reconciliation. NOT counted as failed.
+        excluded++;
       }
     });
 
     return {
       delivered,
       notDelivered,
+      excluded,
       codExpected,
       prepaidCount,
       prepaidValue,
-      missingReasons,
+      missingReasons: 0,
       total: orders.length,
       deliveredCarrierFees,
       notDeliveredCarrierFees,
@@ -576,15 +581,27 @@ export function PendingReconciliationView() {
     if (!selectedGroup || totalAmountCollected === null) return;
     setProcessing(true);
     try {
-      const ordersData = orders.map(order => {
-        const s = reconciliationState.get(order.id);
-        return {
-          order_id: order.id,
-          delivered: s?.delivered ?? true,
-          failure_reason: s?.failure_reason,
-          override_prepaid: s?.override_prepaid ?? false,
-        };
-      });
+      // Filter excluded rows out of the payload. The new checkbox semantic is:
+      // - checked (default)             -> entra al cierre como entregada
+      // - unchecked + failure_reason    -> entra al cierre como fallida (fee)
+      // - unchecked + sin failure_reason -> EXCLUIR del cierre (queda pending)
+      // Excluded orders keep reconciled_at NULL and reappear on the next cycle.
+      const ordersData = orders
+        .filter(order => {
+          const s = reconciliationState.get(order.id);
+          const isDelivered = s?.delivered ?? true;
+          const hasFailureReason = !!s?.failure_reason;
+          return isDelivered || hasFailureReason;
+        })
+        .map(order => {
+          const s = reconciliationState.get(order.id);
+          return {
+            order_id: order.id,
+            delivered: s?.delivered ?? true,
+            failure_reason: s?.failure_reason,
+            override_prepaid: s?.override_prepaid ?? false,
+          };
+        });
 
       const response = await fetch(`${API_BASE}/api/settlements/reconcile-by-carrier`, {
         method: 'POST',
@@ -771,18 +788,18 @@ export function PendingReconciliationView() {
     }
   };
 
-  // Confirm button gating + reason
+  // Confirm button gating + reason. Excluded rows (unchecked without failure
+  // reason) are silently skipped from the settlement, they do NOT block.
   const canProceed =
-    stats.missingReasons === 0 && totalAmountCollected !== null && totalAmountCollected >= 0;
+    totalAmountCollected !== null &&
+    totalAmountCollected >= 0 &&
+    (stats.delivered + stats.notDelivered) > 0;
 
   const blockingReason = (() => {
-    if (stats.missingReasons > 0) {
-      return `Falta indicar el motivo en ${stats.missingReasons} pedido${
-        stats.missingReasons === 1 ? '' : 's'
-      } no entregado${stats.missingReasons === 1 ? '' : 's'}.`;
-    }
     if (totalAmountCollected === null) return 'Ingresa el monto total cobrado por el courier.';
     if (totalAmountCollected < 0) return 'El monto cobrado no puede ser negativo.';
+    if ((stats.delivered + stats.notDelivered) === 0)
+      return 'Todas las ordenes estan excluidas. Marca al menos una como entregada o fallida.';
     return null;
   })();
 
@@ -1006,6 +1023,30 @@ export function PendingReconciliationView() {
             <XCircle className="h-4 w-4 text-red-600" />
             <span className="text-sm font-medium">{stats.notDelivered} no entregados</span>
           </div>
+          {stats.excluded > 0 && (
+            <>
+              <Separator orientation="vertical" className="h-4" />
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-2 cursor-help">
+                      <Clock className="h-4 w-4 text-amber-600" />
+                      <span className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                        {stats.excluded} excluidos
+                      </span>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-xs">
+                    <p className="text-xs leading-snug">
+                      Pedidos desmarcados sin razón. NO entran a este cierre y quedan
+                      pending para la próxima conciliación. Útil cuando el courier los va
+                      a rendir otro día.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </>
+          )}
           <Separator orientation="vertical" className="h-4" />
           <div className="flex items-center gap-2">
             <DollarSign className="h-4 w-4 text-amber-600" />
@@ -1088,11 +1129,18 @@ export function PendingReconciliationView() {
                   visibleOrders.map(order => {
                     const state = reconciliationState.get(order.id);
                     const isDelivered = state?.delivered ?? true;
+                    const hasFailureReason = !!state?.failure_reason;
+                    // 3-state visual:
+                    //  - delivered: default white
+                    //  - failed (unchecked + reason): red
+                    //  - excluded (unchecked + no reason): amber, queda pending
+                    const rowClass = isDelivered
+                      ? ''
+                      : hasFailureReason
+                      ? 'bg-red-50 dark:bg-red-950/20'
+                      : 'bg-amber-50 dark:bg-amber-950/20 opacity-70';
                     return (
-                      <TableRow
-                        key={order.id}
-                        className={!isDelivered ? 'bg-red-50 dark:bg-red-950/20' : ''}
-                      >
+                      <TableRow key={order.id} className={rowClass}>
                         <TableCell>
                           <Checkbox
                             checked={isDelivered}
