@@ -3831,9 +3831,29 @@ export interface ReconciliationByCarrierResult {
   total_cod_expected: number;
   total_cod_collected: number;
   total_carrier_fees: number;
+  /**
+   * Sum of manual flete lines (relays to other couriers, extra services)
+   * persisted in settlement_extra_charges. Migration 184. Already INCLUDED
+   * inside total_carrier_fees; surfaced separately so the UI can render
+   * the breakdown.
+   */
+  total_extra_charges: number;
   failed_attempt_fee: number;
   net_receivable: number;
   warnings: string[];
+}
+
+/**
+ * Extra flete line attached to a reconciliation (Migration 184).
+ *
+ * Used for relay services the courier provides that are NOT system orders
+ * (e.g. handing parcels off to Lucero or TSI to finish the route).
+ * Description: 1-200 chars. Amount: non-negative numeric (PYG, no decimals
+ * in practice but NUMERIC(14,2) to keep parity with daily_settlements).
+ */
+export interface SettlementExtraChargeInput {
+  description: string;
+  amount: number;
 }
 
 export interface ProcessReconciliationByCarrierParams {
@@ -3846,6 +3866,8 @@ export interface ProcessReconciliationByCarrierParams {
     failure_reason?: string;
     override_prepaid?: boolean;
   }>;
+  /** Optional. Up to 50 entries. See SettlementExtraChargeInput. */
+  extra_charges?: SettlementExtraChargeInput[];
 }
 
 /**
@@ -4224,6 +4246,36 @@ async function processReconciliationByCarrierFallback(
     throw new Error('No se pudo determinar el rango de fechas de entrega');
   }
 
+  // ---- STEP 5b: validate + tally extras (Migration 184) ----
+  //
+  // Extras represent flete the carrier charges that does NOT correspond to a
+  // system order (relays to Lucero, TSI, etc). Validation here mirrors what
+  // the SQL function enforces; we want a 400-style failure long before any
+  // row hits the database. Persistence happens after the settlement insert
+  // so the FK has a target.
+  const sanitizedExtras: Array<{ description: string; amount: number }> = [];
+  let totalExtraCharges = 0;
+  if (Array.isArray(params.extra_charges) && params.extra_charges.length > 0) {
+    if (params.extra_charges.length > 50) {
+      throw new Error('Máximo 50 envíos extra por liquidación');
+    }
+    for (let i = 0; i < params.extra_charges.length; i++) {
+      const raw = params.extra_charges[i];
+      const description = typeof raw?.description === 'string' ? raw.description.trim() : '';
+      const amount = Number(raw?.amount);
+      if (description.length === 0 || description.length > 200) {
+        throw new Error(`Envío extra ${i + 1}: descripción inválida (1-200 caracteres)`);
+      }
+      if (!Number.isFinite(amount) || amount < 0) {
+        throw new Error(`Envío extra ${i + 1}: monto inválido`);
+      }
+      sanitizedExtras.push({ description, amount });
+      totalExtraCharges += amount;
+    }
+  }
+
+  // Extras fold into total_carrier_fees and affect net_receivable.
+  totalCarrierFees += totalExtraCharges;
   const netReceivable = totalCodExpected - totalCarrierFees - failedAttemptFee - params.total_amount_collected;
 
   // ---- STEP 6: settlement code generation (CURRENT_DATE based) ----
@@ -4273,7 +4325,10 @@ async function processReconciliationByCarrierFallback(
       total_cod_delivered: totalCodDelivered,
       total_prepaid_delivered: totalPrepaidDelivered,
       total_cod_collected: params.total_amount_collected,
+      // total_carrier_fees here already INCLUDES totalExtraCharges (folded
+      // in above). total_extra_charges is the denormalized breakdown.
       total_carrier_fees: totalCarrierFees,
+      total_extra_charges: totalExtraCharges,
       failed_attempt_fee: failedAttemptFee,
       net_receivable: netReceivable,
       balance_due: netReceivable,
@@ -4305,6 +4360,37 @@ async function processReconciliationByCarrierFallback(
     throw new Error('Error al crear la liquidación');
   }
 
+  // ---- STEP 6b: persist extras (Migration 184) ----
+  //
+  // Done AFTER settlement creation so the FK has a target. Failure here is
+  // a hard error: we already updated total_carrier_fees + net_receivable
+  // assuming these rows exist. Bubbling the error keeps the data
+  // consistent (the outer transaction would normally roll back; in this
+  // fallback we accept that the settlement row stays but we surface the
+  // problem so the admin can decide what to do).
+  if (sanitizedExtras.length > 0) {
+    const extraRows = sanitizedExtras.map(e => ({
+      settlement_id: settlement.id as string,
+      store_id: storeId,
+      carrier_id: params.carrier_id,
+      description: e.description,
+      amount: e.amount,
+      created_by: userId,
+    }));
+    const { error: extrasError } = await supabaseAdmin
+      .from('settlement_extra_charges')
+      .insert(extraRows);
+
+    if (extrasError) {
+      logger.error('SETTLEMENTS', 'Error inserting settlement_extra_charges', {
+        settlement_id: settlement.id,
+        count: extraRows.length,
+        error: extrasError.message,
+      });
+      throw new Error('Error al registrar los envíos extra');
+    }
+  }
+
   // ---- STEP 7: apply order updates (batched), emit warnings, return ----
   const base = await processOrderUpdatesAndReturn(
     storeId,
@@ -4324,9 +4410,13 @@ async function processReconciliationByCarrierFallback(
   );
 
   return {
-    ...(base as Omit<ReconciliationByCarrierResult, 'settlement_date' | 'min_delivery_date' | 'max_delivery_date'>),
+    ...(base as Omit<
+      ReconciliationByCarrierResult,
+      'settlement_date' | 'min_delivery_date' | 'max_delivery_date' | 'total_extra_charges'
+    >),
     settlement_date: todayIso,
     min_delivery_date: minIso,
     max_delivery_date: maxIso,
+    total_extra_charges: totalExtraCharges,
   };
 }

@@ -76,6 +76,7 @@ import { es } from 'date-fns/locale';
 import { logger } from '@/utils/logger';
 import { formatCurrency } from '@/utils/currency';
 import { generateReconciliationPDF } from './ReconciliationPDF';
+import { ExtraChargesEditor, type ExtraCharge } from './ExtraChargesEditor';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -160,7 +161,10 @@ interface ReconciliationResult {
   total_not_delivered: number;
   total_cod_expected: number;
   total_cod_collected: number;
+  /** Includes extras (Migration 184). */
   total_carrier_fees: number;
+  /** Migration 184. Already counted inside total_carrier_fees. */
+  total_extra_charges?: number;
   failed_attempt_fee: number;
   net_receivable: number;
 }
@@ -176,6 +180,8 @@ interface ReconciliationDraft {
   reconciliationState: Record<string, OrderReconciliation>;
   totalAmountCollected: number | null;
   discrepancyNotes: string;
+  /** Manual flete lines (Migration 184). Optional for back-compat with older drafts. */
+  extraCharges?: ExtraCharge[];
   savedAt: number;
 }
 
@@ -294,6 +300,10 @@ export function PendingReconciliationView() {
   const [totalAmountCollected, setTotalAmountCollected] = useState<number | null>(null);
   const [discrepancyNotes, setDiscrepancyNotes] = useState('');
 
+  // Manual extra flete lines (Migration 184). Relay handoffs to other
+  // couriers, operational charges that are not system orders.
+  const [extraCharges, setExtraCharges] = useState<ExtraCharge[]>([]);
+
   // Cancel stale order fetches on group switch
   const loadOrdersAbortRef = useRef<AbortController | null>(null);
 
@@ -372,19 +382,31 @@ export function PendingReconciliationView() {
           Object.entries(draft.reconciliationState).forEach(([k, v]) => {
             if (initialState.has(k)) restoredState.set(k, v);
           });
-          if (restoredState.size > 0) {
+          // Extras + amount + notes always restore if the draft has any
+          // material content, even when reconciliationState had no overrides.
+          const draftExtras = Array.isArray(draft.extraCharges) ? draft.extraCharges : [];
+          const hasMaterialDraft =
+            restoredState.size > 0 ||
+            draft.totalAmountCollected !== null ||
+            (draft.discrepancyNotes && draft.discrepancyNotes.length > 0) ||
+            draftExtras.length > 0;
+
+          if (hasMaterialDraft) {
             initialState.forEach((v, k) => {
               if (!restoredState.has(k)) restoredState.set(k, v);
             });
             setReconciliationState(restoredState);
             setTotalAmountCollected(draft.totalAmountCollected);
             setDiscrepancyNotes(draft.discrepancyNotes);
+            setExtraCharges(draftExtras);
             setHasDraft(true);
           } else {
             setReconciliationState(initialState);
+            setExtraCharges([]);
           }
         } else {
           setReconciliationState(initialState);
+          setExtraCharges([]);
         }
       } catch (error: unknown) {
         const e = error as { name?: string };
@@ -416,7 +438,8 @@ export function PendingReconciliationView() {
     );
     const hasAmount = totalAmountCollected !== null;
     const hasNotes = discrepancyNotes.length > 0;
-    if (!hasCustomState && !hasAmount && !hasNotes) return;
+    const hasExtras = extraCharges.length > 0;
+    if (!hasCustomState && !hasAmount && !hasNotes && !hasExtras) return;
 
     if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     draftSaveTimerRef.current = setTimeout(() => {
@@ -428,6 +451,7 @@ export function PendingReconciliationView() {
         reconciliationState: stateObj,
         totalAmountCollected,
         discrepancyNotes,
+        extraCharges,
         savedAt: Date.now(),
       });
       setHasDraft(true);
@@ -436,7 +460,7 @@ export function PendingReconciliationView() {
     return () => {
       if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     };
-  }, [reconciliationState, totalAmountCollected, discrepancyNotes, selectedGroup, currentStep, orders.length]);
+  }, [reconciliationState, totalAmountCollected, discrepancyNotes, extraCharges, selectedGroup, currentStep, orders.length]);
 
   // ----------------------------------------------------------
   // Derived state
@@ -512,19 +536,43 @@ export function PendingReconciliationView() {
     };
   }, [orders, reconciliationState]);
 
+  // Sum of manual extra flete lines (Migration 184). Coerced through Number
+  // to defend against partially-typed amounts coming from controlled inputs.
+  const extraChargesTotal = useMemo(
+    () =>
+      extraCharges.reduce(
+        (sum, c) => sum + (Number.isFinite(c.amount) && c.amount > 0 ? c.amount : 0),
+        0
+      ),
+    [extraCharges]
+  );
+
   // Financial summary
   const financialSummary = useMemo(() => {
     if (!selectedGroup) return null;
     const failedFeePercent = (selectedGroup.failed_attempt_fee_percent ?? 50) / 100;
-    const totalCarrierFees = stats.deliveredCarrierFees;
+    const orderCarrierFees = stats.deliveredCarrierFees;
     const failedAttemptFees = stats.notDeliveredCarrierFees * failedFeePercent;
+    // total_carrier_fees on the settlement row INCLUDES extras. Keep this
+    // memo consistent with that contract so the preview matches what gets
+    // persisted on the server.
+    const totalCarrierFees = orderCarrierFees + extraChargesTotal;
     const codCollected = totalAmountCollected || 0;
     // Positive = courier still owes the store. Negative = store overpaid.
     const netReceivable = stats.codExpected - totalCarrierFees - failedAttemptFees - codCollected;
     const discrepancy = codCollected - stats.codExpected;
     const hasDiscrepancy = Math.abs(discrepancy) > 0.01;
-    return { totalCarrierFees, failedAttemptFees, codCollected, netReceivable, discrepancy, hasDiscrepancy };
-  }, [selectedGroup, stats, totalAmountCollected]);
+    return {
+      orderCarrierFees,
+      extraChargesTotal,
+      totalCarrierFees,
+      failedAttemptFees,
+      codCollected,
+      netReceivable,
+      discrepancy,
+      hasDiscrepancy,
+    };
+  }, [selectedGroup, stats, totalAmountCollected, extraChargesTotal]);
 
   // The covered date range as a human string ("4/5 -> 9/5"). Falls back to
   // a single date when the range collapses to one day.
@@ -603,6 +651,12 @@ export function PendingReconciliationView() {
           };
         });
 
+      // Strip client-only ids; backend only needs {description, amount} and
+      // re-validates+sanitizes anyway.
+      const extrasPayload = extraCharges
+        .filter(c => c.description.trim().length > 0 && c.amount > 0)
+        .map(c => ({ description: c.description.trim(), amount: c.amount }));
+
       const response = await fetch(`${API_BASE}/api/settlements/reconcile-by-carrier`, {
         method: 'POST',
         headers: getAuthHeaders(),
@@ -611,6 +665,7 @@ export function PendingReconciliationView() {
           orders: ordersData,
           total_amount_collected: totalAmountCollected,
           discrepancy_notes: discrepancyNotes || null,
+          extra_charges: extrasPayload.length > 0 ? extrasPayload : undefined,
         }),
       });
 
@@ -647,16 +702,22 @@ export function PendingReconciliationView() {
           ? fmtFullDate(data.min_delivery_date)
           : `${fmtDateOnly(data.min_delivery_date)} a ${fmtDateOnly(data.max_delivery_date)}`;
 
+      const extrasCount = extrasPayload.length;
+      const extrasSum = extrasPayload.reduce((s, e) => s + e.amount, 0);
+      const extrasSuffix = extrasCount > 0
+        ? ` · ${extrasCount} ${extrasCount === 1 ? 'envío extra' : 'envíos extra'} (${formatCurrency(extrasSum)})`
+        : '';
+
       if (Math.abs(data.net_receivable) < 1) {
         toast({
           title: 'Conciliacion completada',
-          description: `${data.settlement_code} creada. Cubre ${rangeStr}. Balance en cero.`,
+          description: `${data.settlement_code} creada. Cubre ${rangeStr}. Balance en cero.${extrasSuffix}`,
         });
         setCurrentStep('complete');
       } else {
         toast({
           title: 'Conciliacion lista',
-          description: `${data.settlement_code} cubre ${rangeStr}. ${data.total_delivered} entregados, ${data.total_not_delivered} fallidos.`,
+          description: `${data.settlement_code} cubre ${rangeStr}. ${data.total_delivered} entregados, ${data.total_not_delivered} fallidos.${extrasSuffix}`,
         });
         setCurrentStep('payment');
       }
@@ -757,6 +818,7 @@ export function PendingReconciliationView() {
     setReconciliationState(initialState);
     setTotalAmountCollected(null);
     setDiscrepancyNotes('');
+    setExtraCharges([]);
   };
 
   const resetSelectionState = () => {
@@ -765,6 +827,7 @@ export function PendingReconciliationView() {
     setReconciliationState(new Map());
     setTotalAmountCollected(null);
     setDiscrepancyNotes('');
+    setExtraCharges([]);
     setSearchTerm('');
     setHasDraft(false);
   };
@@ -1266,6 +1329,14 @@ export function PendingReconciliationView() {
           </ScrollArea>
         </Card>
 
+        {/* Extra flete lines (Migration 184). Mounted ABOVE the amount input
+            so the user sees them before deciding the COD net. */}
+        <ExtraChargesEditor
+          charges={extraCharges}
+          onChange={setExtraCharges}
+          disabled={processing}
+        />
+
         {/* Amount Input */}
         <Card>
           <CardHeader>
@@ -1492,8 +1563,17 @@ export function PendingReconciliationView() {
 
                 <div className="flex justify-between text-muted-foreground">
                   <span>Tarifas entregas ({stats.delivered} pedidos)</span>
-                  <span>-{formatCurrency(financialSummary.totalCarrierFees)}</span>
+                  <span>-{formatCurrency(financialSummary.orderCarrierFees)}</span>
                 </div>
+                {financialSummary.extraChargesTotal > 0 && (
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>
+                      Envíos extra ({extraCharges.length}{' '}
+                      {extraCharges.length === 1 ? 'línea' : 'líneas'})
+                    </span>
+                    <span>-{formatCurrency(financialSummary.extraChargesTotal)}</span>
+                  </div>
+                )}
                 {stats.notDelivered > 0 && (
                   <div className="flex justify-between text-muted-foreground">
                     <span>

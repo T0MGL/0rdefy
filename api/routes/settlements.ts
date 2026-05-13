@@ -805,11 +805,13 @@ settlementsRouter.post(
         orders,
         total_amount_collected,
         discrepancy_notes,
+        extra_charges,
       } = (req.body ?? {}) as {
         carrier_id?: string;
         orders?: Array<{ order_id?: string; delivered?: unknown; failure_reason?: string; override_prepaid?: boolean }>;
         total_amount_collected?: number | string;
         discrepancy_notes?: string;
+        extra_charges?: Array<{ description?: unknown; amount?: unknown }>;
       };
 
       // ---- body validation ----
@@ -864,12 +866,51 @@ settlementsRouter.post(
         if (notes.length === 0) notes = undefined;
       }
 
+      // ---- extras validation (Migration 184) ----
+      // Manual flete lines (relays to Lucero, TSI, etc) that the carrier
+      // charges but that are NOT system orders. Optional, max 20 per
+      // settlement (UI caps at this; DB caps at 50 as a hard ceiling).
+      let sanitizedExtras: Array<{ description: string; amount: number }> | undefined;
+      if (extra_charges !== undefined && extra_charges !== null) {
+        if (!Array.isArray(extra_charges)) {
+          return res.status(400).json({ error: 'extra_charges debe ser un arreglo' });
+        }
+        if (extra_charges.length > 20) {
+          return res.status(400).json({ error: 'Máximo 20 envíos extra por liquidación' });
+        }
+        const cleaned: Array<{ description: string; amount: number }> = [];
+        for (let i = 0; i < extra_charges.length; i++) {
+          const e = extra_charges[i] ?? {};
+          if (typeof e.description !== 'string') {
+            return res.status(400).json({ error: `Envío extra ${i + 1}: descripción inválida` });
+          }
+          // Strip ASCII control chars + trim, same recipe as discrepancy_notes.
+          const description = Array.from(e.description)
+            .filter((char) => {
+              const code = char.charCodeAt(0);
+              return code > 31 && code !== 127;
+            })
+            .join('')
+            .trim();
+          if (description.length === 0 || description.length > 200) {
+            return res.status(400).json({ error: `Envío extra ${i + 1}: descripción debe tener 1-200 caracteres` });
+          }
+          const amt = Number(e.amount);
+          if (!Number.isFinite(amt) || amt < 0) {
+            return res.status(400).json({ error: `Envío extra ${i + 1}: monto inválido` });
+          }
+          cleaned.push({ description, amount: amt });
+        }
+        if (cleaned.length > 0) sanitizedExtras = cleaned;
+      }
+
       logger.info('SETTLEMENTS', 'Processing reconciliation by carrier', {
         store_id: req.storeId,
         user_id: req.userId,
         carrier_id,
         orders_count: orders.length,
         total_amount_collected: amount,
+        extras_count: sanitizedExtras?.length ?? 0,
       });
 
       const result = await settlementsService.processReconciliationByCarrier(
@@ -885,6 +926,7 @@ settlementsRouter.post(
             failure_reason: o.failure_reason,
             override_prepaid: o.override_prepaid ?? false,
           })),
+          extra_charges: sanitizedExtras,
         }
       );
 
