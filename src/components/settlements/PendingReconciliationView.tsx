@@ -61,7 +61,15 @@ import {
   Calendar,
   Clock,
   ArrowUpDown,
+  HelpCircle,
+  Wallet,
 } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -1125,32 +1133,48 @@ export function PendingReconciliationView() {
                               >
                                 {formatCurrency(order.cod_amount)}
                               </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setReconciliationState(prev => {
-                                    const next = new Map(prev);
-                                    const cur = next.get(order.id) || { delivered: true };
-                                    next.set(order.id, {
-                                      ...cur,
-                                      override_prepaid: !cur.override_prepaid,
-                                    });
-                                    return next;
-                                  });
-                                }}
-                                className={`text-xs px-2 py-0.5 rounded border ${
-                                  state?.override_prepaid
-                                    ? 'bg-blue-100 border-blue-300 text-blue-700 dark:bg-blue-950 dark:border-blue-700 dark:text-blue-300'
-                                    : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
-                                }`}
-                                title={
-                                  state?.override_prepaid
-                                    ? 'Click para marcar como COD'
-                                    : 'Click si el cliente ya pagó por transferencia/QR'
-                                }
-                              >
-                                {state?.override_prepaid ? 'Pagado' : '¿Ya pagó?'}
-                              </button>
+                              <TooltipProvider delayDuration={150}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setReconciliationState(prev => {
+                                          const next = new Map(prev);
+                                          const cur = next.get(order.id) || { delivered: true };
+                                          next.set(order.id, {
+                                            ...cur,
+                                            override_prepaid: !cur.override_prepaid,
+                                          });
+                                          return next;
+                                        });
+                                      }}
+                                      className={`text-xs px-2 py-0.5 rounded border ${
+                                        state?.override_prepaid
+                                          ? 'bg-blue-100 border-blue-300 text-blue-700 dark:bg-blue-950 dark:border-blue-700 dark:text-blue-300'
+                                          : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
+                                      }`}
+                                    >
+                                      {state?.override_prepaid ? 'Pagado' : '¿Ya pagó?'}
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="left" className="max-w-xs">
+                                    {state?.override_prepaid ? (
+                                      <p className="text-xs leading-snug">
+                                        Marcaste que el cliente pagó por transferencia o QR antes
+                                        de la entrega. Click para volver al cobro en efectivo
+                                        (COD) por el courier.
+                                      </p>
+                                    ) : (
+                                      <p className="text-xs leading-snug">
+                                        Click si el cliente <strong>ya pagó online</strong> (transferencia
+                                        o QR) y el courier NO cobró efectivo en la entrega. El COD
+                                        de este pedido sale del total a recibir del courier.
+                                      </p>
+                                    )}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
                             </div>
                           ) : (
                             <Badge variant="secondary" className="font-medium">
@@ -1202,7 +1226,26 @@ export function PendingReconciliationView() {
           <CardContent className="space-y-4">
             <div className="flex items-center gap-4">
               <div className="flex-1">
-                <Label htmlFor="amount">Total recibido del courier (Gs)</Label>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Label htmlFor="amount">Total recibido del courier (Gs)</Label>
+                  <TooltipProvider delayDuration={150}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button type="button" className="text-muted-foreground hover:text-foreground" aria-label="Ayuda">
+                          <HelpCircle className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-sm">
+                        <p className="text-xs leading-snug">
+                          El dinero que el courier <strong>te trae en mano hoy</strong>. Si descontó
+                          su tarifa antes de pagarte, ingresá el neto. Si te dio el COD completo
+                          y le pagás la tarifa aparte, ingresá el COD entero. Usá los presets
+                          de abajo para auto-rellenar.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
                 <Input
                   id="amount"
                   type="number"
@@ -1214,21 +1257,84 @@ export function PendingReconciliationView() {
                   onWheel={e => (e.target as HTMLInputElement).blur()}
                   className="mt-1 text-lg font-mono"
                 />
+                {/* Modalidad de cobro presets. Pre-rellenan el input segun como
+                    se resolvio operativamente entre courier y store. Si todo es
+                    prepago no aparecen porque solo hay un escenario (cero cash). */}
+                {stats.codExpected > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <TooltipProvider delayDuration={150}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const net = Math.max(
+                                0,
+                                stats.codExpected - (financialSummary?.totalCarrierFees || 0) - (financialSummary?.failedAttemptFees || 0)
+                              );
+                              setTotalAmountCollected(net);
+                            }}
+                            className="text-xs px-2 py-1 rounded border bg-muted/30 hover:bg-muted text-foreground"
+                          >
+                            Cobró neto (descontó flete)
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="max-w-xs">
+                          <p className="text-xs leading-snug">
+                            El courier ya descontó su tarifa de envío y los fees por entregas
+                            fallidas. Te entrega solo el monto neto. Pre-rellena con: COD esperado
+                            − total flete − fees fallidos.
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <TooltipProvider delayDuration={150}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => setTotalAmountCollected(stats.codExpected)}
+                            className="text-xs px-2 py-1 rounded border bg-muted/30 hover:bg-muted text-foreground"
+                          >
+                            Cobró COD completo
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="max-w-xs">
+                          <p className="text-xs leading-snug">
+                            El courier te entrega el COD completo sin descontar nada. Vos le pagás
+                            la tarifa de flete por separado (transferencia o efectivo aparte). El
+                            neto va a salir negativo: vos le debes a él.
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    {totalAmountCollected !== null && (
+                      <button
+                        type="button"
+                        onClick={() => setTotalAmountCollected(null)}
+                        className="text-xs px-2 py-1 rounded border border-dashed text-muted-foreground hover:bg-muted/30"
+                      >
+                        Limpiar
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="text-right">
                 <p className="text-sm text-muted-foreground">
                   {stats.codExpected > 0 ? 'COD esperado' : 'Todo prepago'}
                 </p>
                 <p className="text-lg font-semibold">{formatCurrency(stats.codExpected)}</p>
-                {stats.codExpected > 0 && totalAmountCollected !== stats.codExpected && (
-                  <Button
-                    variant="link"
-                    size="sm"
-                    className="h-auto p-0 text-xs"
-                    onClick={() => setTotalAmountCollected(stats.codExpected)}
-                  >
-                    Usar monto esperado
-                  </Button>
+                {financialSummary && financialSummary.totalCarrierFees > 0 && (
+                  <div className="mt-2 pt-2 border-t border-dashed">
+                    <p className="text-xs text-muted-foreground flex items-center justify-end gap-1">
+                      <Wallet className="h-3 w-3" />
+                      Total flete
+                    </p>
+                    <p className="font-mono text-amber-600 dark:text-amber-400">
+                      {formatCurrency(financialSummary.totalCarrierFees)}
+                    </p>
+                  </div>
                 )}
               </div>
             </div>
@@ -1459,6 +1565,7 @@ export function PendingReconciliationView() {
                   title="El courier me pago"
                   subtitle="Recibi el dinero en efectivo o transferencia"
                   name="paymentOption"
+                  tooltip="El courier te entregó el saldo neto que te debe, sea en efectivo o por transferencia. El saldo queda saldado en cero al confirmar."
                 />
                 <PaymentRadio
                   selected={selectedPaymentOption === 'deducted_from_cod'}
@@ -1466,6 +1573,7 @@ export function PendingReconciliationView() {
                   title="Ya fue descontado del COD"
                   subtitle="El courier me entrego el monto neto (ya descontadas las tarifas)"
                   name="paymentOption"
+                  tooltip="El courier ya hizo el cálculo al pagarte: te dio COD cobrado menos su tarifa de flete y los fees por fallidos. No hay nada más que mover. Marca el settlement como pagado."
                 />
               </>
             ) : (
@@ -1476,6 +1584,7 @@ export function PendingReconciliationView() {
                   title="Ya pague al courier"
                   subtitle="Le pague las tarifas en efectivo o transferencia"
                   name="paymentOption"
+                  tooltip="Vos le pagaste al courier el monto que le debes (por ejemplo todas las tarifas de envío de pedidos prepagos online, o la diferencia cuando el COD no alcanzó a cubrir el flete). Saldo cerrado."
                 />
                 <PaymentRadio
                   selected={selectedPaymentOption === 'deducted_from_cod'}
@@ -1483,6 +1592,7 @@ export function PendingReconciliationView() {
                   title="Se descontara del proximo COD"
                   subtitle="El courier lo descontara de entregas futuras"
                   name="paymentOption"
+                  tooltip="Le quedás debiendo al courier. En la próxima rendición, el courier va a descontar este saldo del COD que cobre antes de entregártelo. Útil cuando no querés pagar hoy."
                 />
               </>
             )}
@@ -1492,6 +1602,7 @@ export function PendingReconciliationView() {
               title="Pendiente de pago"
               subtitle='Registrar el pago mas tarde desde la pestana "Pagos"'
               name="paymentOption"
+              tooltip="El settlement queda creado pero el cobro o pago todavía no se hizo. Vas a poder marcarlo como pagado más tarde desde la pestaña 'Pagos' con la referencia de transferencia o recibo."
             />
 
             {selectedPaymentOption && selectedPaymentOption !== 'pending' && (
@@ -1586,8 +1697,9 @@ interface PaymentRadioProps {
   title: string;
   subtitle: string;
   name: string;
+  tooltip?: string;
 }
-function PaymentRadio({ selected, onSelect, title, subtitle, name }: PaymentRadioProps) {
+function PaymentRadio({ selected, onSelect, title, subtitle, name, tooltip }: PaymentRadioProps) {
   return (
     <label
       className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
@@ -1603,8 +1715,29 @@ function PaymentRadio({ selected, onSelect, title, subtitle, name }: PaymentRadi
         className="mt-1"
         aria-label={title}
       />
-      <div>
-        <p className="font-medium">{title}</p>
+      <div className="flex-1">
+        <div className="flex items-center gap-1.5">
+          <p className="font-medium">{title}</p>
+          {tooltip && (
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-muted-foreground hover:text-foreground"
+                    aria-label={`Ayuda: ${title}`}
+                  >
+                    <HelpCircle className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-sm">
+                  <p className="text-xs leading-snug">{tooltip}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
         <p className="text-sm text-muted-foreground">{subtitle}</p>
       </div>
     </label>
