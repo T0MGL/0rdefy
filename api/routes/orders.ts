@@ -2504,7 +2504,7 @@ const STATUS_TRANSITIONS: Record<string, Record<string, { allowed: boolean; mess
         in_transit: { allowed: true },
         delivered: { allowed: true },
         cancelled: { allowed: true, requiresStockRestore: true },     // Can cancel
-        returned: { allowed: true },
+        returned: { allowed: true, requiresStockRestore: true },      // Migration 187: returned restores stock
         incident: { allowed: true },
     },
     in_transit: {
@@ -2516,12 +2516,12 @@ const STATUS_TRANSITIONS: Record<string, Record<string, { allowed: boolean; mess
         shipped: { allowed: true },        // Can go back
         delivered: { allowed: true },
         cancelled: { allowed: true, requiresStockRestore: true },     // Can cancel from in_transit
-        returned: { allowed: true },
+        returned: { allowed: true, requiresStockRestore: true },      // Migration 187: returned restores stock
         incident: { allowed: true },
     },
     delivered: {
         // Delivered is final for most actions, but allow some flexibility
-        returned: { allowed: true },
+        returned: { allowed: true, requiresStockRestore: true },      // Migration 187: returned restores stock
         incident: { allowed: true },
         // Disallow going back to earlier states (delivered is final)
         pending: { allowed: false, message: 'Un pedido entregado no puede volver a pendiente. Usa "Devuelto" si el cliente lo devuelve.' },
