@@ -10,6 +10,13 @@ import crypto from 'crypto';
 import { supabaseAdmin } from '../db/connection';
 import { sanitizeSearchInput } from '../utils/sanitize';
 import { isCancelled, isConfirmed, isPending, isRejected } from '../utils/order-status';
+import {
+  resolveSkuMatch,
+  normalizeSku,
+  type SkuMatch,
+  type VariantSummary,
+  type SkuResolutionResult,
+} from '../utils/sku-resolution';
 
 // ================================================================
 // TYPES
@@ -95,6 +102,18 @@ export interface WebhookLog {
 export interface ValidationError {
   field: string;
   message: string;
+}
+
+/**
+ * Per-item SKU resolution result returned by preflightResolveSkus.
+ * Items without a sku are filled with all-null fields, matching the legacy
+ * behaviour for line items that explicitly do not declare an SKU.
+ */
+export interface SkuPreflightEntry {
+  product_id: string | null;
+  variant_id: string | null;
+  image_url: string | null;
+  variant_type: string | null;
 }
 
 // ================================================================
@@ -518,6 +537,221 @@ export class ExternalWebhookService {
     return crypto.randomBytes(4).toString('hex').slice(0, 6);
   }
 
+  // ================================================================
+  // SKU PRE-FLIGHT RESOLUTION (Bug fix 2026-05-16)
+  // ================================================================
+
+  /**
+   * Per-item SKU resolution result returned by preflightResolveSkus.
+   * Mirrors the shape consumed by the line_items insert step downstream.
+   */
+  private static readonly UNRESOLVED_SKU_ITEM: SkuPreflightEntry = {
+    product_id: null,
+    variant_id: null,
+    image_url: null,
+    variant_type: null,
+  };
+
+  /**
+   * Resolve every item.sku in the payload BEFORE creating the order row.
+   *
+   * Rationale
+   *   Until 2026-05-16 the webhook silently mapped bare parent SKUs (e.g.
+   *   `SOLENNE-TAPE`) to the parent product row even when active variants
+   *   existed. Downstream the order kept variant_id=NULL and stock movements
+   *   defaulted to units_per_pack=1 regardless of the buyer's actual pack
+   *   choice. The reconciliation report traced 3 Solenne orders to this path
+   *   and flagged it as a structural ingestion bug.
+   *
+   * Contract
+   *   - Items without a sku string are passed through (no resolution).
+   *   - Items with a sku must resolve to either a variant (preferred) or a
+   *     parent product with zero active variants. Anything else is a 400.
+   *   - The whole order is rejected if ANY item fails. No partial inserts.
+   *
+   * The first failed item determines the error code/message returned to the
+   * caller; subsequent failures are still logged so n8n authors see the full
+   * picture in webhook logs.
+   */
+  async preflightResolveSkus(
+    payload: ExternalOrderPayload,
+    storeId: string,
+  ): Promise<{ ok: true; entries: SkuPreflightEntry[] } | { ok: false; code: string; message: string; suggested_skus?: string[]; item_index: number; sku: string }> {
+    const entries: SkuPreflightEntry[] = [];
+
+    for (let i = 0; i < payload.items.length; i++) {
+      const item = payload.items[i];
+      const normalized = normalizeSku(item.sku);
+
+      if (!normalized) {
+        entries.push({ ...ExternalWebhookService.UNRESOLVED_SKU_ITEM });
+        continue;
+      }
+
+      // 1. Look up the SKU via the canonical RPC, with the same fallback used
+      //    historically in case the RPC is missing (older Supabase snapshots).
+      let match: SkuMatch | null = null;
+      let imageUrl: string | null = null;
+      let inferredVariantType: string | null = null;
+
+      try {
+        const { data } = await supabaseAdmin.rpc('find_product_or_variant_by_sku', {
+          p_store_id: storeId,
+          p_sku: normalized,
+        });
+
+        if (Array.isArray(data) && data.length > 0) {
+          const r = data[0];
+          match = {
+            entity_type: r.entity_type === 'variant' ? 'variant' : 'product',
+            product_id: r.product_id,
+            variant_id: r.variant_id ?? null,
+            product_name: r.product_name ?? '',
+            variant_title: r.variant_title ?? null,
+            sku: r.sku ?? normalized,
+          };
+          imageUrl = r.image_url ?? null;
+        }
+      } catch (rpcErr: unknown) {
+        logger.warn(
+          'BACKEND',
+          `[ExternalWebhook] RPC find_product_or_variant_by_sku unavailable, using fallback lookup for SKU "${normalized}"`,
+        );
+        const fallback = await this.fallbackResolveBySku(storeId, normalized);
+        match = fallback.match;
+        imageUrl = fallback.imageUrl;
+        inferredVariantType = fallback.variantType;
+      }
+
+      // 2. Pull the variant list for the matched product. We need it for two
+      //    reasons: (a) detect bare-parent SKUs even when the RPC happily
+      //    returned the parent row, and (b) resolve variant_type without an
+      //    extra round trip downstream.
+      const variantTypeByVariantId = new Map<string, string | null>();
+      let variantsForProduct: VariantSummary[] = [];
+      if (match) {
+        const { data: vList } = await supabaseAdmin
+          .from('product_variants')
+          .select('id, sku, variant_title, is_active, variant_type, uses_shared_stock')
+          .eq('store_id', storeId)
+          .eq('product_id', match.product_id);
+        variantsForProduct = Array.isArray(vList)
+          ? vList.map((v) => ({
+              id: v.id,
+              sku: v.sku ?? null,
+              variant_title: v.variant_title ?? null,
+              is_active: Boolean(v.is_active),
+            }))
+          : [];
+        if (Array.isArray(vList)) {
+          for (const v of vList) {
+            const vt = v.variant_type ?? (v.uses_shared_stock ? 'bundle' : 'variation');
+            variantTypeByVariantId.set(v.id, vt);
+          }
+        }
+      }
+
+      const decision: SkuResolutionResult = resolveSkuMatch(normalized, match, variantsForProduct);
+
+      if (!decision.ok) {
+        logger.warn(
+          'BACKEND',
+          `[ExternalWebhook] SKU rejected at preflight: store=${storeId} item_index=${i} sku="${normalized}" code=${decision.code}`,
+        );
+        return {
+          ok: false,
+          code: decision.code,
+          message: decision.message,
+          suggested_skus: decision.suggested_skus,
+          item_index: i,
+          sku: normalized,
+        };
+      }
+
+      const resolvedVariantType: string | null = decision.variant_id
+        ? variantTypeByVariantId.get(decision.variant_id) ?? inferredVariantType
+        : inferredVariantType;
+
+      entries.push({
+        product_id: decision.product_id,
+        variant_id: decision.variant_id,
+        image_url: imageUrl,
+        variant_type: resolvedVariantType,
+      });
+    }
+
+    return { ok: true, entries };
+  }
+
+  /**
+   * Fallback SKU lookup for the rare case where the RPC is missing.
+   * Mirrors the original inline path before extraction.
+   */
+  private async fallbackResolveBySku(
+    storeId: string,
+    normalizedSku: string,
+  ): Promise<{ match: SkuMatch | null; imageUrl: string | null; variantType: string | null }> {
+    const { data: variantMatch } = await supabaseAdmin
+      .from('product_variants')
+      .select('id, product_id, variant_type, uses_shared_stock, image_url, variant_title, sku, products!inner(name)')
+      .eq('store_id', storeId)
+      .ilike('sku', normalizedSku)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (variantMatch) {
+      const productName = (variantMatch as any).products?.name ?? '';
+      const variantType: string | null =
+        variantMatch.variant_type ?? (variantMatch.uses_shared_stock ? 'bundle' : 'variation');
+      let imageUrl: string | null = variantMatch.image_url ?? null;
+      if (!imageUrl) {
+        const { data: parentProduct } = await supabaseAdmin
+          .from('products')
+          .select('image_url')
+          .eq('id', variantMatch.product_id)
+          .maybeSingle();
+        imageUrl = parentProduct?.image_url ?? null;
+      }
+      return {
+        match: {
+          entity_type: 'variant',
+          product_id: variantMatch.product_id,
+          variant_id: variantMatch.id,
+          product_name: productName,
+          variant_title: variantMatch.variant_title ?? null,
+          sku: variantMatch.sku ?? normalizedSku,
+        },
+        imageUrl,
+        variantType,
+      };
+    }
+
+    const { data: productMatch } = await supabaseAdmin
+      .from('products')
+      .select('id, name, image_url, sku')
+      .eq('store_id', storeId)
+      .ilike('sku', normalizedSku)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (productMatch) {
+      return {
+        match: {
+          entity_type: 'product',
+          product_id: productMatch.id,
+          variant_id: null,
+          product_name: productMatch.name ?? '',
+          variant_title: null,
+          sku: productMatch.sku ?? normalizedSku,
+        },
+        imageUrl: productMatch.image_url ?? null,
+        variantType: null,
+      };
+    }
+
+    return { match: null, imageUrl: null, variantType: null };
+  }
+
   /**
    * Procesa un pedido entrante y lo guarda en la base de datos
    */
@@ -526,7 +760,17 @@ export class ExternalWebhookService {
     storeId: string,
     config: WebhookConfig,
     requestInfo: { sourceIp?: string; userAgent?: string }
-  ): Promise<{ success: boolean; orderId?: string; orderNumber?: string; customerId?: string; error?: string; isDuplicate?: boolean }> {
+  ): Promise<{
+    success: boolean;
+    orderId?: string;
+    orderNumber?: string;
+    customerId?: string;
+    error?: string;
+    isDuplicate?: boolean;
+    validationCode?: string;
+    validationMessage?: string;
+    validationDetails?: Array<{ field: string; message: string; suggested_skus?: string[] }>;
+  }> {
     const startTime = Date.now();
     let logId: string | null = null;
 
@@ -592,6 +836,52 @@ export class ExternalWebhookService {
           error: 'validation_error'
         };
       }
+
+      // 4.5 Pre-flight SKU resolution (bug fix 2026-05-16).
+      //    Reject the whole order before creating any DB row when any item
+      //    sends an SKU that resolves to a parent product whose store has
+      //    active variants. Without this gate, bare parent SKUs (e.g.
+      //    `SOLENNE-TAPE` when the warehouse uses `SOLENNE-TAPE-100`) end
+      //    up with variant_id=NULL and silently break stock accounting.
+      const preflight = await this.preflightResolveSkus(payload, storeId);
+      if (!preflight.ok) {
+        const errorDetails = [
+          {
+            field: `items[${preflight.item_index}].sku`,
+            message: preflight.message,
+            ...(preflight.suggested_skus && preflight.suggested_skus.length > 0
+              ? { suggested_skus: preflight.suggested_skus }
+              : {}),
+          },
+        ];
+
+        logger.warn(
+          'BACKEND',
+          `[ExternalWebhook] SKU preflight rejected order: store=${storeId} reason=${preflight.code} sku="${preflight.sku}"`,
+        );
+
+        if (logId) {
+          await supabaseAdmin
+            .from('external_webhook_logs')
+            .update({
+              status: 'validation_error',
+              error_message: preflight.message,
+              error_details: errorDetails,
+              processing_time_ms: Date.now() - startTime,
+            })
+            .eq('id', logId);
+        }
+
+        return {
+          success: false,
+          error: 'validation_error',
+          validationCode: preflight.code,
+          validationMessage: preflight.message,
+          validationDetails: errorDetails,
+        };
+      }
+
+      const skuPreflightEntries = preflight.entries;
 
       // 5. Buscar o crear cliente
       const { customerId, isNew: isNewCustomer } = await this.findOrCreateCustomer(
@@ -743,85 +1033,17 @@ export class ExternalWebhookService {
       }
 
       // 8.5 Crear order_line_items para tracking de inventario
-      // Intentar mapear SKU a productos/variantes
-      // Migration 101: Include variant_type for bundle vs variation tracking
-      const orderLineItems = [];
-      for (const item of payload.items) {
-        let productId: string | null = null;
-        let variantId: string | null = null;
-        let variantType: string | null = item.variant_type || null; // Accept from payload for external control
-        let imageUrl: string | null = null;
-
-        // Buscar producto o variante por SKU
-        if (item.sku) {
-          try {
-            const { data: match } = await supabaseAdmin
-              .rpc('find_product_or_variant_by_sku', {
-                p_store_id: storeId,
-                p_sku: item.sku
-              });
-
-            if (match && match.length > 0) {
-              const result = match[0];
-              productId = result.product_id;
-              variantId = result.variant_id;
-              imageUrl = result.image_url || null;
-              logger.info('BACKEND', `✅ [ExternalWebhook] SKU "${item.sku}" mapped to ${result.entity_type}: ${result.variant_id || result.product_id}`);
-            } else {
-              logger.info('BACKEND', `⚠️ [ExternalWebhook] SKU "${item.sku}" not found in inventory - order will be created without stock tracking`);
-            }
-          } catch (rpcErr: any) {
-            logger.warn('BACKEND', `[ExternalWebhook] RPC find_product_or_variant_by_sku not available, trying fallback`);
-
-            // Fallback: Try variant first, then product
-            // Migration 101: Also fetch variant_type and uses_shared_stock
-            const { data: variantMatch } = await supabaseAdmin
-              .from('product_variants')
-              .select('id, product_id, variant_type, uses_shared_stock, image_url')
-              .eq('store_id', storeId)
-              .ilike('sku', item.sku)
-              .eq('is_active', true)
-              .maybeSingle();
-
-            if (variantMatch) {
-              productId = variantMatch.product_id;
-              variantId = variantMatch.id;
-              imageUrl = variantMatch.image_url || null;
-              // Migration 101: Get variant_type from DB if not in payload
-              if (!variantType) {
-                variantType = variantMatch.variant_type || (variantMatch.uses_shared_stock ? 'bundle' : 'variation');
-              }
-              // Fallback to parent product image if variant has none
-              if (!imageUrl) {
-                const { data: parentProduct } = await supabaseAdmin
-                  .from('products')
-                  .select('image_url')
-                  .eq('id', variantMatch.product_id)
-                  .maybeSingle();
-                imageUrl = parentProduct?.image_url || null;
-              }
-              logger.info('BACKEND', `✅ [ExternalWebhook] Variant found by SKU: ${item.sku} (type: ${variantType})`);
-            } else {
-              const { data: productMatch } = await supabaseAdmin
-                .from('products')
-                .select('id, image_url')
-                .eq('store_id', storeId)
-                .ilike('sku', item.sku)
-                .eq('is_active', true)
-                .maybeSingle();
-
-              if (productMatch) {
-                productId = productMatch.id;
-                imageUrl = productMatch.image_url || null;
-              }
-            }
-          }
-        }
-
-        orderLineItems.push({
+      //    SKU -> product_id/variant_id resolution already happened during
+      //    preflight (step 4.5). Here we only need to build the rows. The
+      //    payload-supplied variant_type still wins when present so external
+      //    callers can override the inferred bundle/variation tag.
+      const orderLineItems = payload.items.map((item, idx) => {
+        const resolved = skuPreflightEntries[idx];
+        const variantType: string | null = item.variant_type ?? resolved.variant_type ?? null;
+        return {
           order_id: order.id,
-          product_id: productId,
-          variant_id: variantId,
+          product_id: resolved.product_id,
+          variant_id: resolved.variant_id,
           variant_type: variantType, // Migration 101: bundle vs variation for audit trail
           product_name: item.name,
           variant_title: item.variant_title || null,
@@ -829,11 +1051,11 @@ export class ExternalWebhookService {
           quantity: item.quantity,
           unit_price: item.price,
           total_price: item.price * item.quantity,
-          image_url: imageUrl,
+          image_url: resolved.image_url,
           stock_deducted: false,
           bundle_selections: item.bundle_selections || null // Migration 146
-        });
-      }
+        };
+      });
 
       // Migration 128: Batch-fetch costs for all found products/variants
       if (orderLineItems.length > 0) {

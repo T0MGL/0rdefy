@@ -887,12 +887,16 @@ externalWebhooksRouter.post('/orders/:storeId', async (req: Request, res: Respon
 
     // 7. Responder según el resultado
     if (!result.success) {
-      // Validation error
+      // Validation error (payload schema OR SKU preflight reject).
+      // Surface the structured detail so n8n/landing authors can diagnose
+      // without grepping logs. The SKU preflight path returns a code such as
+      // AMBIGUOUS_PARENT_SKU + a `suggested_skus` array.
       if (result.error === 'validation_error') {
         return res.status(400).json({
           success: false,
-          error: 'validation_error',
-          message: 'Invalid payload'
+          error: result.validationCode || 'validation_error',
+          message: result.validationMessage || 'Invalid payload',
+          details: result.validationDetails ?? undefined,
         });
       }
 
