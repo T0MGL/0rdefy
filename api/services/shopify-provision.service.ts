@@ -374,9 +374,9 @@ export async function provisionShopifyMerchant(params: {
 // Shopify ships shops in any ISO-3166 country; we map non-supported codes
 // to US to avoid violating the CHECK during provisioning. The merchant
 // can update country later from Settings.
-const SUPPORTED_STORE_COUNTRIES = new Set(['PY', 'AR', 'BR', 'UY', 'CL', 'MX', 'US', 'ES']);
+export const SUPPORTED_STORE_COUNTRIES = new Set(['PY', 'AR', 'BR', 'UY', 'CL', 'MX', 'US', 'ES']);
 
-function normalizeCountryCode(raw: string | null | undefined): string {
+export function normalizeCountryCode(raw: string | null | undefined): string {
   const upper = (raw ?? '').toUpperCase().trim();
   return SUPPORTED_STORE_COUNTRIES.has(upper) ? upper : 'US';
 }
