@@ -21,24 +21,10 @@
 
 import './instrument-worker';
 
-import { setDefaultResultOrder } from 'node:dns';
-
-// Force IPv4 for all DNS lookups in this process. Supabase's
-// db.<ref>.supabase.co host resolves to IPv6 first via getaddrinfo,
-// but Railway worker containers (and most container runtimes by
-// default) don't have IPv6 outbound -- pg crashes with ENETUNREACH
-// <ipv6>:5432 on every connect. Set this at the process boundary so
-// pg, the SIFEN https.Agent, and any other outbound socket get the
-// A-record directly. Mirrors what Supabase JS does internally.
-setDefaultResultOrder('ipv4first');
-
 import { logger } from '../utils/logger';
 import { SifenDispatcher } from './sifen-dispatcher';
 import { SifenPoller } from './sifen-poller';
-import {
-  SifenPgListener,
-  resolveListenerConnectionString,
-} from './shared/pg-listener';
+import { SifenRealtimeListener } from './shared/realtime-listener';
 
 type WorkerRole = 'all' | 'dispatcher' | 'poller';
 
@@ -55,7 +41,7 @@ async function main(): Promise<void> {
   const role = resolveRole();
   logger.info(`[sifen-worker] starting role=${role} node=${process.version} pid=${process.pid}`);
 
-  const listener = new SifenPgListener(resolveListenerConnectionString());
+  const listener = new SifenRealtimeListener();
   await listener.start();
 
   const components: Array<{ stop: () => Promise<void> }> = [];

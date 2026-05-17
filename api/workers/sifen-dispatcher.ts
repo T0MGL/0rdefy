@@ -38,7 +38,7 @@ import {
 } from '../services/sifen/sifen-client';
 import { loadCertificateMaterial } from '../services/invoicing.service';
 import { SifenKeyCache, type SifenKeyMaterial } from './shared/key-cache';
-import { SifenPgListener } from './shared/pg-listener';
+import { SifenRealtimeListener } from './shared/realtime-listener';
 
 // ================================================================
 // Configuracion
@@ -107,7 +107,7 @@ export class SifenDispatcher {
   private stopped = false;
   private cycleInFlight: Promise<void> | null = null;
 
-  constructor(private readonly listener: SifenPgListener) {}
+  constructor(private readonly listener: SifenRealtimeListener) {}
 
   async start(): Promise<void> {
     if (this.stopped) throw new Error('Dispatcher stopped, create a new instance');

@@ -37,7 +37,7 @@ import {
   logInvoiceEvent,
 } from '../services/invoicing.service';
 import { SifenKeyCache, type SifenKeyMaterial } from './shared/key-cache';
-import { SifenPgListener } from './shared/pg-listener';
+import { SifenRealtimeListener } from './shared/realtime-listener';
 
 const FALLBACK_SWEEP_MS = 60_000;
 const WAKE_COALESCE_MS = 1_000;
@@ -79,7 +79,7 @@ export class SifenPoller {
   private stopped = false;
   private cycleInFlight: Promise<void> | null = null;
 
-  constructor(private readonly listener: SifenPgListener) {}
+  constructor(private readonly listener: SifenRealtimeListener) {}
 
   async start(): Promise<void> {
     if (this.stopped) throw new Error('Poller stopped, create a new instance');
