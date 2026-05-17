@@ -661,7 +661,11 @@ app.use('/api/carriers', carriersRouter);
 app.use('/api/couriers', couriersRouter); // Repartidores (delivery personnel)
 app.use('/api/merchandise', merchandiseRouter); // Inbound shipments / supplier purchases
 
-// Shopify routes - ORDER MATTERS! More specific routes must come first
+// Shopify routes - ORDER MATTERS! More specific routes must come first.
+// shopifyAuthRouter (Token Exchange + managed install) MUST mount before
+// shopifyRouter because shopifyRouter applies verifyToken globally, which
+// would 401 the public install endpoints before reaching the handler.
+app.use('/api/shopify/auth', shopifyAuthRouter);
 app.use('/api/shopify/manual-oauth', shopifyManualOAuthRouter); // Custom app OAuth for Dev Dashboard 2026
 app.use('/api/shopify-oauth', shopifyOAuthRouter);
 app.use('/api/shopify-sync', shopifySyncRouter);
@@ -718,12 +722,6 @@ app.use('/api/portal', portalRouter);
 // Billing routes (Stripe subscriptions)
 // Note: /api/billing/webhook uses raw body parser internally for Stripe signature
 app.use('/api/billing', billingRouter);
-
-// Shopify Auth: Token Exchange + managed install (App Store 1.x sprint).
-// Feature-flagged behind SHOPIFY_TOKEN_EXCHANGE_ENABLED. The legacy
-// /api/shopify-oauth path stays mounted above for direct users who
-// connect Shopify from app.ordefy.io Settings.
-app.use('/api/shopify/auth', shopifyAuthRouter);
 
 // Upload routes (Image uploads to Supabase Storage)
 app.use('/api/upload', uploadRouter);
