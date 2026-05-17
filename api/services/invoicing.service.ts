@@ -70,6 +70,13 @@ export interface FiscalIdentityRow {
   domicilio_fiscal_distrito: number | null;
   domicilio_fiscal_ciudad: number | null;
   is_active: boolean;
+  /**
+   * Feature flag para enrutar la emision de esta identidad por el WS
+   * asincrono (recibe-lote / consulta-lote) en lugar del sincrono. SIFEN
+   * prod no acepta sync de recepcion DE (politica SET clausula 7.10).
+   * Default false: rollout per-tenant via UPDATE. Migration 189.
+   */
+  sifen_async_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -447,6 +454,20 @@ function rewriteFecFirmaToLocalTz(xml: string, tz: string): string {
   return xml.replace(/<dFecFirma>[^<]*<\/dFecFirma>/, `<dFecFirma>${local}</dFecFirma>`);
 }
 
+/**
+ * Sentinel SifenResponse returned by {@link signInjectSend} when the
+ * identity tiene `sifen_async_enabled = true`. La firma y el QR estan
+ * listos, pero el envio a SIFEN lo realiza el worker dispatcher despues
+ * (NOTIFY-driven). El caller debe interpretar este sentinel como senal
+ * para escribir la invoice en estado 'queued' en vez de bifurcar entre
+ * approved/rejected.
+ */
+const SIFEN_QUEUED_SENTINEL_CODE = 'QUEUED_ASYNC';
+
+function isQueuedSentinel(r: SifenResponse): boolean {
+  return r.responseCode === SIFEN_QUEUED_SENTINEL_CODE;
+}
+
 async function signInjectSend(params: {
   xmlGenerated: string;
   docNumber: number;
@@ -483,6 +504,26 @@ async function signInjectSend(params: {
   }
   const xmlFinal = await injectQR(xmlSigned, env, idCSC, csc);
 
+  // Async branch: identidad con flag activado. Solo firmamos + inyectamos
+  // QR; el envio real a SIFEN lo hace el worker dispatcher tomando la
+  // invoice 'queued' via pg_notify. El caller debe persistir xmlFinal y
+  // marcar la invoice como 'queued'.
+  if (params.identity.sifen_async_enabled === true) {
+    logger.info(
+      `[Invoicing] Identity ${params.identity.id} en modo async: lote dispatch diferido al worker (doc=${params.docNumber})`,
+    );
+    return {
+      xmlSigned,
+      xmlFinal,
+      sifen: {
+        success: true,
+        responseCode: SIFEN_QUEUED_SENTINEL_CODE,
+        responseMessage: 'Encolado para envio asincrono',
+      },
+    };
+  }
+
+  // Legacy sync path: identidades sin migrar todavia.
   const sifen = await sifenClient.sendDE(String(params.docNumber), xmlFinal, env, mtls);
 
   return { xmlSigned, xmlFinal, sifen };
@@ -719,8 +760,11 @@ export async function getFiscalContext(storeId: string): Promise<FiscalContext |
 /**
  * Internal: load raw secrets (cert_pem + decrypted private key) for a
  * store's identity. Never returns these to the client.
+ *
+ * Exported so the SIFEN async worker (dispatcher / poller) can rehydrate
+ * the same material without duplicating the decryption logic.
  */
-async function loadCertificateMaterial(
+export async function loadCertificateMaterial(
   identityId: string,
 ): Promise<{ certPem: string; privateKeyPem: string; csc: string | null }> {
   const { data, error } = await supabaseAdmin
@@ -1663,10 +1707,22 @@ export async function generateInvoice(
     throw new Error(`XML generation failed: ${message}`);
   }
 
+  // Estado inicial:
+  //   - demo: 'demo' (nunca toca SIFEN)
+  //   - async (identity con flag): 'queued' -> dispara pg_notify al
+  //     dispatcher worker que arma el lote y lo envia a SIFEN
+  //   - sync legacy: 'pending' (comportamiento original)
+  const initialStatus = isDemo
+    ? 'demo'
+    : ctx.identity.sifen_async_enabled
+      ? 'queued'
+      : 'pending';
+
   const { data: invoice, error: invoiceErr } = await supabaseAdmin
     .from('invoices')
     .insert({
       store_id: storeId,
+      identity_id: ctx.identity.id,
       order_id: orderId,
       cdc,
       document_number: docNumber,
@@ -1682,7 +1738,7 @@ export async function generateInvoice(
       iva_exento: 0,
       total,
       currency: 'PYG',
-      sifen_status: isDemo ? 'demo' : 'pending',
+      sifen_status: initialStatus,
       xml_generated: xmlGenerated,
     })
     .select()
@@ -1736,28 +1792,53 @@ export async function generateInvoice(
 
       await logInvoiceEvent(storeId, invoice.id, 'signed', { cdc });
 
-      finalStatus = sifenResponse.success ? 'approved' : 'rejected';
-      finalKudeUrl = sifenResponse.success && cdc ? buildKudeUrl(cdc) : null;
+      // Async branch: identidad migrada a SIFEN lote. signInjectSend
+      // firmo + injecto QR pero NO envio. Persistimos xml_signed para
+      // que el dispatcher lo recoja y mantenemos status='queued'. El
+      // estado final (approved/rejected) lo escribe el poller cuando
+      // SIFEN responde la consulta de lote.
+      if (isQueuedSentinel(sifenResponse)) {
+        finalStatus = 'queued';
 
-      await supabaseAdmin
-        .from('invoices')
-        .update({
-          xml_signed: xmlFinal,
-          sifen_status: finalStatus,
-          sifen_response_code: sifenResponse.responseCode,
-          sifen_response_message: sifenResponse.responseMessage,
-          sent_to_sifen_at: new Date().toISOString(),
-          ...(sifenResponse.success && {
-            approved_at: new Date().toISOString(),
-            kude_url: finalKudeUrl,
-          }),
-        })
-        .eq('id', invoice.id);
+        await supabaseAdmin
+          .from('invoices')
+          .update({
+            xml_signed: xmlFinal,
+            sifen_status: 'queued',
+            sifen_response_code: sifenResponse.responseCode,
+            sifen_response_message: sifenResponse.responseMessage,
+          })
+          .eq('id', invoice.id);
 
-      await logInvoiceEvent(storeId, invoice.id, sifenResponse.success ? 'approved' : 'rejected', {
-        response_code: sifenResponse.responseCode,
-        response_message: sifenResponse.responseMessage,
-      });
+        await logInvoiceEvent(storeId, invoice.id, 'queued', {
+          mode: 'async_lote',
+          identity_id: ctx.identity.id,
+        });
+      } else {
+        // Sync legacy: SIFEN respondio en el acto.
+        finalStatus = sifenResponse.success ? 'approved' : 'rejected';
+        finalKudeUrl = sifenResponse.success && cdc ? buildKudeUrl(cdc) : null;
+
+        await supabaseAdmin
+          .from('invoices')
+          .update({
+            xml_signed: xmlFinal,
+            sifen_status: finalStatus,
+            sifen_response_code: sifenResponse.responseCode,
+            sifen_response_message: sifenResponse.responseMessage,
+            sent_to_sifen_at: new Date().toISOString(),
+            ...(sifenResponse.success && {
+              approved_at: new Date().toISOString(),
+              kude_url: finalKudeUrl,
+            }),
+          })
+          .eq('id', invoice.id);
+
+        await logInvoiceEvent(storeId, invoice.id, sifenResponse.success ? 'approved' : 'rejected', {
+          response_code: sifenResponse.responseCode,
+          response_message: sifenResponse.responseMessage,
+        });
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown SIFEN error';
       logger.error(`[Invoicing] SIFEN send failed: ${message}`);
@@ -2079,6 +2160,7 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
     .from('invoices')
     .insert({
       store_id: storeId,
+      identity_id: ctx.identity.id,
       order_id: null,
       cdc,
       document_number: docNumber,
@@ -2094,7 +2176,11 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
       iva_exento: ivaExento,
       total,
       currency: 'PYG',
-      sifen_status: isDemo ? 'demo' : 'pending',
+      sifen_status: isDemo
+        ? 'demo'
+        : ctx.identity.sifen_async_enabled
+          ? 'queued'
+          : 'pending',
       xml_generated: xmlGenerated,
     })
     .select()
@@ -2149,28 +2235,47 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
 
       await logInvoiceEvent(storeId, invoice.id, 'signed', { cdc });
 
-      finalStatus = sifenResponse.success ? 'approved' : 'rejected';
-      finalKudeUrl = sifenResponse.success && cdc ? buildKudeUrl(cdc) : null;
+      if (isQueuedSentinel(sifenResponse)) {
+        // Async branch: dispatcher worker realiza el envio a SIFEN.
+        finalStatus = 'queued';
+        await supabaseAdmin
+          .from('invoices')
+          .update({
+            xml_signed: xmlFinal,
+            sifen_status: 'queued',
+            sifen_response_code: sifenResponse.responseCode,
+            sifen_response_message: sifenResponse.responseMessage,
+          })
+          .eq('id', invoice.id);
+        await logInvoiceEvent(storeId, invoice.id, 'queued', {
+          mode: 'async_lote',
+          source: 'manual',
+          identity_id: ctx.identity.id,
+        });
+      } else {
+        finalStatus = sifenResponse.success ? 'approved' : 'rejected';
+        finalKudeUrl = sifenResponse.success && cdc ? buildKudeUrl(cdc) : null;
 
-      await supabaseAdmin
-        .from('invoices')
-        .update({
-          xml_signed: xmlFinal,
-          sifen_status: finalStatus,
-          sifen_response_code: sifenResponse.responseCode,
-          sifen_response_message: sifenResponse.responseMessage,
-          sent_to_sifen_at: new Date().toISOString(),
-          ...(sifenResponse.success && {
-            approved_at: new Date().toISOString(),
-            kude_url: finalKudeUrl,
-          }),
-        })
-        .eq('id', invoice.id);
+        await supabaseAdmin
+          .from('invoices')
+          .update({
+            xml_signed: xmlFinal,
+            sifen_status: finalStatus,
+            sifen_response_code: sifenResponse.responseCode,
+            sifen_response_message: sifenResponse.responseMessage,
+            sent_to_sifen_at: new Date().toISOString(),
+            ...(sifenResponse.success && {
+              approved_at: new Date().toISOString(),
+              kude_url: finalKudeUrl,
+            }),
+          })
+          .eq('id', invoice.id);
 
-      await logInvoiceEvent(storeId, invoice.id, sifenResponse.success ? 'approved' : 'rejected', {
-        response_code: sifenResponse.responseCode,
-        response_message: sifenResponse.responseMessage,
-      });
+        await logInvoiceEvent(storeId, invoice.id, sifenResponse.success ? 'approved' : 'rejected', {
+          response_code: sifenResponse.responseCode,
+          response_message: sifenResponse.responseMessage,
+        });
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown SIFEN error';
       logger.error(`[Invoicing] Manual SIFEN send failed: ${message}`);
@@ -2466,6 +2571,38 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
   if (ctx.identity.sifen_environment === 'demo') throw new Error('Cannot retry in demo mode');
   if (!ctx.identity.has_certificate) {
     throw new Error('Certificado digital no configurado para re-firmar.');
+  }
+
+  // Async branch: re-encolar para que el dispatcher worker la tome en
+  // el proximo ciclo. Limpiamos dispatch_key (libera el UNIQUE), protocol
+  // y timing. xml_signed se conserva por si quedo valido; el dispatcher
+  // lo reutiliza para evitar re-firmar innecesariamente.
+  if (ctx.identity.sifen_async_enabled) {
+    await supabaseAdmin
+      .from('invoices')
+      .update({
+        sifen_status: 'queued',
+        sifen_lote_dispatch_key: null,
+        sifen_protocol_number: null,
+        sifen_lote_submitted_at: null,
+        sifen_lote_next_poll_at: null,
+        sifen_lote_poll_attempts: 0,
+        sifen_lote_last_error: null,
+        sifen_response_code: null,
+        sifen_response_message: null,
+      })
+      .eq('id', invoiceId);
+
+    await logInvoiceEvent(storeId, invoiceId, 'queued', {
+      retry: true,
+      mode: 'async_lote',
+    });
+
+    return {
+      success: true,
+      message: 'Invoice re-encolada para envio asincrono',
+      status: 'queued',
+    };
   }
 
   const xmlToSend = invoice.xml_signed || invoice.xml_generated;
@@ -2810,7 +2947,7 @@ export async function downloadKude(
  * When `invoiceId` is null the event is dropped (no usable key). Use this
  * for pre-insert failures where we have no row to attach to.
  */
-async function logInvoiceEvent(
+export async function logInvoiceEvent(
   storeId: string,
   invoiceId: string | null,
   eventType: string,
@@ -2855,7 +2992,7 @@ async function logInvoiceEvent(
  * NEVER throws. If the backing INSERT fails the error is logged but the
  * caller flow continues (alerts are diagnostics, not blocking).
  */
-async function emitOwnerAlert(params: {
+export async function emitOwnerAlert(params: {
   storeId: string;
   alertType: string;
   severity?: 'low' | 'medium' | 'high' | 'critical';
