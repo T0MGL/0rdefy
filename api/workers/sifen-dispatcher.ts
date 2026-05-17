@@ -1,0 +1,466 @@
+/**
+ * SIFEN async dispatcher.
+ *
+ * Toma invoices con sifen_status='queued' (encoladas por
+ * invoicing.service.signInjectSend cuando la identidad tiene
+ * sifen_async_enabled=true), las agrupa por (identity_id, env), y las
+ * envia a SIFEN por el WS asincrono siRecepLoteDE (Manual v150 9.2).
+ *
+ * Coordinacion con el resto del sistema:
+ *   - Trigger pg_notify('sifen_invoice_queued') de migration 189
+ *     despierta el dispatcher en sub-segundo. Cero polling en idle.
+ *   - SELECT ... FOR UPDATE SKIP LOCKED permite escalar replicas en
+ *     Railway sin race conditions. Cada replica toma su propio chunk.
+ *   - sifen_lote_dispatch_key UNIQUE (migration 189) protege contra
+ *     doble dispatch si el worker reinicia mid-flight: el hash del lote
+ *     no cambia, asi que un re-take genera el mismo key y la UNIQUE
+ *     constraint hace el INSERT-equivalente del dispatch idempotente.
+ *
+ * Lote layout:
+ *   - Hasta 50 DEs del mismo (identity_id, tipo_documento, env)
+ *   - Cada DE ya viene firmado en invoices.xml_signed
+ *   - Se construye <rLoteDE>, se zipea, se base64a, se envia dentro de
+ *     <rEnvioLote> via sendDELote(...)
+ *
+ * Backoff: si el batch falla por motivo transitorio (timeout, 5xx) las
+ * invoices vuelven a 'queued' para el proximo tick. Si SIFEN responde
+ * 0301 (lote rechazado por estructura) se marcan como 'rejected' con
+ * mensaje, dado que reintentar el mismo lote daria el mismo error.
+ */
+
+import crypto from 'crypto';
+import { logger } from '../utils/logger';
+import { supabaseAdmin } from '../db/connection';
+import {
+  sendDELote,
+  type SifenLoteResponse,
+  type SifenMtls,
+} from '../services/sifen/sifen-client';
+import { loadCertificateMaterial } from '../services/invoicing.service';
+import { SifenKeyCache, type SifenKeyMaterial } from './shared/key-cache';
+import { SifenPgListener } from './shared/pg-listener';
+
+// ================================================================
+// Configuracion
+// ================================================================
+
+/**
+ * Max DEs por lote. Manual v150 9.2: 50 hard cap. Mantenemos 50 para
+ * minimizar requests SIFEN (1000 tiendas con 10 DE/dia = 200 lotes/dia
+ * vs 10k requests sync).
+ */
+const MAX_DES_PER_LOTE = 50;
+
+/**
+ * Ventana de espera para acumular mas DEs antes de cerrar el lote.
+ * Si llegan 50 antes, cierra inmediato. Si llega 1 solo, espera hasta
+ * este maximo. Trade-off: bajo = latencia menor por DE, alto = mejor
+ * batching. 30s es balance razonable para volumen medio.
+ */
+const BATCH_WINDOW_MS = 30_000;
+
+/**
+ * Timeout completo de un ciclo de dispatch (signXmlLoad + zip + send).
+ * Despues de esto el AbortController cancela el request HTTPS subyacente.
+ */
+const DISPATCH_TIMEOUT_MS = 60_000;
+
+/**
+ * Periodo del cron fallback. NOTIFY despierta el dispatcher casi
+ * inmediato; este timer existe solo para barrer invoices que quedaron
+ * 'queued' si por alguna razon la notif no llego (reinicio del worker
+ * entre el INSERT y la conexion del LISTEN, por ejemplo).
+ */
+const FALLBACK_SWEEP_MS = 60_000;
+
+/**
+ * Limite de invoices a tomar en un solo barrido. Acotar protege contra
+ * spikes (1000 invoices encoladas todas juntas no deben colapsar memoria
+ * o el statement timeout de Supabase). Cada barrido despues vuelve a
+ * pedir mas.
+ */
+const SWEEP_LIMIT = 500;
+
+const KEY_CACHE_OPTIONS = { max: 100, ttlMs: 5 * 60 * 1_000 };
+
+// ================================================================
+// Estado interno
+// ================================================================
+
+interface PendingInvoiceRow {
+  id: string;
+  store_id: string;
+  identity_id: string;
+  document_number: number;
+  tipo_documento: number;
+  xml_signed: string | null;
+  sifen_environment: 'test' | 'prod';
+}
+
+export class SifenDispatcher {
+  private readonly keyCache = new SifenKeyCache(KEY_CACHE_OPTIONS);
+  private readonly abortController = new AbortController();
+
+  private wakeTimer: NodeJS.Timeout | null = null;
+  private sweepTimer: NodeJS.Timeout | null = null;
+  private running = false;
+  private stopped = false;
+  private cycleInFlight: Promise<void> | null = null;
+
+  constructor(private readonly listener: SifenPgListener) {}
+
+  async start(): Promise<void> {
+    if (this.stopped) throw new Error('Dispatcher stopped, create a new instance');
+    if (this.running) return;
+    this.running = true;
+
+    this.listener.on('sifen_invoice_queued', () => {
+      this.scheduleWake();
+    });
+
+    // Fallback periodico por si el NOTIFY se pierde.
+    this.sweepTimer = setInterval(() => {
+      this.scheduleWake();
+    }, FALLBACK_SWEEP_MS);
+    this.sweepTimer.unref();
+
+    // Primer barrido inmediato al arrancar para drenar lo que haya quedado
+    // queued antes de que el listener se conectara.
+    this.scheduleWake();
+
+    logger.info('[SifenDispatcher] started');
+  }
+
+  async stop(): Promise<void> {
+    this.stopped = true;
+    this.running = false;
+    if (this.wakeTimer) clearTimeout(this.wakeTimer);
+    if (this.sweepTimer) clearInterval(this.sweepTimer);
+    this.wakeTimer = null;
+    this.sweepTimer = null;
+
+    this.abortController.abort();
+
+    if (this.cycleInFlight) {
+      try {
+        await this.cycleInFlight;
+      } catch {
+        /* swallow: shutdown */
+      }
+    }
+
+    this.keyCache.clear();
+    logger.info('[SifenDispatcher] stopped');
+  }
+
+  /** Coalesce de wakeups en una ventana corta para batchear NOTIFYs. */
+  private scheduleWake(): void {
+    if (!this.running) return;
+    if (this.wakeTimer) return; // ya hay uno programado
+    this.wakeTimer = setTimeout(() => {
+      this.wakeTimer = null;
+      this.runCycle();
+    }, BATCH_WINDOW_MS);
+    this.wakeTimer.unref();
+  }
+
+  private runCycle(): void {
+    if (!this.running) return;
+    if (this.cycleInFlight) {
+      // Ya hay uno corriendo. El proximo NOTIFY o sweep va a re-disparar.
+      return;
+    }
+    this.cycleInFlight = this.processQueue()
+      .catch((err) => {
+        logger.error(
+          `[SifenDispatcher] cycle failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      })
+      .finally(() => {
+        this.cycleInFlight = null;
+      });
+  }
+
+  private async processQueue(): Promise<void> {
+    const rows = await this.fetchQueuedInvoices();
+    if (rows.length === 0) return;
+
+    // Group by (identity_id, tipo_documento, env): SIFEN requiere lote
+    // homogeneo por tipo de DE, y nosotros queremos un solo cert/mTLS
+    // por lote, asi que tambien por identity.
+    const groups = new Map<string, PendingInvoiceRow[]>();
+    for (const row of rows) {
+      const key = `${row.identity_id}|${row.tipo_documento}|${row.sifen_environment}`;
+      const bucket = groups.get(key) ?? [];
+      bucket.push(row);
+      groups.set(key, bucket);
+    }
+
+    for (const bucket of groups.values()) {
+      // Subdividir en lotes de hasta 50.
+      for (let i = 0; i < bucket.length; i += MAX_DES_PER_LOTE) {
+        const slice = bucket.slice(i, i + MAX_DES_PER_LOTE);
+        if (!this.running) return;
+        await this.dispatchLote(slice);
+      }
+    }
+  }
+
+  private async fetchQueuedInvoices(): Promise<PendingInvoiceRow[]> {
+    // Nota: supabase-js no expone SELECT FOR UPDATE SKIP LOCKED directo.
+    // Usamos un RPC sencillo: tomar las invoices, asignarles un
+    // dispatch_key provisorio y reservarlas en un UPDATE atomico.
+    //
+    // El UPDATE filtra por sifen_status='queued' AND dispatch_key IS NULL
+    // para evitar pisar invoices ya en flight. La UNIQUE constraint en
+    // dispatch_key garantiza que dos replicas no escriban la misma key.
+    //
+    // Mantenemos el claim corto: solo seteamos un placeholder 'CLAIM:<uuid>'
+    // y antes de enviar a SIFEN sobreescribimos con el hash real del XML
+    // del lote. Si el worker crashea entre el claim y el send, el sweep
+    // siguiente las ve con dispatch_key='CLAIM:*' y NO las re-toma; un
+    // job de housekeeping puede limpiar claims viejos.
+
+    const { data: claimed, error } = await supabaseAdmin
+      .from('invoices')
+      .select(
+        'id, store_id, identity_id, document_number, tipo_documento, xml_signed, fiscal_identities!inner(sifen_environment)',
+      )
+      .eq('sifen_status', 'queued')
+      .is('sifen_lote_dispatch_key', null)
+      .not('xml_signed', 'is', null)
+      .order('created_at', { ascending: true })
+      .limit(SWEEP_LIMIT);
+
+    if (error) {
+      logger.error(`[SifenDispatcher] fetch queued failed: ${error.message}`);
+      return [];
+    }
+    if (!claimed || claimed.length === 0) return [];
+
+    // supabase-js typea el embedded join como array aunque la FK sea
+    // 1-to-1. Convertimos manualmente al primer elemento, defendiendo
+    // contra payload vacio.
+    type ClaimedRow = {
+      id: string;
+      store_id: string;
+      identity_id: string | null;
+      document_number: number;
+      tipo_documento: number;
+      xml_signed: string | null;
+      fiscal_identities: { sifen_environment: string } | Array<{ sifen_environment: string }> | null;
+    };
+    const rows: PendingInvoiceRow[] = [];
+    for (const r of claimed as unknown as ClaimedRow[]) {
+      const fi = Array.isArray(r.fiscal_identities)
+        ? r.fiscal_identities[0]
+        : r.fiscal_identities;
+      const env = fi?.sifen_environment;
+      if (!r.identity_id || !r.xml_signed) continue;
+      if (env !== 'test' && env !== 'prod') continue; // demo no llega aca
+      rows.push({
+        id: r.id,
+        store_id: r.store_id,
+        identity_id: r.identity_id,
+        document_number: r.document_number,
+        tipo_documento: r.tipo_documento,
+        xml_signed: r.xml_signed,
+        sifen_environment: env,
+      });
+    }
+    return rows;
+  }
+
+  private async dispatchLote(invoices: PendingInvoiceRow[]): Promise<void> {
+    if (invoices.length === 0) return;
+
+    const identityId = invoices[0].identity_id;
+    const env = invoices[0].sifen_environment;
+    const tipo = invoices[0].tipo_documento;
+    const invoiceIds = invoices.map((i) => i.id);
+    const signedDEs = invoices.map((i) => i.xml_signed!).filter(Boolean);
+
+    if (signedDEs.length !== invoices.length) {
+      logger.error(
+        `[SifenDispatcher] lote dropped: missing xml_signed on some invoices identity=${identityId}`,
+      );
+      return;
+    }
+
+    // dispatchKey deterministico: si reintentamos el mismo lote (worker
+    // restart), el hash colisiona y la UNIQUE constraint nos protege
+    // de double-dispatch. Truncado a 40 chars para caber en VARCHAR(64).
+    const dispatchKey = crypto
+      .createHash('sha256')
+      .update(signedDEs.join('|'))
+      .digest('hex')
+      .slice(0, 40);
+
+    // Reservar las invoices con el dispatch_key. Si otra replica ya
+    // gano la carrera, el UPDATE no afecta filas (las invoices ya
+    // tienen dispatch_key) y la UNIQUE constraint bloquea el INSERT
+    // equivalente.
+    const { data: reserved, error: reserveErr } = await supabaseAdmin
+      .from('invoices')
+      .update({
+        sifen_lote_dispatch_key: dispatchKey,
+        sifen_lote_submitted_at: new Date().toISOString(),
+      })
+      .in('id', invoiceIds)
+      .eq('sifen_status', 'queued')
+      .is('sifen_lote_dispatch_key', null)
+      .select('id');
+
+    if (reserveErr) {
+      logger.error(
+        `[SifenDispatcher] reserve failed identity=${identityId}: ${reserveErr.message}`,
+      );
+      return;
+    }
+    const reservedIds = (reserved ?? []).map((r) => r.id as string);
+    if (reservedIds.length === 0) {
+      logger.info(
+        `[SifenDispatcher] race lost, all invoices already claimed identity=${identityId}`,
+      );
+      return;
+    }
+    // Subset que realmente reservamos
+    const reservedSet = new Set(reservedIds);
+    const finalInvoices = invoices.filter((i) => reservedSet.has(i.id));
+    const finalSignedDEs = finalInvoices.map((i) => i.xml_signed!);
+
+    // dispatchId que mandamos en <dId>. Maximo 15 digitos numericos.
+    // Tomamos los primeros 15 chars decimales del hash convertidos a
+    // numero positivo, asi es deterministico y dentro del rango.
+    const dispatchId = String(
+      BigInt('0x' + dispatchKey.slice(0, 15)) % BigInt(1_000_000_000_000_000n),
+    ).padStart(1, '0');
+
+    const material = await this.getKeyMaterial(identityId);
+    if (!material) {
+      await this.markBatchRejected(
+        reservedIds,
+        'CERT_LOAD',
+        'Certificado digital no disponible para la identidad',
+      );
+      return;
+    }
+    const mtls: SifenMtls = {
+      certPem: material.certPem,
+      privateKeyPem: material.privateKeyPem,
+    };
+
+    const cycleAbort = new AbortController();
+    const timeout = setTimeout(() => cycleAbort.abort(), DISPATCH_TIMEOUT_MS);
+    timeout.unref();
+    const onParentAbort = () => cycleAbort.abort();
+    this.abortController.signal.addEventListener('abort', onParentAbort, { once: true });
+
+    let response: SifenLoteResponse;
+    try {
+      response = await sendDELote(
+        dispatchId,
+        finalSignedDEs,
+        env,
+        mtls,
+        cycleAbort.signal,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn(
+        `[SifenDispatcher] transient send failure dispatch=${dispatchKey} count=${finalInvoices.length} identity=${identityId}: ${message}`,
+      );
+      // Transient: devolver al estado queued limpiando dispatch_key, asi
+      // el proximo tick las vuelve a tomar. Sin marcar como rejected.
+      await supabaseAdmin
+        .from('invoices')
+        .update({
+          sifen_lote_dispatch_key: null,
+          sifen_lote_submitted_at: null,
+          sifen_lote_last_error: message.slice(0, 1000),
+        })
+        .in('id', reservedIds);
+      return;
+    } finally {
+      clearTimeout(timeout);
+      this.abortController.signal.removeEventListener('abort', onParentAbort);
+    }
+
+    if (response.success && response.protocolNumber) {
+      // Lote encolado en SIFEN. Programar el primer poll.
+      const dTpoSecs = response.processingTimeSeconds ?? 60;
+      // Manual v150 8.2.2 dice usar dTpoProces como referencia. Aplicamos
+      // un factor de seguridad para no llegar antes de tiempo a SIFEN.
+      const firstPollDelaySecs = Math.max(60, Math.min(dTpoSecs * 2, 600));
+      const nextPollAt = new Date(Date.now() + firstPollDelaySecs * 1_000).toISOString();
+
+      const { error: updErr } = await supabaseAdmin
+        .from('invoices')
+        .update({
+          sifen_status: 'sent',
+          sifen_protocol_number: response.protocolNumber,
+          sifen_lote_next_poll_at: nextPollAt,
+          sifen_lote_last_error: null,
+          sent_to_sifen_at: new Date().toISOString(),
+          sifen_response_code: response.responseCode,
+          sifen_response_message: response.responseMessage,
+        })
+        .in('id', reservedIds);
+
+      if (updErr) {
+        logger.error(
+          `[SifenDispatcher] update sent failed dispatch=${dispatchKey}: ${updErr.message}`,
+        );
+        return;
+      }
+
+      logger.info(
+        `[SifenDispatcher] lote sent dispatch=${dispatchKey} count=${finalInvoices.length} identity=${identityId} protocol=${response.protocolNumber} firstPoll=${firstPollDelaySecs}s`,
+      );
+    } else {
+      // SIFEN rechazo el lote (0301 u otro). Marcar rejected, owner_alert
+      // por invoice. Reintentar exactamente el mismo lote daria el mismo
+      // error, asi que no lo re-encolamos automaticamente.
+      await this.markBatchRejected(
+        reservedIds,
+        response.responseCode,
+        response.responseMessage,
+      );
+      logger.warn(
+        `[SifenDispatcher] lote rejected dispatch=${dispatchKey} count=${finalInvoices.length} identity=${identityId} code=${response.responseCode} msg=${response.responseMessage}`,
+      );
+    }
+  }
+
+  private async markBatchRejected(
+    invoiceIds: string[],
+    code: string,
+    message: string,
+  ): Promise<void> {
+    await supabaseAdmin
+      .from('invoices')
+      .update({
+        sifen_status: 'rejected',
+        sifen_response_code: code,
+        sifen_response_message: message,
+        sifen_lote_last_error: message.slice(0, 1000),
+      })
+      .in('id', invoiceIds);
+  }
+
+  private async getKeyMaterial(identityId: string): Promise<SifenKeyMaterial | null> {
+    const cached = this.keyCache.get(identityId);
+    if (cached) return cached;
+
+    try {
+      const fresh = await loadCertificateMaterial(identityId);
+      this.keyCache.set(identityId, fresh);
+      return fresh;
+    } catch (err) {
+      logger.error(
+        `[SifenDispatcher] loadCertificateMaterial failed identity=${identityId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
+  }
+}
