@@ -1800,7 +1800,7 @@ export async function generateInvoice(
       if (isQueuedSentinel(sifenResponse)) {
         finalStatus = 'queued';
 
-        await supabaseAdmin
+        const { data: updRows, error: updErr } = await supabaseAdmin
           .from('invoices')
           .update({
             xml_signed: xmlFinal,
@@ -1808,7 +1808,11 @@ export async function generateInvoice(
             sifen_response_code: sifenResponse.responseCode,
             sifen_response_message: sifenResponse.responseMessage,
           })
-          .eq('id', invoice.id);
+          .eq('id', invoice.id)
+          .select('id, xml_signed, sifen_status, updated_at');
+        logger.warn(
+          `[Invoicing] Order async UPDATE result invoice=${invoice.id} rows=${updRows?.length ?? 0} xmlSignedLen=${xmlFinal?.length ?? 0} err=${updErr?.message ?? 'none'}`,
+        );
 
         await logInvoiceEvent(storeId, invoice.id, 'queued', {
           mode: 'async_lote',
@@ -2238,7 +2242,10 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
       if (isQueuedSentinel(sifenResponse)) {
         // Async branch: dispatcher worker realiza el envio a SIFEN.
         finalStatus = 'queued';
-        await supabaseAdmin
+        // Use .select() to surface row count + any silent failure so we
+        // catch the (b06a724e-style) case where the UPDATE returns OK
+        // but the row is untouched.
+        const { data: updRows, error: updErr } = await supabaseAdmin
           .from('invoices')
           .update({
             xml_signed: xmlFinal,
@@ -2246,7 +2253,11 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
             sifen_response_code: sifenResponse.responseCode,
             sifen_response_message: sifenResponse.responseMessage,
           })
-          .eq('id', invoice.id);
+          .eq('id', invoice.id)
+          .select('id, xml_signed, sifen_status, updated_at');
+        logger.warn(
+          `[Invoicing] Manual async UPDATE result invoice=${invoice.id} rows=${updRows?.length ?? 0} xmlSignedLen=${xmlFinal?.length ?? 0} err=${updErr?.message ?? 'none'}`,
+        );
         await logInvoiceEvent(storeId, invoice.id, 'queued', {
           mode: 'async_lote',
           source: 'manual',
