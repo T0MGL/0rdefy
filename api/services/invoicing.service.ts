@@ -462,7 +462,10 @@ function rewriteFecFirmaToLocalTz(xml: string, tz: string): string {
  * para escribir la invoice en estado 'queued' en vez de bifurcar entre
  * approved/rejected.
  */
-const SIFEN_QUEUED_SENTINEL_CODE = 'QUEUED_ASYNC';
+// VARCHAR(10) cap on invoices.sifen_response_code (migration 125), so
+// the sentinel must be <= 10 chars or the UPDATE silently aborts the
+// whole row write with "value too long for type character varying(10)".
+const SIFEN_QUEUED_SENTINEL_CODE = 'QUEUED';
 
 function isQueuedSentinel(r: SifenResponse): boolean {
   return r.responseCode === SIFEN_QUEUED_SENTINEL_CODE;
