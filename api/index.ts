@@ -53,7 +53,7 @@ import { externalWebhooksRouter } from './routes/external-webhooks';
 import { outboundWebhooksRouter } from './routes/outbound-webhooks';
 // import phoneVerificationRouter from './routes/phone-verification'; // TODO: Enable when WhatsApp number is ready
 import billingRouter from './routes/billing';
-import { shopifyBillingRouter } from './routes/shopify-billing';
+import { shopifyAuthRouter } from './routes/shopify-auth';
 import uploadRouter from './routes/upload';
 import onboardingRouter from './routes/onboarding';
 import { invoicingRouter } from './routes/invoicing';
@@ -719,9 +719,11 @@ app.use('/api/portal', portalRouter);
 // Note: /api/billing/webhook uses raw body parser internally for Stripe signature
 app.use('/api/billing', billingRouter);
 
-// Shopify Billing API routes (App Store merchants — Req 1.2.2 / 1.2.3)
-// Confirm callback must be reachable without auth (Shopify redirect)
-app.use('/api/shopify-billing', shopifyBillingRouter);
+// Shopify Auth: Token Exchange + managed install (App Store 1.x sprint).
+// Feature-flagged behind SHOPIFY_TOKEN_EXCHANGE_ENABLED. The legacy
+// /api/shopify-oauth path stays mounted above for direct users who
+// connect Shopify from app.ordefy.io Settings.
+app.use('/api/shopify/auth', shopifyAuthRouter);
 
 // Upload routes (Image uploads to Supabase Storage)
 app.use('/api/upload', uploadRouter);
