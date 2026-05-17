@@ -2587,14 +2587,34 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
     throw new Error('Certificado digital no configurado para re-firmar.');
   }
 
-  // Async branch: re-encolar para que el dispatcher worker la tome en
-  // el proximo ciclo. Limpiamos dispatch_key (libera el UNIQUE), protocol
-  // y timing. xml_signed se conserva por si quedo valido; el dispatcher
-  // lo reutiliza para evitar re-firmar innecesariamente.
+  // Async branch: re-firmar (si la previa fallo antes de persistir
+  // xml_signed) + re-encolar para que el dispatcher worker la tome.
+  // Limpiamos dispatch_key (libera el UNIQUE), protocol y timing.
   if (ctx.identity.sifen_async_enabled) {
+    // Si la invoice no tiene xml_signed (pre-dispatch error o retry de
+    // una rejection temprana), re-firmamos desde xml_generated. Sin
+    // xml_signed el dispatcher no la puede tomar.
+    let xmlSignedToPersist: string | null = invoice.xml_signed as string | null;
+    if (!xmlSignedToPersist && invoice.xml_generated) {
+      const { certPem, privateKeyPem, csc } = await loadCertificateMaterial(ctx.identity.id);
+      const storeTz = await getStoreTimezone(supabaseAdmin, storeId);
+      const xmlWithLocalFirma = rewriteFecFirmaToLocalTz(invoice.xml_generated, storeTz);
+      const xmlSigned = await signXML(xmlWithLocalFirma, privateKeyPem, certPem);
+      const envForRetry = ctx.identity.sifen_environment as 'test' | 'prod';
+      const idCSCRetry = envForRetry === 'prod'
+        ? (ctx.identity.csc_id as string)
+        : SIFEN_TEST_ID_CSC;
+      const cscRetry = envForRetry === 'prod' ? (csc as string) : SIFEN_TEST_CSC;
+      if (envForRetry === 'prod' && (!idCSCRetry || !cscRetry)) {
+        throw new Error('CSC no configurado. Cargalo en Configuracion Fiscal antes de reintentar en produccion.');
+      }
+      xmlSignedToPersist = await injectQR(xmlSigned, envForRetry, idCSCRetry, cscRetry);
+    }
+
     await supabaseAdmin
       .from('invoices')
       .update({
+        xml_signed: xmlSignedToPersist,
         sifen_status: 'queued',
         sifen_lote_dispatch_key: null,
         sifen_protocol_number: null,
@@ -2610,6 +2630,7 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
     await logInvoiceEvent(storeId, invoiceId, 'queued', {
       retry: true,
       mode: 'async_lote',
+      re_signed: !invoice.xml_signed,
     });
 
     return {
