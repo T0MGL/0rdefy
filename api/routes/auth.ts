@@ -1304,6 +1304,88 @@ authRouter.post('/delete-account', verifyToken, async (req: AuthRequest, res: Re
 });
 
 /**
+ * GET /api/auth/me
+ * Returns the authenticated user payload in the same shape as /login,
+ * minus the JWT (the caller already has a valid one). Used by the
+ * frontend AuthContext.refreshUser() after Shopify Token Exchange so
+ * the dashboard can mount with full user + stores hydrated without a
+ * page reload that would re-trigger App Bridge.
+ */
+authRouter.get('/me', verifyToken, async (req: AuthRequest, res: Response) => {
+    try {
+        if (!req.userId) {
+            return res.status(401).json({ success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' });
+        }
+
+        const { data: user, error: userError } = await supabaseAdmin
+            .from('users')
+            .select('id, email, name, phone, is_active')
+            .eq('id', req.userId)
+            .single();
+
+        if (userError || !user) {
+            log.error('GET /me user fetch failed', userError);
+            return res.status(404).json({ success: false, error: 'User not found', code: 'USER_NOT_FOUND' });
+        }
+
+        if (!user.is_active) {
+            return res.status(401).json({ success: false, error: 'Account is inactive', code: 'ACCOUNT_INACTIVE' });
+        }
+
+        const { data: userStoresData, error: storesError } = await supabaseAdmin
+            .from('user_stores')
+            .select(`
+                store_id,
+                role,
+                is_active,
+                stores (
+                    id,
+                    name,
+                    country,
+                    currency,
+                    timezone,
+                    separate_confirmation_flow,
+                    auto_assign_cheapest_carrier
+                )
+            `)
+            .eq('user_id', req.userId)
+            .eq('is_active', true);
+
+        if (storesError) {
+            log.error('GET /me stores fetch failed', storesError);
+        }
+
+        const stores = userStoresData?.map((us: any) => ({
+            id: us.stores.id,
+            name: us.stores.name,
+            country: us.stores.country,
+            currency: us.stores.currency,
+            timezone: us.stores.timezone,
+            separate_confirmation_flow: us.stores.separate_confirmation_flow ?? false,
+            auto_assign_cheapest_carrier: us.stores.auto_assign_cheapest_carrier ?? true,
+            role: us.role,
+        })) || [];
+
+        const supabaseToken = signSupabaseRealtimeToken({ id: user.id, email: user.email });
+
+        return res.json({
+            success: true,
+            supabaseToken,
+            user: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                phone: user.phone,
+                stores,
+            },
+        });
+    } catch (error: any) {
+        log.error('GET /me unexpected error', error);
+        return res.status(500).json({ success: false, error: 'An error occurred', code: 'INTERNAL_ERROR' });
+    }
+});
+
+/**
  * GET /api/auth/stores
  * Fetch all stores associated with the authenticated user
  */
