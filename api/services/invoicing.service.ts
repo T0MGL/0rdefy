@@ -2816,10 +2816,17 @@ export async function downloadXML(storeId: string, invoiceId: string) {
 //   3. Fiscal context must exist (store linked to an identity)
 //   4. Link must have setup_completed = true (cert uploaded, timbrado set)
 //   5. Link must have auto_emit_invoice_on_delivery = true (owner opt-in)
+//   6. Every product referenced by the order's line_items must have a
+//      non-empty `products.fiscal_description` (migration 193). This is a
+//      quality gate: facturas son legales, no se auto-emiten con
+//      descripciones genericas / faltantes. Si algun item falla el
+//      check, emit owner_alert para que el owner complete los datos
+//      y vuelva a confirmar delivery manualmente.
 //
-// Any gate that fails short-circuits silently (logged at INFO). Real errors
-// (SIFEN reject, network) flow through generateInvoice() which surfaces
-// them via owner_alerts.
+// Any gate that fails short-circuits silently (logged at INFO) excepto
+// el gate 6 que es ruidoso (owner_alert). Real errors (SIFEN reject,
+// network) flow through generateInvoice() which surfaces them via
+// owner_alerts.
 export async function tryAutoEmitOnDelivery(
   storeId: string,
   orderId: string,
@@ -2834,7 +2841,7 @@ export async function tryAutoEmitOnDelivery(
 
     const { data: order } = await supabaseAdmin
       .from('orders')
-      .select('customer_ruc, invoice_id')
+      .select('customer_ruc, invoice_id, display_order_number')
       .eq('id', orderId)
       .single();
     if (!order?.customer_ruc) return;
@@ -2847,6 +2854,67 @@ export async function tryAutoEmitOnDelivery(
     if (!ctx) return;
     if (!ctx.link.setup_completed) return;
     if (!ctx.link.auto_emit_invoice_on_delivery) return;
+
+    // Gate 6: validate every line_item's product has fiscal_description.
+    // Items sin product_id (productos eliminados, lineas custom) tampoco
+    // pasan: la factura debe poder respaldar cada linea con datos reales.
+    const { data: items, error: itemsErr } = await supabaseAdmin
+      .from('order_line_items')
+      .select('id, product_id, product_name, products(id, name, fiscal_description)')
+      .eq('order_id', orderId);
+
+    if (itemsErr || !items || items.length === 0) {
+      logger.warn(
+        `[AutoInvoice] Order ${orderId} sin line_items o error: ${itemsErr?.message ?? 'empty'}`,
+      );
+      return;
+    }
+
+    type ItemRow = {
+      id: string;
+      product_id: string | null;
+      product_name: string | null;
+      products:
+        | { id: string; name: string | null; fiscal_description: string | null }
+        | Array<{ id: string; name: string | null; fiscal_description: string | null }>
+        | null;
+    };
+    const missing: Array<{ lineId: string; productId: string | null; productName: string | null }> = [];
+    for (const item of items as unknown as ItemRow[]) {
+      const product = Array.isArray(item.products) ? item.products[0] : item.products;
+      const fiscalDesc = product?.fiscal_description?.trim();
+      if (!product || !fiscalDesc) {
+        missing.push({
+          lineId: item.id,
+          productId: item.product_id,
+          productName: product?.name ?? item.product_name,
+        });
+      }
+    }
+
+    if (missing.length > 0) {
+      const labels = missing
+        .map((m) => m.productName || m.productId || m.lineId)
+        .filter((label, idx, arr) => arr.indexOf(label) === idx)
+        .slice(0, 5)
+        .join(', ');
+      logger.info(
+        `[AutoInvoice] Order ${orderId} skip auto-emit: ${missing.length} item(s) sin fiscal_description (${labels})`,
+      );
+      await emitOwnerAlert({
+        storeId,
+        alertType: 'invoice_auto_emit_blocked',
+        severity: 'medium',
+        title: 'Factura no auto-emitida: productos sin descripcion fiscal',
+        message: `La orden ${order.display_order_number ?? orderId} se marco como entregada pero no se emitio factura porque ${missing.length} producto(s) no tienen "Descripcion fiscal" cargada: ${labels}. Completa el dato en el catalogo y reintenta la emision manual.`,
+        orderId,
+        metadata: {
+          missing_count: missing.length,
+          missing_products: missing.slice(0, 20),
+        },
+      });
+      return;
+    }
 
     logger.info(`[AutoInvoice] Triggering for order ${orderId}, store ${storeId}`);
     await generateInvoice(storeId, orderId);
