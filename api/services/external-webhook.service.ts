@@ -17,6 +17,10 @@ import {
   type VariantSummary,
   type SkuResolutionResult,
 } from '../utils/sku-resolution';
+import {
+  normalizeCoverageResult,
+  type CoverageResultShape,
+} from '../utils/public-order-helpers';
 
 // ================================================================
 // TYPES
@@ -114,6 +118,102 @@ export interface SkuPreflightEntry {
   variant_id: string | null;
   image_url: string | null;
   variant_type: string | null;
+}
+
+/**
+ * Item subset surfaced in GET /api/webhook/orders/:storeId/lookup.
+ * Projected from the JSONB `line_items` column so we never leak internal
+ * fields (cost, margin, shopify_data) to the external caller.
+ */
+export interface LookupOrderItem {
+  name: string | null;
+  sku: string | null;
+  quantity: number | null;
+  price: number | null;
+  variant_title: string | null;
+}
+
+/**
+ * Shape of each entry in the `orders` array of the lookup response.
+ *
+ * `coverage` is always present (defaults to a fallback stub when the RPC
+ * fails or the order has no shipping_city). Consumers branch on
+ * `coverage.available_carriers[*].carrier_type` to decide whether the order
+ * requires advance payment (external) or qualifies for COD (internal).
+ */
+export interface LookupOrderResult {
+  id: string;
+  order_number: string | null;
+  status: string | null;
+  customer_name: string;
+  customer_phone: string | null;
+  customer_email: string | null;
+  address: string | null;
+  city: string | null;
+  total_price: number | string | null;
+  subtotal: number | string | null;
+  shipping_cost: number | string | null;
+  discount: number | string | null;
+  cod_amount: number | string | null;
+  payment_method: string | null;
+  financial_status: string | null;
+  is_pickup: boolean;
+  delivery_preferences: unknown;
+  delivery_notes: string | null;
+  created_at: string | null;
+  confirmed_at: string | null;
+  delivered_at: string | null;
+  coverage: CoverageResultShape;
+  items: LookupOrderItem[];
+}
+
+// ================================================================
+// COVERAGE HELPERS (module-private, pure)
+// ================================================================
+
+/**
+ * Stable cache key for coverage lookups inside a single request.
+ *
+ * The DB RPC normalizes its city argument server-side (Migration 192 +
+ * normalize_location_text), so any two strings that the DB would treat as
+ * the same city must collapse to the same JS key here. We also collapse
+ * empty / null inputs to a single sentinel so all carrier-less orders share
+ * one stub.
+ *
+ * Implementation note. We deliberately use a lightweight key (trim +
+ * lowercase) instead of mirroring the full DB normalization (accent
+ * stripping). The worst case is that "Asunción" and "Asuncion" hit the RPC
+ * twice in the same request; both calls return identical payloads and the
+ * RPC is STABLE, so the cost is bounded and correctness is preserved.
+ */
+export function coverageCacheKey(city: string | null | undefined): string {
+  if (typeof city !== 'string') return '__empty__';
+  const trimmed = city.trim();
+  if (trimmed.length === 0) return '__empty__';
+  return trimmed.toLowerCase();
+}
+
+/**
+ * Returns the documented coverage stub for orders we cannot evaluate.
+ *
+ * Two cases:
+ *   shipping_city = null  -> reason: 'no_shipping_city', has_coverage: null
+ *   shipping_city present -> reason: null,               has_coverage: null
+ *
+ * In both cases store_active_carriers_count is set to 0 because we lack the
+ * authoritative count from the RPC. Callers must not treat the fallback
+ * count as definitive; it is the safe shape, not a measurement.
+ */
+export function buildFallbackCoverage(shippingCity: string | null): CoverageResultShape {
+  const isEmpty = shippingCity === null || shippingCity.trim().length === 0;
+  return {
+    shipping_city: isEmpty ? null : shippingCity,
+    shipping_city_normalized: null,
+    has_coverage: null,
+    reason: isEmpty ? 'no_shipping_city' : null,
+    store_active_carriers_count: 0,
+    available_carriers: [],
+  };
 }
 
 // ================================================================
@@ -1411,6 +1511,15 @@ export class ExternalWebhookService {
   /**
    * Busca órdenes por teléfono, número de orden, o ID
    * Solo devuelve órdenes del store autenticado
+   *
+   * Each order in the response includes a `coverage` block (same shape as the
+   * public order endpoint, Migration 192). This lets the caller (Helena / n8n)
+   * distinguish orders that require advance payment (external carrier such as
+   * TSI) from cash-on-delivery orders, without a second roundtrip.
+   *
+   * Performance: orders sharing the same shipping_city resolve to a single
+   * coverage RPC call via a per-request cache. Distinct cities are fetched in
+   * parallel via Promise.all. Total slow_threshold: 500ms triggers a warn log.
    */
   async lookupOrders(
     storeId: string,
@@ -1420,7 +1529,8 @@ export class ExternalWebhookService {
       status?: string;
       limit?: number;
     }
-  ): Promise<{ success: boolean; orders: any[]; total: number; error?: string }> {
+  ): Promise<{ success: boolean; orders: LookupOrderResult[]; total: number; error?: string }> {
+    const startedAt = Date.now();
     try {
       const limit = Math.min(Math.max(filters.limit || 20, 1), 100);
 
@@ -1480,8 +1590,18 @@ export class ExternalWebhookService {
         return { success: false, orders: [], total: 0, error: 'Error querying orders' };
       }
 
+      // Resolve coverage for the result set before mapping. We do this once
+      // per unique shipping_city (keyed by a normalized request-local key) so
+      // a phone lookup that returns N orders from the same customer hits the
+      // RPC once, not N times. Distinct cities resolve in parallel.
+      const rows = data || [];
+      const coverageByCity = await this.resolveCoverageForOrders(
+        storeId,
+        rows.map((o: any) => (typeof o.shipping_city === 'string' ? o.shipping_city : null))
+      );
+
       // Transform orders for external consumption
-      const orders = (data || []).map((order: any) => ({
+      const orders: LookupOrderResult[] = rows.map((order: any) => ({
         id: order.id,
         order_number: order.shopify_order_name || order.shopify_order_number || order.order_number || null,
         status: order.sleeves_status,
@@ -1503,6 +1623,8 @@ export class ExternalWebhookService {
         created_at: order.created_at,
         confirmed_at: order.confirmed_at,
         delivered_at: order.delivered_at,
+        coverage: coverageByCity.get(coverageCacheKey(order.shipping_city))
+          ?? buildFallbackCoverage(order.shipping_city ?? null),
         items: Array.isArray(order.line_items) ? order.line_items.map((item: any) => ({
           name: item.name || item.title,
           sku: item.sku || null,
@@ -1512,11 +1634,88 @@ export class ExternalWebhookService {
         })) : []
       }));
 
+      const elapsedMs = Date.now() - startedAt;
+      if (elapsedMs > 500) {
+        logger.warn('BACKEND', `[ExternalWebhook] lookupOrders slow path: ${elapsedMs}ms`, {
+          store_id: storeId,
+          result_count: orders.length,
+          unique_cities: coverageByCity.size,
+        });
+      }
+
       return { success: true, orders, total: count || orders.length };
     } catch (error: any) {
       logger.error('BACKEND', '❌ [ExternalWebhook] Error in lookupOrders:', error);
       return { success: false, orders: [], total: 0, error: error.message || 'Unknown error' };
     }
+  }
+
+  /**
+   * Resolves coverage for the unique shipping cities present in a result set.
+   *
+   * Returns a Map keyed by coverageCacheKey(city) for O(1) lookup during the
+   * order transform. Orders with no shipping_city share a single "__empty__"
+   * cache entry whose coverage stub is built once.
+   *
+   * Failure modes are non-fatal: an RPC error logs and yields a fallback
+   * stub so the caller still receives a well-shaped coverage block.
+   */
+  private async resolveCoverageForOrders(
+    storeId: string,
+    cities: Array<string | null>
+  ): Promise<Map<string, CoverageResultShape>> {
+    const result = new Map<string, CoverageResultShape>();
+
+    // Build the unique key set. Preserve one representative original value
+    // per key so the RPC receives the exact string the order carries.
+    const uniqueByKey = new Map<string, string | null>();
+    for (const city of cities) {
+      const key = coverageCacheKey(city);
+      if (!uniqueByKey.has(key)) {
+        uniqueByKey.set(key, city);
+      }
+    }
+
+    if (uniqueByKey.size === 0) return result;
+
+    await Promise.all(
+      Array.from(uniqueByKey.entries()).map(async ([key, city]) => {
+        // No shipping_city: never call the RPC, return the documented stub.
+        if (city === null || (typeof city === 'string' && city.trim().length === 0)) {
+          result.set(key, buildFallbackCoverage(null));
+          return;
+        }
+
+        try {
+          const { data, error } = await supabaseAdmin.rpc('get_order_coverage_status', {
+            p_store_id: storeId,
+            p_shipping_city: city,
+          });
+
+          if (error || !data) {
+            logger.error('BACKEND', '[ExternalWebhook] Coverage RPC failed in lookupOrders', {
+              store_id: storeId,
+              shipping_city: city,
+              error_message: error?.message,
+            });
+            result.set(key, buildFallbackCoverage(city));
+            return;
+          }
+
+          result.set(key, normalizeCoverageResult(data) ?? buildFallbackCoverage(city));
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : 'unexpected error';
+          logger.error('BACKEND', '[ExternalWebhook] Coverage RPC threw in lookupOrders', {
+            store_id: storeId,
+            shipping_city: city,
+            error_message: message,
+          });
+          result.set(key, buildFallbackCoverage(city));
+        }
+      })
+    );
+
+    return result;
   }
 
   // ================================================================
