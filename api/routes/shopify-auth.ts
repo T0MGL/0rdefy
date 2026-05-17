@@ -30,8 +30,12 @@ export const shopifyAuthRouter = Router();
 
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET;
-const FEATURE_ENABLED =
-  (process.env.SHOPIFY_TOKEN_EXCHANGE_ENABLED ?? 'false').toLowerCase() === 'true';
+
+// Evaluated per-request so the rollback flag can be flipped via Railway
+// env without redeploy.
+function featureEnabled(): boolean {
+  return (process.env.SHOPIFY_TOKEN_EXCHANGE_ENABLED ?? 'false').toLowerCase() === 'true';
+}
 
 const log = logger.child('SHOPIFY_AUTH');
 
@@ -117,7 +121,7 @@ async function recordAttempt(params: {
 // ----------------------------------------------------------------
 
 shopifyAuthRouter.post('/token-exchange', async (req: Request, res: Response) => {
-  if (!FEATURE_ENABLED) {
+  if (!featureEnabled()) {
     return res.status(503).json({
       error: 'token_exchange_disabled',
       message: 'Shopify Token Exchange is currently disabled by feature flag.',
@@ -259,7 +263,7 @@ shopifyAuthRouter.post('/token-exchange', async (req: Request, res: Response) =>
 shopifyAuthRouter.get('/health', (_req, res) => {
   res.json({
     status: 'healthy',
-    feature_enabled: FEATURE_ENABLED,
+    feature_enabled: featureEnabled(),
     api_key_configured: !!SHOPIFY_API_KEY,
     timestamp: new Date().toISOString(),
   });
