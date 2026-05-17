@@ -37,6 +37,39 @@ COMMENT ON COLUMN users.source IS
   'Acquisition channel: direct (signup on app.ordefy.io), shopify (auto-provisioned from Shopify App Store install)';
 
 -- ----------------------------------------------------------------
+-- SHOPIFY_INTEGRATIONS: make credential columns nullable
+-- ----------------------------------------------------------------
+-- Required for secure uninstall scrub (handler nullifies credentials
+-- on app/uninstalled webhook, per Shopify Protected Customer Data
+-- policy) and future credential rotation flows.
+-- ----------------------------------------------------------------
+
+ALTER TABLE shopify_integrations
+  ALTER COLUMN access_token DROP NOT NULL;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='shopify_integrations' AND column_name='scope' AND is_nullable='NO'
+  ) THEN
+    ALTER TABLE shopify_integrations ALTER COLUMN scope DROP NOT NULL;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='shopify_integrations' AND column_name='webhook_signature' AND is_nullable='NO'
+  ) THEN
+    ALTER TABLE shopify_integrations ALTER COLUMN webhook_signature DROP NOT NULL;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='shopify_integrations' AND column_name='api_secret_key' AND is_nullable='NO'
+  ) THEN
+    ALTER TABLE shopify_integrations ALTER COLUMN api_secret_key DROP NOT NULL;
+  END IF;
+END $$;
+
+-- ----------------------------------------------------------------
 -- SHOPIFY_INTEGRATIONS: provisioning audit fields
 -- ----------------------------------------------------------------
 
