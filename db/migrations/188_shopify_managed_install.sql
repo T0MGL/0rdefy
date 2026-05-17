@@ -55,6 +55,23 @@ CREATE INDEX IF NOT EXISTS idx_shopify_integrations_shop_domain_active
   ON shopify_integrations(shop_domain)
   WHERE status = 'active';
 
+-- Global uniqueness on shop_domain. Required for Token Exchange flow:
+-- a Shopify shop has exactly one Ordefy integration. Pre-existing
+-- duplicates (if any) must be resolved manually before applying this
+-- migration; the constraint is intentionally NOT VALID-able because we
+-- want the migration to fail loudly if data is dirty.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'shopify_integrations_shop_domain_unique'
+  ) THEN
+    ALTER TABLE shopify_integrations
+      ADD CONSTRAINT shopify_integrations_shop_domain_unique
+      UNIQUE (shop_domain);
+  END IF;
+END $$;
+
 -- ----------------------------------------------------------------
 -- AUDIT: shopify_install_attempts
 -- ----------------------------------------------------------------
