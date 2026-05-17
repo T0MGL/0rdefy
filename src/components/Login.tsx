@@ -8,9 +8,10 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { Eye, EyeOff, Mail, Lock } from 'lucide-react';
 import { z } from 'zod';
-import { preserveShopifyParams } from '@/utils/shopifyNavigation';
+import { isShopifyEmbedded, preserveShopifyParams } from '@/utils/shopifyNavigation';
 import { logger } from '@/utils/logger';
 import AuthIllustration from '@/components/AuthIllustration';
+import { ShopifyConnectingScreen } from '@/components/ShopifyConnectingScreen';
 
 const loginSchema = z.object({
   email: z.string().email('Ingresa un email válido'),
@@ -21,7 +22,7 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
-  const { signIn } = useAuth();
+  const { signIn, shopifyAuthInProgress } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -29,6 +30,14 @@ export default function Login() {
     password: '',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Inside the Shopify iframe the email/password form is forbidden by
+  // App Store policy (2.1.1 install loop). We render the connecting
+  // screen instead, with the auth_failed fallback baked into a 10s
+  // timeout so reviewers always have a clear escape hatch.
+  if (isShopifyEmbedded()) {
+    return <ShopifyConnectingScreen error={shopifyAuthInProgress ? undefined : 'auth_failed'} />;
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
