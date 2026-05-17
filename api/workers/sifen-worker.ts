@@ -19,12 +19,25 @@
  *   - 'poller': solo poller
  */
 
+// Plain console.log here is intentional: we need visibility BEFORE any
+// other module imports run, since `logger` (and the modules it imports)
+// can swallow stdout in weird ways under tsx/Railway combos.
+console.log('[sifen-worker] boot: process started, pid=' + process.pid);
+
 import './instrument-worker';
+console.log('[sifen-worker] boot: instrument-worker loaded');
 
 import { logger } from '../utils/logger';
+console.log('[sifen-worker] boot: logger loaded');
+
 import { SifenDispatcher } from './sifen-dispatcher';
+console.log('[sifen-worker] boot: dispatcher loaded');
+
 import { SifenPoller } from './sifen-poller';
+console.log('[sifen-worker] boot: poller loaded');
+
 import { SifenRealtimeListener } from './shared/realtime-listener';
+console.log('[sifen-worker] boot: realtime-listener loaded');
 
 type WorkerRole = 'all' | 'dispatcher' | 'poller';
 
@@ -38,11 +51,16 @@ function resolveRole(): WorkerRole {
 }
 
 async function main(): Promise<void> {
+  console.log('[sifen-worker] main() entered');
   const role = resolveRole();
+  console.log('[sifen-worker] role resolved: ' + role);
   logger.info(`[sifen-worker] starting role=${role} node=${process.version} pid=${process.pid}`);
 
+  console.log('[sifen-worker] instantiating listener');
   const listener = new SifenRealtimeListener();
+  console.log('[sifen-worker] listener.start() about to await');
   await listener.start();
+  console.log('[sifen-worker] listener.start() returned');
 
   const components: Array<{ stop: () => Promise<void> }> = [];
 
