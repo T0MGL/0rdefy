@@ -3,7 +3,7 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabaseAdmin } from '../db/connection';
 import { validateShopifyWebhook, ShopifyWebhookRequest } from '../middleware/shopify-webhook';
-import { parsePlanFromSubscriptionName } from '../services/shopify-billing.service';
+import { parsePlanFromSubscriptionName } from '../services/shopify-utils.service';
 
 export const shopifyMandatoryWebhooksRouter = Router();
 
