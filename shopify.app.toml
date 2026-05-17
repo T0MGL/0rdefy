@@ -5,6 +5,12 @@ handle = "ordefy"
 application_url = "https://app.ordefy.io"
 embedded = true
 
+# Activates Shopify managed installation: install + uninstall flows are
+# handled by Shopify (no merchant-facing OAuth redirect). The embedded
+# app receives a session token directly from App Bridge and we exchange
+# it for an offline access token via Token Exchange.
+use_legacy_install_flow = false
+
 [access_scopes]
 scopes = "read_products, write_products, read_orders, write_orders, read_customers, write_customers"
 
