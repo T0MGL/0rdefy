@@ -55,6 +55,7 @@ import {
 } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import {
   fiscalService,
@@ -106,6 +107,9 @@ const storeSchema = z.object({
     .email('Email invalido')
     .optional()
     .or(z.literal('')),
+  // Migration 193: opt-in explicito. Default false; al marcar order
+  // como delivered NO se auto-emite factura salvo que esto sea true.
+  auto_emit_invoice_on_delivery: z.boolean().optional().default(false),
 });
 
 type IdentityForm = z.infer<typeof identitySchema>;
@@ -179,6 +183,7 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
       establecimiento_direccion: '',
       establecimiento_telefono: '',
       establecimiento_email: '',
+      auto_emit_invoice_on_delivery: false,
     },
   });
 
@@ -242,6 +247,7 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
         establecimiento_direccion: data.link.establecimiento_direccion ?? '',
         establecimiento_telefono: data.link.establecimiento_telefono ?? '',
         establecimiento_email: data.link.establecimiento_email ?? '',
+        auto_emit_invoice_on_delivery: Boolean(data.link.auto_emit_invoice_on_delivery),
       });
     } catch (err: any) {
       if (!isMountedRef.current) return;
@@ -306,11 +312,16 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
       'establecimiento_direccion',
       'establecimiento_telefono',
       'establecimiento_email',
+      'auto_emit_invoice_on_delivery',
     ];
     for (const k of keys) {
       if (!dirty[k]) continue;
       const raw = values[k];
-      if (raw === '' || raw === undefined) {
+      // Booleans serializan tal cual; strings vacios -> null para que
+      // PostgREST trate como NULL en vez de '' en columnas opcionales.
+      if (typeof raw === 'boolean') {
+        (patch as any)[k] = raw;
+      } else if (raw === '' || raw === undefined) {
         (patch as any)[k] = null;
       } else {
         (patch as any)[k] = raw;
@@ -745,6 +756,24 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
                 }
               />
             </div>
+          </div>
+
+          <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 flex items-start gap-4">
+            <div className="flex-1 min-w-0">
+              <Label htmlFor="auto-emit-toggle" className="font-medium">
+                Emitir factura al marcar entrega
+              </Label>
+              <p className="text-xs text-muted-foreground mt-1">
+                Cuando lo prendes, marcar un pedido como <span className="font-medium">Entregado</span> intenta emitir factura electronica automaticamente al cliente (si tiene RUC). Cada producto del pedido debe tener su <span className="font-medium">Descripcion fiscal</span> cargada; si falta, la emision se omite y queda una alerta para ti.
+              </p>
+            </div>
+            <Switch
+              id="auto-emit-toggle"
+              checked={storeForm.watch('auto_emit_invoice_on_delivery') ?? false}
+              onCheckedChange={(checked) =>
+                storeForm.setValue('auto_emit_invoice_on_delivery', checked, { shouldDirty: true })
+              }
+            />
           </div>
         </section>
 

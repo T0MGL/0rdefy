@@ -122,6 +122,10 @@ const storeLinkSchema = z.object({
   establecimiento_ciudad: z.number().int().nullable().optional(),
   establecimiento_telefono: z.string().max(50).nullable().optional(),
   establecimiento_email: z.string().email().nullable().optional(),
+  // Invoicing preferences (migration 163 + 193).
+  default_generic_description: z.string().trim().min(1).max(120).optional(),
+  use_generic_description: z.boolean().optional(),
+  auto_emit_invoice_on_delivery: z.boolean().optional(),
 });
 
 const storeLinkPatchSchema = storeLinkSchema.partial();
