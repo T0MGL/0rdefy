@@ -24,8 +24,7 @@ const TONE_CLASSES: Record<Tone, string> = {
   sky: 'bg-sky-50 text-sky-700 ring-sky-200/60 dark:bg-sky-500/15 dark:text-sky-300 dark:ring-sky-400/30',
   amber:
     'bg-amber-50 text-amber-700 ring-amber-200/60 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-400/30',
-  green:
-    'bg-emerald-50 text-emerald-700 ring-emerald-200/60 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-400/30',
+  green: 'bg-primary/15 text-primary ring-primary/30',
   rose: 'bg-rose-50 text-rose-700 ring-rose-200/60 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-400/30',
   slate:
     'bg-slate-100 text-slate-700 ring-slate-200/60 dark:bg-slate-500/15 dark:text-slate-300 dark:ring-slate-400/30',
@@ -63,7 +62,7 @@ export function OrderStatusBadge({
           'h-1.5 w-1.5 rounded-full',
           entry.tone === 'sky' && 'bg-sky-500',
           entry.tone === 'amber' && 'bg-amber-500',
-          entry.tone === 'green' && 'bg-emerald-500',
+          entry.tone === 'green' && 'bg-primary',
           entry.tone === 'rose' && 'bg-rose-500',
           entry.tone === 'slate' && 'bg-slate-400',
         )}

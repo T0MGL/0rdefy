@@ -22,7 +22,7 @@ import {
   Truck,
   CheckCircle2,
   History,
-  User,
+  Receipt,
   LogOut,
   Settings,
 } from 'lucide-react';
@@ -48,8 +48,8 @@ interface TabConfig {
 const TABS: TabConfig[] = [
   { to: '/portal', label: 'Activos', icon: Truck, end: true },
   { to: '/portal/today', label: 'Hoy', icon: CheckCircle2 },
+  { to: '/portal/conciliacion', label: 'Conciliar', icon: Receipt },
   { to: '/portal/history', label: 'Historial', icon: History },
-  { to: '/portal/profile', label: 'Perfil', icon: User },
 ];
 
 function initialsFrom(name: string | null | undefined, email: string): string {
@@ -93,7 +93,7 @@ export function CourierPortalLayout() {
     <div className="flex min-h-[100dvh] flex-col bg-gradient-to-b from-background to-muted/40">
       {/* Header */}
       <header
-        className="sticky top-0 z-40 border-b border-border/70 bg-background/80 backdrop-blur-md"
+        className="sticky top-0 z-40 overflow-hidden border-b border-border/70 bg-background/80 backdrop-blur-md"
         style={{ paddingTop: 'env(safe-area-inset-top)' }}
       >
         <div className="mx-auto flex h-14 w-full max-w-2xl items-center gap-3 px-4">
@@ -163,7 +163,7 @@ export function CourierPortalLayout() {
       {/* Main */}
       <main
         id="portal-main"
-        className="mx-auto w-full max-w-2xl flex-1 px-4 pb-28 pt-4"
+        className="mx-auto w-full max-w-2xl flex-1 overflow-x-hidden px-4 pb-28 pt-4"
       >
         <Outlet />
       </main>
@@ -171,10 +171,10 @@ export function CourierPortalLayout() {
       {/* Bottom nav */}
       <nav
         aria-label="Navegación del portal courier"
-        className="fixed bottom-0 left-0 right-0 z-50"
+        className="fixed bottom-0 left-0 right-0 z-50 overflow-hidden"
       >
         <div className="border-t border-border/70 bg-card/85 backdrop-blur-xl shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.18)] dark:shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.5)]">
-          <div className="mx-auto flex h-16 max-w-md items-stretch px-2">
+          <div className="mx-auto flex h-16 w-full max-w-screen-sm items-stretch px-2">
             {TABS.map((tab) => (
               <NavLink
                 key={tab.to}

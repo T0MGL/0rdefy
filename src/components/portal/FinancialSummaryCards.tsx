@@ -28,7 +28,7 @@ interface CardSpec {
   label: string;
   primary: string;
   secondary?: string;
-  tone: 'amber' | 'sky' | 'violet' | 'rose' | 'emerald' | 'neutral';
+  tone: 'amber' | 'sky' | 'violet' | 'rose' | 'primary' | 'neutral';
 }
 
 const TONE_RING: Record<CardSpec['tone'], string> = {
@@ -36,7 +36,7 @@ const TONE_RING: Record<CardSpec['tone'], string> = {
   sky: 'ring-sky-200/60 dark:ring-sky-400/30',
   violet: 'ring-violet-200/60 dark:ring-violet-400/30',
   rose: 'ring-rose-200/60 dark:ring-rose-400/30',
-  emerald: 'ring-emerald-200/60 dark:ring-emerald-400/30',
+  primary: 'ring-primary/30',
   neutral: 'ring-border',
 };
 
@@ -47,8 +47,7 @@ const TONE_ICON_BG: Record<CardSpec['tone'], string> = {
   violet:
     'bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300',
   rose: 'bg-rose-50 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300',
-  emerald:
-    'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
+  primary: 'bg-primary/15 text-primary',
   neutral: 'bg-muted text-muted-foreground',
 };
 
@@ -142,7 +141,7 @@ function buildCards(summary?: PortalFinancialSummary): CardSpec[] {
           : net < 0
             ? 'Te debe el store'
             : 'Estás al día',
-      tone: net > 0 ? 'rose' : net < 0 ? 'emerald' : 'neutral',
+      tone: net > 0 ? 'rose' : net < 0 ? 'primary' : 'neutral',
     },
   ];
 }
@@ -156,19 +155,8 @@ export function FinancialSummaryCards({
   const cards = buildCards(summary);
 
   return (
-    <div
-      className={cn(
-        '-mx-4 px-4 pb-1 sm:mx-0 sm:px-0',
-        className,
-      )}
-    >
-      <div
-        className={cn(
-          'flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-pl-4 pb-2 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden',
-          'sm:grid sm:snap-none sm:grid-cols-2 sm:gap-3 sm:overflow-visible sm:pb-0',
-          'lg:grid-cols-4',
-        )}
-      >
+    <div className={cn('pb-1', className)}>
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
         {cards.map((card, idx) => {
           const Icon = card.icon;
           return (
@@ -178,39 +166,38 @@ export function FinancialSummaryCards({
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.25, delay: idx * 0.04 }}
               className={cn(
-                'shrink-0 snap-start basis-[78%] rounded-2xl border border-border bg-card p-4 ring-1 ring-inset',
-                'sm:basis-auto',
+                'min-w-0 rounded-2xl border border-border bg-card p-3 ring-1 ring-inset sm:p-4',
                 TONE_RING[card.tone],
               )}
             >
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 <span
                   className={cn(
-                    'flex h-8 w-8 items-center justify-center rounded-xl',
+                    'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg sm:h-8 sm:w-8 sm:rounded-xl',
                     TONE_ICON_BG[card.tone],
                   )}
                 >
-                  <Icon className="h-4 w-4" strokeWidth={2} />
+                  <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" strokeWidth={2} />
                 </span>
-                <span className="text-xs font-medium text-muted-foreground">
+                <span className="truncate text-[11px] font-medium text-muted-foreground sm:text-xs">
                   {card.label}
                 </span>
               </div>
 
-              <div className="mt-3">
+              <div className="mt-2 sm:mt-3 min-w-0">
                 {isLoading ? (
-                  <div className="h-7 w-32 animate-pulse rounded-md bg-muted" />
+                  <div className="h-6 w-20 animate-pulse rounded-md bg-muted sm:h-7 sm:w-32" />
                 ) : isError ? (
-                  <p className="text-2xl font-semibold tracking-tight text-muted-foreground">
+                  <p className="truncate text-lg font-semibold tracking-tight text-muted-foreground sm:text-2xl">
                     —
                   </p>
                 ) : (
-                  <p className="text-2xl font-semibold tracking-tight text-foreground">
+                  <p className="truncate text-lg font-semibold tracking-tight text-foreground tabular-nums sm:text-2xl">
                     {card.primary}
                   </p>
                 )}
                 {card.secondary && !isLoading && (
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  <p className="mt-0.5 truncate text-[10px] text-muted-foreground sm:text-[11px]">
                     {card.secondary}
                   </p>
                 )}

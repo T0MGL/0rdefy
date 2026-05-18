@@ -107,7 +107,7 @@ export function OrderCard({
           className={cn(
             'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset',
             isCod
-              ? 'bg-emerald-50 text-emerald-700 ring-emerald-200/60 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-400/30'
+              ? 'bg-primary/15 text-primary ring-primary/30'
               : 'bg-sky-50 text-sky-700 ring-sky-200/60 dark:bg-sky-500/15 dark:text-sky-300 dark:ring-sky-400/30',
           )}
         >

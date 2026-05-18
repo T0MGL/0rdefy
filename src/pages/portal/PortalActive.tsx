@@ -15,16 +15,20 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Truck, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
   portalService,
+  type PortalOrder,
   type PortalOrdersResponse,
   type PortalFinancialSummary,
 } from '@/services/portal.service';
-import { OrderCard } from '@/components/portal/OrderCard';
+import { SwipeableOrderCard } from '@/components/portal/SwipeableOrderCard';
+import { InlineDeliveryConfirm } from '@/components/portal/InlineDeliveryConfirm';
+import { MarkDeliveredSheet } from '@/components/portal/MarkDeliveredSheet';
+import { ReportIncidentSheet } from '@/components/portal/ReportIncidentSheet';
 import { FinancialSummaryCards } from '@/components/portal/FinancialSummaryCards';
 import { EmptyState } from '@/components/portal/EmptyState';
 
@@ -41,9 +45,23 @@ function useDebouncedValue<T>(value: T, delay: number): T {
 
 export default function PortalActive() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const isMountedRef = useRef(true);
   const [searchInput, setSearchInput] = useState('');
   const debouncedSearch = useDebouncedValue(searchInput.trim(), SEARCH_DEBOUNCE_MS);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Inline confirm / sheet state. Only one card can be expanded at a time.
+  const [inlineOrderId, setInlineOrderId] = useState<string | null>(null);
+  const [sheetOrder, setSheetOrder] = useState<PortalOrder | null>(null);
+  const [incidentOrder, setIncidentOrder] = useState<PortalOrder | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const summaryQuery = useQuery<PortalFinancialSummary>({
     queryKey: ['portal', 'financial-summary'],
@@ -180,19 +198,72 @@ export default function PortalActive() {
                   exit={{ opacity: 0, y: -8 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <OrderCard
+                  <SwipeableOrderCard
                     order={order}
-                    variant="active"
-                    onClick={() =>
-                      navigate(`/portal/orders/${order.id}`)
-                    }
+                    onTap={() => {
+                      if (inlineOrderId === order.id) {
+                        setInlineOrderId(null);
+                        return;
+                      }
+                      navigate(`/portal/orders/${order.id}`);
+                    }}
+                    onSwipeDelivered={() => setInlineOrderId(order.id)}
+                    onSwipeIncident={() => setIncidentOrder(order)}
                   />
+                  <AnimatePresence>
+                    {inlineOrderId === order.id && (
+                      <InlineDeliveryConfirm
+                        order={order}
+                        onClose={() => setInlineOrderId(null)}
+                        onEscalate={() => {
+                          setInlineOrderId(null);
+                          setSheetOrder(order);
+                        }}
+                        onSuccess={() => {
+                          if (!isMountedRef.current) return;
+                          setInlineOrderId(null);
+                          queryClient.invalidateQueries({ queryKey: ['portal', 'orders'] });
+                          queryClient.invalidateQueries({ queryKey: ['portal', 'financial-summary'] });
+                          queryClient.invalidateQueries({ queryKey: ['portal', 'settlements', 'pending'] });
+                        }}
+                      />
+                    )}
+                  </AnimatePresence>
                 </motion.li>
               ))}
             </AnimatePresence>
           </motion.ul>
         )}
       </section>
+
+      {/* Escalated full sheet when the inline path is not enough */}
+      {sheetOrder && (
+        <MarkDeliveredSheet
+          open={!!sheetOrder}
+          onOpenChange={(o) => !o && setSheetOrder(null)}
+          order={sheetOrder}
+          onSuccess={() => {
+            if (!isMountedRef.current) return;
+            setSheetOrder(null);
+            queryClient.invalidateQueries({ queryKey: ['portal', 'orders'] });
+            queryClient.invalidateQueries({ queryKey: ['portal', 'financial-summary'] });
+            queryClient.invalidateQueries({ queryKey: ['portal', 'settlements', 'pending'] });
+          }}
+        />
+      )}
+      {incidentOrder && (
+        <ReportIncidentSheet
+          open={!!incidentOrder}
+          onOpenChange={(o) => !o && setIncidentOrder(null)}
+          order={incidentOrder}
+          onSuccess={() => {
+            if (!isMountedRef.current) return;
+            setIncidentOrder(null);
+            queryClient.invalidateQueries({ queryKey: ['portal', 'orders'] });
+            queryClient.invalidateQueries({ queryKey: ['portal', 'financial-summary'] });
+          }}
+        />
+      )}
     </div>
   );
 }

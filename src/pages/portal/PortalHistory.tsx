@@ -138,7 +138,7 @@ export default function PortalHistory() {
           value={filter}
           onValueChange={(v) => setFilter(v as StatusFilter)}
         >
-          <SelectTrigger className="h-10 max-w-[60%] rounded-xl">
+          <SelectTrigger className="h-10 max-w-[50%] rounded-xl sm:max-w-[60%]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
