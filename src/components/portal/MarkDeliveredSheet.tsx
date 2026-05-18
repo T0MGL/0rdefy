@@ -5,17 +5,17 @@
  * total_price) plus the payment method used. Prepaid orders skip those fields
  * since the cash didn't change hands at the door.
  *
- * Photo upload is optional, runs through client-side compression to keep
- * blobs under ~500KB, and uploads via portalService.uploadProof. The
- * returned URL is then attached to mark-delivered.
- *
  * Discrepancies > 5% prompt a confirm before submitting so the courier can't
  * fat-finger the amount and break the conciliation.
+ *
+ * Note: photo upload is intentionally NOT exposed in this UI. The
+ * /api/portal/orders/:id/upload-proof endpoint still exists for external
+ * integrations, but the portal courier flow runs without it.
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Loader2, X, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,7 +36,6 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { formatCurrency } from '@/utils/currency';
-import { compressForPreview } from '@/utils/imageCompression';
 import {
   portalService,
   PortalApiError,
@@ -70,17 +69,10 @@ export function MarkDeliveredSheet({
   const { toast } = useToast();
   const isCod = order.is_cod;
   const isMountedRef = useRef(true);
-  const abortRef = useRef<AbortController | null>(null);
 
   const [amount, setAmount] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<string>('cash');
   const [notes, setNotes] = useState<string>('');
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const photoPreviewRef = useRef<string | null>(null);
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
-  const [photoUploading, setPhotoUploading] = useState(false);
-  const [photoError, setPhotoError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [confirmDiscrepancy, setConfirmDiscrepancy] = useState(false);
 
@@ -90,97 +82,24 @@ export function MarkDeliveredSheet({
       setAmount(isCod ? String(order.total_price) : '');
       setPaymentMethod(isCod ? 'cash' : (order.payment_method || 'qr'));
       setNotes('');
-      setPhotoFile(null);
-      setPhotoPreview(null);
-      setPhotoUrl(null);
-      setPhotoError(null);
       setSubmitting(false);
       setConfirmDiscrepancy(false);
     }
   }, [open, isCod, order.total_price, order.payment_method]);
 
-  // Mount/unmount lifecycle. We keep the latest object URL in a ref so the
-  // unmount-time revoke always uses the current preview without depending on
-  // state — that avoids the well-known "ref captured at mount" pitfall and
-  // the matching exhaustive-deps warning.
+  // Mount/unmount lifecycle for memory-leak-safe async submit.
   useEffect(() => {
     isMountedRef.current = true;
-    // abortRef holds a non-DOM ref (an AbortController instance). The lint
-    // rule that flags ref reads in cleanup is intended for DOM nodes, but we
-    // still snapshot the controller to satisfy it and avoid relying on
-    // ref-mutation timing during teardown.
-    const localAbortRef = abortRef;
-    const localPreviewRef = photoPreviewRef;
     return () => {
       isMountedRef.current = false;
-      localAbortRef.current?.abort();
-      if (localPreviewRef.current) {
-        URL.revokeObjectURL(localPreviewRef.current);
-        localPreviewRef.current = null;
-      }
     };
   }, []);
-
-  // Keep the ref in sync with state so the unmount cleanup sees the latest
-  // URL. We only revoke on unmount; in-session swaps revoke explicitly.
-  useEffect(() => {
-    photoPreviewRef.current = photoPreview;
-  }, [photoPreview]);
 
   const numericAmount = isCod ? Number(amount) || 0 : 0;
   const discrepancyRatio = isCod
     ? Math.abs(numericAmount - order.total_price) / Math.max(order.total_price, 1)
     : 0;
   const hasDiscrepancy = discrepancyRatio > DISCREPANCY_THRESHOLD;
-
-  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = ''; // Allow picking the same file again
-    if (!file) return;
-    setPhotoError(null);
-    setPhotoUploading(true);
-
-    try {
-      const { file: compressed, previewUrl } = await compressForPreview(file);
-
-      if (!isMountedRef.current) {
-        URL.revokeObjectURL(previewUrl);
-        return;
-      }
-
-      // Replace existing preview, revoke the old one
-      setPhotoPreview((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return previewUrl;
-      });
-      setPhotoFile(compressed);
-
-      const result = await portalService.uploadProof(order.id, compressed);
-      if (!isMountedRef.current) return;
-      setPhotoUrl(result.photo_url);
-    } catch (err) {
-      if (!isMountedRef.current) return;
-      const message =
-        err instanceof PortalApiError
-          ? err.message
-          : err instanceof Error
-            ? err.message
-            : 'No se pudo subir la foto';
-      setPhotoError(message);
-      setPhotoFile(null);
-      setPhotoUrl(null);
-    } finally {
-      if (isMountedRef.current) setPhotoUploading(false);
-    }
-  };
-
-  const removePhoto = () => {
-    if (photoPreview) URL.revokeObjectURL(photoPreview);
-    setPhotoPreview(null);
-    setPhotoFile(null);
-    setPhotoUrl(null);
-    setPhotoError(null);
-  };
 
   const handleSubmit = async () => {
     if (submitting) return;
@@ -197,7 +116,6 @@ export function MarkDeliveredSheet({
       const result = await portalService.markDelivered(order.id, {
         amount_collected: isCod ? numericAmount : 0,
         payment_method: paymentMethod,
-        photo_url: photoUrl || undefined,
         notes: notes.trim() || undefined,
       });
 
@@ -234,7 +152,6 @@ export function MarkDeliveredSheet({
 
   const submitDisabled =
     submitting ||
-    photoUploading ||
     (isCod && (Number.isNaN(numericAmount) || numericAmount < 0));
 
   return (
@@ -248,7 +165,7 @@ export function MarkDeliveredSheet({
       >
         <SheetHeader className="px-6 pt-1 pb-4 border-b border-border">
           <SheetTitle className="flex items-center gap-2 text-base">
-            <CheckCircle2 className="h-5 w-5 text-emerald-600" strokeWidth={2} />
+            <CheckCircle2 className="h-5 w-5 text-primary" strokeWidth={2} />
             Marcar como entregada
           </SheetTitle>
           <SheetDescription className="text-xs">
@@ -317,66 +234,6 @@ export function MarkDeliveredSheet({
                 ))}
               </SelectContent>
             </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">Foto de prueba (opcional)</Label>
-            {photoPreview ? (
-              <div className="relative overflow-hidden rounded-2xl border border-border">
-                <img
-                  src={photoPreview}
-                  alt="Vista previa de la prueba de entrega"
-                  className="h-48 w-full object-cover"
-                />
-                <button
-                  type="button"
-                  onClick={removePhoto}
-                  className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-opacity hover:bg-black/75"
-                  aria-label="Quitar foto"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-                {photoUploading && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-                    <Loader2 className="h-6 w-6 animate-spin text-white" />
-                  </div>
-                )}
-                {photoUrl && !photoUploading && (
-                  <div className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full bg-emerald-500/90 px-2 py-0.5 text-[10px] font-medium text-white">
-                    <CheckCircle2 className="h-3 w-3" />
-                    Subida
-                  </div>
-                )}
-              </div>
-            ) : (
-              <label
-                htmlFor="proof-photo"
-                className="flex h-24 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-border bg-muted/30 text-muted-foreground transition-colors hover:border-primary/50 hover:bg-muted/50"
-              >
-                {photoUploading ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <Camera className="h-5 w-5" strokeWidth={1.75} />
-                )}
-                <span className="text-xs">
-                  {photoUploading ? 'Procesando...' : 'Tomar o subir foto'}
-                </span>
-                <input
-                  id="proof-photo"
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  onChange={handlePhotoChange}
-                  disabled={photoUploading}
-                  className="sr-only"
-                />
-              </label>
-            )}
-            {photoError && (
-              <p className="text-xs text-rose-600 dark:text-rose-400">
-                {photoError}
-              </p>
-            )}
           </div>
 
           <div className="space-y-2">

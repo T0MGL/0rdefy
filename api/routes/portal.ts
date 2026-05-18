@@ -74,6 +74,14 @@ import { isCancelled, isDelivered, isRejected, isReturned } from '../utils/order
 import { uploadFile } from '../services/storage.service';
 import { OutboundWebhookService } from '../services/outbound-webhook.service';
 import { sanitizeSearchInput } from '../utils/sanitize';
+import {
+  closeSettlement,
+  getPendingSettlements,
+  getSettlementsHistory,
+  PortalSettlementsError,
+  PROOF_ALLOWED_MIME as SETTLEMENT_PROOF_MIME,
+  PROOF_MAX_BYTES as SETTLEMENT_PROOF_MAX_BYTES,
+} from '../services/portal-settlements.service';
 
 export const portalRouter = Router();
 
@@ -1487,6 +1495,179 @@ portalRouter.get('/financial-summary', async (req: CourierRequest, res: Response
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
+
+// ============================================================================
+// Settlements: courier-side self-close
+// ============================================================================
+//
+// All three endpoints scope themselves to the authenticated courier's
+// (store_id, carrier_id) pair. They never trust the client for
+// carrier identity — that comes from requireCourierRole's pinned
+// req.courierCarrierId.
+//
+// Trust model is auto-paid: closeSettlement stamps the resulting
+// daily_settlements row as `status='paid'` with the courier's bank
+// reference and a screenshot attached as evidence in
+// settlement_payment_proofs. Admin can still flip to `disputed` from
+// the dashboard if fraud is detected.
+
+const settlementProofUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: SETTLEMENT_PROOF_MAX_BYTES },
+  fileFilter: (_req, file, cb) => {
+    if (SETTLEMENT_PROOF_MIME.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Tipo de archivo no permitido. Solo JPEG, PNG, WEBP o PDF.'));
+    }
+  },
+});
+
+function handleSettlementMulterError(
+  err: unknown,
+  _req: CourierRequest,
+  res: Response,
+  next: NextFunction
+): void {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      res.status(413).json({ error: 'El archivo excede el límite de 5 MB' });
+      return;
+    }
+    res.status(400).json({ error: 'Error al subir el archivo' });
+    return;
+  }
+  if (err instanceof Error) {
+    res.status(400).json({ error: err.message });
+    return;
+  }
+  next();
+}
+
+function handleSettlementsServiceError(err: unknown, res: Response): void {
+  if (err instanceof PortalSettlementsError) {
+    res.status(err.status).json({ error: err.message, code: err.code });
+    return;
+  }
+  logger.error('PORTAL', 'settlements: unexpected error', {
+    error: err instanceof Error ? err.message : String(err),
+  });
+  res.status(500).json({ error: 'Error interno del servidor' });
+}
+
+// ----------------------------------------------------------------------------
+// GET /api/portal/settlements/pending
+// ----------------------------------------------------------------------------
+portalRouter.get('/settlements/pending', async (req: CourierRequest, res: Response) => {
+  const storeId = req.storeId!;
+  const carrierId = req.courierCarrierId!;
+  try {
+    const result = await getPendingSettlements(storeId, carrierId);
+    res.set('Cache-Control', 'private, max-age=30');
+    res.json(result);
+  } catch (err) {
+    handleSettlementsServiceError(err, res);
+  }
+});
+
+// ----------------------------------------------------------------------------
+// GET /api/portal/settlements/history?page=1&page_size=20
+// ----------------------------------------------------------------------------
+portalRouter.get('/settlements/history', async (req: CourierRequest, res: Response) => {
+  const storeId = req.storeId!;
+  const carrierId = req.courierCarrierId!;
+  const page = parseInt((req.query.page as string) ?? '1', 10);
+  const pageSize = parseInt((req.query.page_size as string) ?? '20', 10);
+
+  try {
+    const result = await getSettlementsHistory(
+      storeId,
+      carrierId,
+      Number.isFinite(page) ? page : 1,
+      Number.isFinite(pageSize) ? pageSize : 20
+    );
+    res.set('Cache-Control', 'private, max-age=15');
+    res.json(result);
+  } catch (err) {
+    handleSettlementsServiceError(err, res);
+  }
+});
+
+// ----------------------------------------------------------------------------
+// POST /api/portal/settlements/close (multipart)
+// ----------------------------------------------------------------------------
+const CloseSettlementBodySchema = z.object({
+  order_ids: z.string().min(1, 'order_ids es requerido'),
+  total_amount_collected: z.union([z.string(), z.number()]),
+  payment_method: z.enum(['transfer', 'qr', 'cash_deposit', 'other']),
+  payment_reference: z.string().min(1).max(200),
+  notes: z.string().max(2000).optional(),
+});
+
+portalRouter.post(
+  '/settlements/close',
+  settlementProofUpload.single('file'),
+  handleSettlementMulterError,
+  async (req: CourierRequest, res: Response) => {
+    const storeId = req.storeId!;
+    const carrierId = req.courierCarrierId!;
+    const userId = req.courierUserId!;
+
+    if (!req.file) {
+      res.status(400).json({ error: 'No se proporcionó comprobante' });
+      return;
+    }
+
+    const parsedBody = CloseSettlementBodySchema.safeParse(req.body ?? {});
+    if (!parsedBody.success) {
+      res.status(400).json({
+        error: 'Datos inválidos',
+        details: parsedBody.error.issues.map((i) => i.message),
+      });
+      return;
+    }
+
+    // order_ids comes through multipart as a JSON-encoded string.
+    let orderIds: string[];
+    try {
+      const raw = JSON.parse(parsedBody.data.order_ids);
+      if (!Array.isArray(raw)) throw new Error('order_ids must be a JSON array');
+      orderIds = raw.map((v) => String(v));
+    } catch {
+      res.status(400).json({ error: 'order_ids debe ser un JSON array de UUIDs' });
+      return;
+    }
+
+    const amount = Number(parsedBody.data.total_amount_collected);
+    if (!Number.isFinite(amount) || amount < 0) {
+      res.status(400).json({ error: 'total_amount_collected inválido' });
+      return;
+    }
+
+    try {
+      const result = await closeSettlement({
+        storeId,
+        carrierId,
+        userId,
+        input: {
+          order_ids: orderIds,
+          total_amount_collected: amount,
+          payment_method: parsedBody.data.payment_method,
+          payment_reference: parsedBody.data.payment_reference,
+          notes: parsedBody.data.notes ?? null,
+        },
+        file: {
+          buffer: req.file.buffer,
+          mimetype: req.file.mimetype,
+          originalname: req.file.originalname,
+        },
+      });
+      res.json(result);
+    } catch (err) {
+      handleSettlementsServiceError(err, res);
+    }
+  }
+);
 
 // ============================================================================
 // 404 inside the portal namespace

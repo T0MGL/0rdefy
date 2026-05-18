@@ -218,19 +218,19 @@ export default function PortalOrderDetail() {
                 className="h-4 w-4 text-muted-foreground"
                 strokeWidth={1.75}
               />
-              <span className="flex-1 tabular-nums">{order.customer_phone}</span>
+              <span className="min-w-0 flex-1 truncate tabular-nums">{order.customer_phone}</span>
               <span className="text-[11px] font-normal text-primary">
                 Llamar
               </span>
             </a>
           )}
 
-          <div className="flex items-start gap-2 px-1 text-sm text-muted-foreground">
+          <div className="flex min-w-0 items-start gap-2 px-1 text-sm text-muted-foreground">
             <MapPin
               className="mt-0.5 h-4 w-4 shrink-0"
               strokeWidth={1.75}
             />
-            <span className="leading-5">
+            <span className="min-w-0 break-words leading-5 line-clamp-3">
               {[order.customer_address, order.customer_city]
                 .filter(Boolean)
                 .join(' · ') || 'Sin dirección'}
@@ -258,7 +258,7 @@ export default function PortalOrderDetail() {
             icon={Coins}
             label={order.is_cod ? 'A cobrar' : 'Prepago'}
             value={formatCurrency(order.total_price)}
-            tone={order.is_cod ? 'emerald' : 'sky'}
+            tone={order.is_cod ? 'primary' : 'sky'}
           />
           <Tile
             icon={Truck}
@@ -350,7 +350,7 @@ export default function PortalOrderDetail() {
 
       {/* Sticky action bar */}
       <div
-        className="fixed inset-x-0 bottom-16 z-40 border-t border-border bg-card/95 backdrop-blur-md sm:bottom-16"
+        className="fixed inset-x-0 bottom-16 z-40 overflow-hidden border-t border-border bg-card/95 backdrop-blur-md sm:bottom-16"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="mx-auto max-w-2xl px-4 py-3">
@@ -433,13 +433,13 @@ function Tile({
   icon: typeof Coins;
   label: string;
   value: string;
-  tone: 'emerald' | 'sky' | 'violet';
+  tone: 'primary' | 'sky' | 'violet';
 }) {
   return (
     <div
       className={cn(
         'rounded-xl border border-border bg-card p-3 ring-1 ring-inset',
-        tone === 'emerald' && 'ring-emerald-200/60 dark:ring-emerald-400/30',
+        tone === 'primary' && 'ring-primary/30',
         tone === 'sky' && 'ring-sky-200/60 dark:ring-sky-400/30',
         tone === 'violet' && 'ring-violet-200/60 dark:ring-violet-400/30',
       )}
@@ -463,7 +463,7 @@ const ACTION_VARIANTS: Record<
     label: 'Entregada',
     icon: CheckCircle2,
     classes:
-      'bg-emerald-600 text-white hover:bg-emerald-700 focus-visible:ring-emerald-500',
+      'bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-primary',
   },
   failed: {
     label: 'No entregada',

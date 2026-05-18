@@ -256,6 +256,109 @@ export interface PortalFinancialSummary {
 }
 
 // ----------------------------------------------------------------------------
+// Settlements (Migration 194 + Phase 3 of portal)
+// ----------------------------------------------------------------------------
+
+export interface PortalPendingSettlementOrder {
+  id: string;
+  display_order_number: string;
+  customer_name: string;
+  customer_phone: string | null;
+  customer_address: string | null;
+  customer_city: string | null;
+  total_price: number;
+  cod_amount: number;
+  payment_method: string | null;
+  prepaid_method: string | null;
+  is_cod: boolean;
+  delivered_at: string | null;
+}
+
+export interface PortalPendingSettlementsResult {
+  summary: {
+    total_orders: number;
+    total_cod_to_remit: number;
+    total_prepaid_count: number;
+    oldest_delivery_date: string | null;
+    newest_delivery_date: string | null;
+    days_oldest: number;
+    failed_attempt_fee_percent: number;
+  };
+  orders: PortalPendingSettlementOrder[];
+}
+
+export interface PortalSettlementProof {
+  id: string;
+  signed_url: string;
+  mime_type: string;
+  file_size_bytes: number;
+  amount_claimed: number;
+  payment_reference: string | null;
+  payment_method: string | null;
+  uploaded_at: string;
+}
+
+export interface PortalSettlement {
+  id: string;
+  settlement_code: string;
+  settlement_date: string | null;
+  min_delivery_date: string | null;
+  max_delivery_date: string | null;
+  total_orders: number;
+  total_delivered: number;
+  total_not_delivered: number;
+  total_cod_collected: number;
+  total_carrier_fees: number;
+  total_extra_charges: number;
+  failed_attempt_fee: number;
+  net_receivable: number;
+  amount_paid: number;
+  status: string;
+  payment_method: string | null;
+  payment_reference: string | null;
+  submitted_by_courier_at: string | null;
+  created_at: string | null;
+  proofs: PortalSettlementProof[];
+}
+
+export interface PortalSettlementsHistoryResult {
+  settlements: PortalSettlement[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total: number;
+    has_more: boolean;
+  };
+}
+
+export type SettlementPaymentMethod =
+  | 'transfer'
+  | 'qr'
+  | 'cash_deposit'
+  | 'other';
+
+export interface CloseSettlementInput {
+  order_ids: string[];
+  total_amount_collected: number;
+  payment_method: SettlementPaymentMethod;
+  payment_reference: string;
+  notes?: string | null;
+}
+
+export interface CloseSettlementResult {
+  success: true;
+  settlement_id: string;
+  settlement_code: string;
+  status: string;
+  proof_id: string;
+  net_receivable: number;
+  total_orders: number;
+  total_delivered: number;
+  total_cod_collected: number;
+  total_carrier_fees: number;
+}
+
+// ----------------------------------------------------------------------------
 // API
 // ----------------------------------------------------------------------------
 
@@ -364,5 +467,60 @@ export const portalService = {
       method: 'GET',
       signal: opts?.signal,
     });
+  },
+
+  /**
+   * List the courier's pending reconciliation backlog. Returns a summary
+   * plus the detailed list of orders, sorted oldest first.
+   */
+  async getPendingSettlements(
+    opts?: { signal?: AbortSignal },
+  ): Promise<PortalPendingSettlementsResult> {
+    return request<PortalPendingSettlementsResult>('/portal/settlements/pending', {
+      method: 'GET',
+      signal: opts?.signal,
+    });
+  },
+
+  /**
+   * List already-closed settlements for the courier, newest first.
+   * Each proof includes a signed URL valid for ~5 minutes; re-fetch the
+   * list when the URL expires.
+   */
+  async getSettlementsHistory(
+    params: { page?: number; page_size?: number } = {},
+    opts?: { signal?: AbortSignal },
+  ): Promise<PortalSettlementsHistoryResult> {
+    const qs = new URLSearchParams();
+    if (params.page) qs.set('page', String(params.page));
+    if (params.page_size) qs.set('page_size', String(params.page_size));
+    const path = `/portal/settlements/history${qs.toString() ? `?${qs.toString()}` : ''}`;
+    return request<PortalSettlementsHistoryResult>(path, {
+      method: 'GET',
+      signal: opts?.signal,
+    });
+  },
+
+  /**
+   * Close a settlement on behalf of the courier. The backend creates the
+   * daily_settlements row stamped status='paid' (auto-paid trust model),
+   * uploads the bank-transfer screenshot to private Storage, and inserts
+   * the proof metadata. Multipart request.
+   */
+  async closeSettlement(
+    payload: CloseSettlementInput,
+    file: File,
+  ): Promise<CloseSettlementResult> {
+    const formData = new FormData();
+    formData.append('order_ids', JSON.stringify(payload.order_ids));
+    formData.append('total_amount_collected', String(payload.total_amount_collected));
+    formData.append('payment_method', payload.payment_method);
+    formData.append('payment_reference', payload.payment_reference);
+    if (payload.notes) formData.append('notes', payload.notes);
+    formData.append('file', file);
+    return multipartRequest<CloseSettlementResult>(
+      '/portal/settlements/close',
+      formData,
+    );
   },
 };

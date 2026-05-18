@@ -81,6 +81,7 @@ const PortalGuard = lazy(() => import("./components/portal/PortalGuard").then(m 
 const PortalLogin = lazy(() => import("./pages/portal/PortalLogin"));
 const PortalActive = lazy(() => import("./pages/portal/PortalActive"));
 const PortalToday = lazy(() => import("./pages/portal/PortalToday"));
+const PortalConciliacion = lazy(() => import("./pages/portal/PortalConciliacion"));
 const PortalHistory = lazy(() => import("./pages/portal/PortalHistory"));
 const PortalOrderDetail = lazy(() => import("./pages/portal/PortalOrderDetail"));
 const PortalProfile = lazy(() => import("./pages/portal/PortalProfile"));
@@ -219,6 +220,7 @@ const App = () => {
                             >
                               <Route index element={<Suspense fallback={<PageSkeleton />}><PortalActive /></Suspense>} />
                               <Route path="today" element={<Suspense fallback={<PageSkeleton />}><PortalToday /></Suspense>} />
+                              <Route path="conciliacion" element={<Suspense fallback={<PageSkeleton />}><PortalConciliacion /></Suspense>} />
                               <Route path="history" element={<Suspense fallback={<PageSkeleton />}><PortalHistory /></Suspense>} />
                               <Route path="orders/:orderId" element={<Suspense fallback={<PageSkeleton />}><PortalOrderDetail /></Suspense>} />
                               <Route path="profile" element={<Suspense fallback={<PageSkeleton />}><PortalProfile /></Suspense>} />

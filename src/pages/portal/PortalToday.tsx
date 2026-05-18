@@ -71,7 +71,7 @@ export default function PortalToday() {
           icon={Coins}
           label="Cobrado COD"
           value={formatCurrency(totals.cod)}
-          tone="emerald"
+          tone="primary"
         />
         <SummaryTile
           icon={Truck}
@@ -160,13 +160,13 @@ function SummaryTile({
   icon: typeof Coins;
   label: string;
   value: string;
-  tone: 'emerald' | 'violet';
+  tone: 'primary' | 'violet';
 }) {
   return (
     <div
       className={cn(
         'rounded-2xl border border-border bg-card p-3 ring-1 ring-inset',
-        tone === 'emerald' && 'ring-emerald-200/60 dark:ring-emerald-400/30',
+        tone === 'primary' && 'ring-primary/30',
         tone === 'violet' && 'ring-violet-200/60 dark:ring-violet-400/30',
       )}
     >
@@ -174,8 +174,7 @@ function SummaryTile({
         <span
           className={cn(
             'flex h-7 w-7 items-center justify-center rounded-lg',
-            tone === 'emerald' &&
-              'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
+            tone === 'primary' && 'bg-primary/15 text-primary',
             tone === 'violet' &&
               'bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300',
           )}
