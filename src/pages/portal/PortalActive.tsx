@@ -2,15 +2,16 @@
  * Active orders view — the home of the courier portal.
  *
  * Composition:
- *   - Sticky search input with debounce.
  *   - Financial summary cards (React Query, 30s staleTime).
+ *   - Sticky search input with debounce.
  *   - List of active orders (React Query, 30s staleTime, keepPreviousData
  *     so the search debounce doesn't flicker).
  *
- * Each card navigates to /portal/orders/:id where the courier triggers a
- * mark-* sheet. We deliberately do NOT trigger sheets from this list —
- * keeping the surface a "browse" lets the courier read the address, time
- * slot, and money before committing.
+ * Each row renders ActiveOrderRow, which exposes the full courier
+ * toolbox in-place: tap the primary "Entregar" CTA to expand an
+ * inline confirm, or tap one of the three secondary actions
+ * (Devuelto · No pude · Incidencia). The card itself stays tappable
+ * to navigate into /portal/orders/:id for full detail when needed.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -21,14 +22,10 @@ import { Search, Truck, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
   portalService,
-  type PortalOrder,
   type PortalOrdersResponse,
   type PortalFinancialSummary,
 } from '@/services/portal.service';
-import { SwipeableOrderCard } from '@/components/portal/SwipeableOrderCard';
-import { InlineDeliveryConfirm } from '@/components/portal/InlineDeliveryConfirm';
-import { MarkDeliveredSheet } from '@/components/portal/MarkDeliveredSheet';
-import { ReportIncidentSheet } from '@/components/portal/ReportIncidentSheet';
+import { ActiveOrderRow } from '@/components/portal/ActiveOrderRow';
 import { FinancialSummaryCards } from '@/components/portal/FinancialSummaryCards';
 import { EmptyState } from '@/components/portal/EmptyState';
 
@@ -50,11 +47,6 @@ export default function PortalActive() {
   const [searchInput, setSearchInput] = useState('');
   const debouncedSearch = useDebouncedValue(searchInput.trim(), SEARCH_DEBOUNCE_MS);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // Inline confirm / sheet state. Only one card can be expanded at a time.
-  const [inlineOrderId, setInlineOrderId] = useState<string | null>(null);
-  const [sheetOrder, setSheetOrder] = useState<PortalOrder | null>(null);
-  const [incidentOrder, setIncidentOrder] = useState<PortalOrder | null>(null);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -95,6 +87,13 @@ export default function PortalActive() {
     if (total === 1) return '1 pedido para entregar';
     return `${total} pedidos para entregar`;
   }, [debouncedSearch, total, ordersQuery.isLoading, ordersQuery.data]);
+
+  const invalidateAfterMutation = () => {
+    if (!isMountedRef.current) return;
+    queryClient.invalidateQueries({ queryKey: ['portal', 'orders'] });
+    queryClient.invalidateQueries({ queryKey: ['portal', 'financial-summary'] });
+    queryClient.invalidateQueries({ queryKey: ['portal', 'settlements', 'pending'] });
+  };
 
   return (
     <div className="space-y-5">
@@ -166,9 +165,7 @@ export default function PortalActive() {
         ) : orders.length === 0 ? (
           <EmptyState
             icon={Truck}
-            title={
-              debouncedSearch ? 'Sin resultados' : 'Sin pedidos activos'
-            }
+            title={debouncedSearch ? 'Sin resultados' : 'Sin pedidos activos'}
             description={
               debouncedSearch
                 ? 'Probá con otro número o nombre.'
@@ -186,7 +183,7 @@ export default function PortalActive() {
                 transition: { staggerChildren: 0.04 },
               },
             }}
-            className="space-y-2.5"
+            className="space-y-3.5"
           >
             <AnimatePresence initial={false}>
               {orders.map((order) => (
@@ -198,79 +195,24 @@ export default function PortalActive() {
                   exit={{ opacity: 0, y: -8 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <SwipeableOrderCard
+                  <ActiveOrderRow
                     order={order}
-                    onTap={() => {
-                      if (inlineOrderId === order.id) {
-                        setInlineOrderId(null);
-                        return;
-                      }
-                      navigate(`/portal/orders/${order.id}`);
-                    }}
-                    onSwipeDelivered={() => setInlineOrderId(order.id)}
-                    onSwipeIncident={() => setIncidentOrder(order)}
+                    onTapCard={() => navigate(`/portal/orders/${order.id}`)}
+                    onMutation={invalidateAfterMutation}
                   />
-                  <AnimatePresence>
-                    {inlineOrderId === order.id && (
-                      <InlineDeliveryConfirm
-                        order={order}
-                        onClose={() => setInlineOrderId(null)}
-                        onEscalate={() => {
-                          setInlineOrderId(null);
-                          setSheetOrder(order);
-                        }}
-                        onSuccess={() => {
-                          if (!isMountedRef.current) return;
-                          setInlineOrderId(null);
-                          queryClient.invalidateQueries({ queryKey: ['portal', 'orders'] });
-                          queryClient.invalidateQueries({ queryKey: ['portal', 'financial-summary'] });
-                          queryClient.invalidateQueries({ queryKey: ['portal', 'settlements', 'pending'] });
-                        }}
-                      />
-                    )}
-                  </AnimatePresence>
                 </motion.li>
               ))}
             </AnimatePresence>
           </motion.ul>
         )}
       </section>
-
-      {/* Escalated full sheet when the inline path is not enough */}
-      {sheetOrder && (
-        <MarkDeliveredSheet
-          open={!!sheetOrder}
-          onOpenChange={(o) => !o && setSheetOrder(null)}
-          order={sheetOrder}
-          onSuccess={() => {
-            if (!isMountedRef.current) return;
-            setSheetOrder(null);
-            queryClient.invalidateQueries({ queryKey: ['portal', 'orders'] });
-            queryClient.invalidateQueries({ queryKey: ['portal', 'financial-summary'] });
-            queryClient.invalidateQueries({ queryKey: ['portal', 'settlements', 'pending'] });
-          }}
-        />
-      )}
-      {incidentOrder && (
-        <ReportIncidentSheet
-          open={!!incidentOrder}
-          onOpenChange={(o) => !o && setIncidentOrder(null)}
-          order={incidentOrder}
-          onSuccess={() => {
-            if (!isMountedRef.current) return;
-            setIncidentOrder(null);
-            queryClient.invalidateQueries({ queryKey: ['portal', 'orders'] });
-            queryClient.invalidateQueries({ queryKey: ['portal', 'financial-summary'] });
-          }}
-        />
-      )}
     </div>
   );
 }
 
 function ListSkeleton() {
   return (
-    <ul className="space-y-2.5" aria-hidden>
+    <ul className="space-y-3.5" aria-hidden>
       {Array.from({ length: 4 }).map((_, i) => (
         <li
           key={i}
@@ -287,6 +229,7 @@ function ListSkeleton() {
             <div className="h-5 w-24 animate-pulse rounded-full bg-muted" />
             <div className="h-5 w-20 animate-pulse rounded-full bg-muted" />
           </div>
+          <div className="mt-3 h-11 w-full animate-pulse rounded-2xl bg-muted" />
         </li>
       ))}
     </ul>
