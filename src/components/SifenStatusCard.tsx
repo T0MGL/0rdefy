@@ -10,7 +10,7 @@
  * label corto + meta opcional (vencimiento, ambiente, etc).
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   CheckCircle2,
@@ -18,8 +18,12 @@ import {
   Circle,
   XCircle,
   ShieldCheck,
+  Activity,
+  Loader2,
 } from 'lucide-react';
-import type { FiscalContext } from '@/services/invoicing.service';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
+import { fiscalService, type FiscalContext } from '@/services/invoicing.service';
 
 type ItemState = 'ok' | 'warn' | 'missing' | 'optional';
 
@@ -78,6 +82,36 @@ function scrollToSection(target: string | undefined): void {
 }
 
 export function SifenStatusCard({ ctx, loading }: Props) {
+  const { toast } = useToast();
+  const [testing, setTesting] = useState(false);
+
+  const handleTestConnection = async () => {
+    setTesting(true);
+    try {
+      const result = await fiscalService.testConnection();
+      if (result.ok) {
+        toast({
+          title: 'SIFEN responde',
+          description: result.message,
+        });
+      } else {
+        toast({
+          title: 'SIFEN no respondio como esperado',
+          description: result.message,
+          variant: 'destructive',
+        });
+      }
+    } catch (err) {
+      toast({
+        title: 'Error probando SIFEN',
+        description: err instanceof Error ? err.message : 'Error desconocido',
+        variant: 'destructive',
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   const items = useMemo<StatusItem[]>(() => {
     if (!ctx) return [];
 
@@ -277,12 +311,34 @@ export function SifenStatusCard({ ctx, loading }: Props) {
             <p className="text-xs text-muted-foreground mt-0.5">{summary.subtitle}</p>
           </div>
         </div>
-        <span
-          className={`shrink-0 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${envBadgeClasses}`}
-        >
-          <span className={`h-1.5 w-1.5 rounded-full ${env === 'prod' ? 'bg-emerald-500 animate-pulse' : env === 'test' ? 'bg-amber-500' : 'bg-muted-foreground/60'}`} />
-          {env}
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={handleTestConnection}
+            disabled={testing || !ctx.identity.has_certificate}
+            className="h-7 px-2.5 text-[11px]"
+          >
+            {testing ? (
+              <>
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                Probando...
+              </>
+            ) : (
+              <>
+                <Activity className="h-3 w-3 mr-1" />
+                Probar SIFEN
+              </>
+            )}
+          </Button>
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${envBadgeClasses}`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${env === 'prod' ? 'bg-emerald-500 animate-pulse' : env === 'test' ? 'bg-amber-500' : 'bg-muted-foreground/60'}`} />
+            {env}
+          </span>
+        </div>
       </div>
 
       <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">

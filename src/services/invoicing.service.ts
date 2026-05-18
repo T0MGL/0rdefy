@@ -588,4 +588,35 @@ export const fiscalService = {
     });
     return json.data;
   },
+
+  /**
+   * Ping SIFEN con el cert mTLS configurado para verificar que el flow
+   * de emision esta sano. NO emite factura: usa una consultLote(0) que
+   * SIFEN responde con `0360 - lote inexistente` cuando el cert es
+   * aceptado, asi confirma TLS + procesamiento sin generar documentos.
+   */
+  async testConnection(): Promise<{
+    ok: boolean;
+    stage: string;
+    environment?: 'demo' | 'test' | 'prod';
+    latencyMs?: number;
+    responseCode?: string;
+    responseMessage?: string;
+    message: string;
+  }> {
+    const json = await fiscalFetch<{
+      data: {
+        ok: boolean;
+        stage: string;
+        environment?: 'demo' | 'test' | 'prod';
+        latencyMs?: number;
+        responseCode?: string;
+        responseMessage?: string;
+        message: string;
+      };
+    }>(`/test-connection`, {
+      method: 'POST',
+    });
+    return json.data;
+  },
 };

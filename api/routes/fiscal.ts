@@ -31,6 +31,7 @@ import { Module, Role } from '../permissions';
 import { logger } from '../utils/logger';
 import { sanitizeErrorForClient, validateUUIDParam } from '../utils/sanitize';
 import * as invoicingService from '../services/invoicing.service';
+import * as sifenClient from '../services/sifen/sifen-client';
 
 export const fiscalRouter = express.Router();
 
@@ -393,5 +394,103 @@ fiscalRouter.get('/context', async (req: PermissionRequest, res: Response) => {
   } catch (err: any) {
     logger.error('BACKEND', `[Fiscal] GET /context error: ${err.message}`);
     res.status(500).json({ error: sanitizeErrorForClient(err) });
+  }
+});
+
+// ================================================================
+// POST /test-connection - ping SIFEN with the stored mTLS material
+// ================================================================
+//
+// Para que el owner pueda verificar de un click que el cert + CSC + env
+// estan bien configurados sin emitir una factura real. Usamos
+// consultLote(0) que es una operacion barata: SIFEN devuelve
+// `dCodResLot=0360 (Numero de lote inexistente)` cuando el protocolo no
+// existe, lo cual indica que: TLS mutual handshake OK, cert aceptado,
+// SIFEN procesa requests. Cualquier otra respuesta (timeout, TLS error,
+// 0421 sin permiso) la mostramos con el detalle para que el owner sepa
+// que arreglar.
+fiscalRouter.post('/test-connection', requireRole(Role.OWNER), async (req: PermissionRequest, res: Response) => {
+  const start = Date.now();
+  try {
+    const ctx = await invoicingService.getFiscalContext(req.storeId!);
+    if (!ctx) {
+      return res.json({
+        data: {
+          ok: false,
+          stage: 'context',
+          message: 'No hay configuracion fiscal activa en esta tienda.',
+        },
+      });
+    }
+
+    const env = ctx.identity.sifen_environment;
+    if (env === 'demo') {
+      return res.json({
+        data: {
+          ok: true,
+          stage: 'demo',
+          environment: env,
+          latencyMs: 0,
+          message: 'Modo demo: las facturas se simulan localmente, SIFEN no se contacta.',
+        },
+      });
+    }
+    if (!ctx.identity.has_certificate) {
+      return res.json({
+        data: {
+          ok: false,
+          stage: 'certificate',
+          environment: env,
+          message: 'No hay certificado digital cargado. Subi el .p12 antes de probar.',
+        },
+      });
+    }
+    if (env === 'prod' && !ctx.identity.csc_id) {
+      return res.json({
+        data: {
+          ok: false,
+          stage: 'csc',
+          environment: env,
+          message: 'Falta CSC + idCSC. DNIT los emite en Marangatu al habilitarte como Facturador Electronico.',
+        },
+      });
+    }
+
+    const { certPem, privateKeyPem } = await invoicingService.loadCertificateMaterial(ctx.identity.id);
+    const result = await sifenClient.consultLote('0', env as 'test' | 'prod', { certPem, privateKeyPem });
+    const latencyMs = Date.now() - start;
+
+    // 0360 = numero de lote inexistente = SIFEN OK, cert OK.
+    const isHealthy = result.state === 'not_found' || result.responseCode === '0360';
+    res.json({
+      data: {
+        ok: isHealthy,
+        stage: 'sifen',
+        environment: env,
+        latencyMs,
+        responseCode: result.responseCode,
+        responseMessage: result.responseMessage,
+        message: isHealthy
+          ? `SIFEN ${env} respondio OK en ${latencyMs} ms (cert + mTLS aceptados).`
+          : `SIFEN ${env} respondio con ${result.responseCode}: ${result.responseMessage}`,
+      },
+    });
+  } catch (err: any) {
+    const latencyMs = Date.now() - start;
+    const message: string = err?.message ?? 'Error desconocido';
+    const isTimeout = /timeout/i.test(message);
+    const isCertRejected = /unauthorized|certificate|tls|handshake/i.test(message);
+    res.json({
+      data: {
+        ok: false,
+        stage: isTimeout ? 'timeout' : isCertRejected ? 'tls' : 'unknown',
+        latencyMs,
+        message: isTimeout
+          ? `SIFEN no respondio en ${latencyMs} ms. Intenta de nuevo en un minuto.`
+          : isCertRejected
+            ? 'SIFEN rechazo el certificado. Verifica que sea el .p12 emitido por una CA habilitada y que no este vencido.'
+            : `Error de conexion: ${message.slice(0, 200)}`,
+      },
+    });
   }
 });
