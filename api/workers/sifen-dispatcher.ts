@@ -81,6 +81,14 @@ const FALLBACK_SWEEP_MS = 60_000;
  */
 const SWEEP_LIMIT = 500;
 
+/**
+ * Cap de reintentos transient antes de marcar el lote como rejected.
+ * Con TIMEOUT_MS=90s y sweep cada 60s, 5 intentos cubren ~7-10 min de
+ * caida SIFEN antes de cortar. Despues de eso, el owner ve el rejected
+ * y puede reintentar manualmente cuando SIFEN se recupere.
+ */
+const MAX_DISPATCH_ATTEMPTS = 5;
+
 const KEY_CACHE_OPTIONS = { max: 100, ttlMs: 5 * 60 * 1_000 };
 
 // ================================================================
@@ -367,16 +375,51 @@ export class SifenDispatcher {
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      // Reuse sifen_lote_poll_attempts as a counter for dispatch failures
+      // too -- semantically it tracks "lote-related retries" and avoids
+      // adding another column. Cap at MAX_DISPATCH_ATTEMPTS so a SIFEN
+      // outage doesn't generate an infinite retry loop across sweeps.
+      const { data: existing } = await supabaseAdmin
+        .from('invoices')
+        .select('id, sifen_lote_poll_attempts')
+        .in('id', reservedIds);
+      const maxAttempts = Math.max(
+        ...((existing ?? []).map((r) => r.sifen_lote_poll_attempts ?? 0)),
+        0,
+      );
+      const nextAttempts = maxAttempts + 1;
+
+      if (nextAttempts >= MAX_DISPATCH_ATTEMPTS) {
+        logger.error(
+          `[SifenDispatcher] giving up dispatch=${dispatchKey} count=${finalInvoices.length} identity=${identityId} after ${nextAttempts} transient failures: ${message}`,
+        );
+        await supabaseAdmin
+          .from('invoices')
+          .update({
+            sifen_status: 'rejected',
+            sifen_lote_poll_attempts: nextAttempts,
+            sifen_response_code: 'DSP_FAIL',
+            sifen_response_message: `Dispatch fallo ${nextAttempts}x: ${message.slice(0, 200)}`,
+            sifen_lote_dispatch_key: null,
+            sifen_lote_submitted_at: null,
+            sifen_lote_last_error: message.slice(0, 1000),
+          })
+          .in('id', reservedIds);
+        return;
+      }
+
       logger.warn(
-        `[SifenDispatcher] transient send failure dispatch=${dispatchKey} count=${finalInvoices.length} identity=${identityId}: ${message}`,
+        `[SifenDispatcher] transient send failure dispatch=${dispatchKey} count=${finalInvoices.length} identity=${identityId} attempts=${nextAttempts}/${MAX_DISPATCH_ATTEMPTS}: ${message}`,
       );
       // Transient: devolver al estado queued limpiando dispatch_key, asi
-      // el proximo tick las vuelve a tomar. Sin marcar como rejected.
+      // el proximo tick las vuelve a tomar. Incrementamos attempts para
+      // detectar caidas prolongadas y cortar el loop antes de saturar.
       await supabaseAdmin
         .from('invoices')
         .update({
           sifen_lote_dispatch_key: null,
           sifen_lote_submitted_at: null,
+          sifen_lote_poll_attempts: nextAttempts,
           sifen_lote_last_error: message.slice(0, 1000),
         })
         .in('id', reservedIds);

@@ -78,7 +78,11 @@ const ENDPOINTS: Record<Exclude<SifenEnv, 'demo'>, string> = {
   prod: 'https://sifen.set.gov.py/de/ws/',
 };
 
-const TIMEOUT_MS = 30_000;
+// SIFEN async (siRecepLoteDE) cold-start with mTLS handshake can land
+// in the 30-60s range on a fresh socket; sync receives are faster but
+// share the same client. 90s gives the lote endpoint room to respond
+// before the dispatcher gives up and treats it as a transient failure.
+const TIMEOUT_MS = 90_000;
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5 MB
 const SIFEN_XSD_NS = 'http://ekuatia.set.gov.py/sifen/xsd';
 
