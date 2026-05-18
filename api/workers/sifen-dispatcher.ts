@@ -62,8 +62,11 @@ const BATCH_WINDOW_MS = 30_000;
 /**
  * Timeout completo de un ciclo de dispatch (signXmlLoad + zip + send).
  * Despues de esto el AbortController cancela el request HTTPS subyacente.
+ * Tiene que ser >= TIMEOUT_MS del cliente HTTP (90s) o el cycleAbort
+ * dispara antes y todos los lotes terminan en "SIFEN request aborted".
+ * 120s deja 30s de margen para zip + DB ops adicionales del ciclo.
  */
-const DISPATCH_TIMEOUT_MS = 60_000;
+const DISPATCH_TIMEOUT_MS = 120_000;
 
 /**
  * Periodo del cron fallback. NOTIFY despierta el dispatcher casi
