@@ -39,19 +39,16 @@ import { parseStringPromise } from 'xml2js';
 import JSZip from 'jszip';
 import { logger } from '../../utils/logger';
 
-// Shared keep-alive agent. SIFEN imposes mTLS so every cold connection
-// pays an X.509 + RSA handshake. Reusing sockets across sendDELote /
-// consultLote / sendEvent / consultDE keeps per-request cost in the
-// ~50ms range instead of ~500ms when a worker is processing back-to-back
-// lotes for the same host. maxSockets caps concurrency so we never
-// flood SIFEN from a single worker replica.
-const SIFEN_HTTPS_AGENT = new https.Agent({
-  keepAlive: true,
-  keepAliveMsecs: 30_000,
-  maxSockets: 8,
-  maxFreeSockets: 4,
-  scheduling: 'lifo',
-});
+// Per-request agent: keep-alive sockets to sifen.set.gov.py end up in a
+// weird state on the F5 load balancer in front of SIFEN; reused sockets
+// hang for the full timeout (90s) without ever returning a response.
+// A clean curl/Node probe without any agent reuse returns 0300 in <700ms
+// against the same endpoint, cert, and payload. Until we have a working
+// keep-alive setup, use a fresh agent per request: TLS handshake cost
+// per call (~200-500ms) is fine for our volume.
+function freshAgent(): https.Agent {
+  return new https.Agent({ keepAlive: false });
+}
 
 export type SifenEnv = 'demo' | 'test' | 'prod';
 
@@ -154,7 +151,7 @@ async function soapRequestMtls(
         'Content-Length': Buffer.byteLength(envelope),
       },
       timeout: TIMEOUT_MS,
-      agent: SIFEN_HTTPS_AGENT,
+      agent: freshAgent(),
     };
 
     const req = https.request(options, (res) => {
