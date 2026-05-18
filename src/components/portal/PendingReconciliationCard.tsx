@@ -44,10 +44,7 @@ export function PendingReconciliationCard({
       htmlFor={`reconcile-${order.id}`}
       className={cn(
         'group flex cursor-pointer items-start gap-3 rounded-2xl border border-border bg-card p-3 shadow-sm transition-colors',
-        'border-l-4',
-        selected
-          ? 'border-l-primary bg-primary/[0.04] ring-1 ring-primary/20'
-          : 'border-l-muted hover:bg-accent/40',
+        'hover:bg-accent/30',
       )}
     >
       <Checkbox

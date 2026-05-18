@@ -28,7 +28,11 @@ export default function PortalToday() {
       queryKey: ['portal', 'orders', 'today'],
       queryFn: ({ signal }) =>
         portalService.getOrders({ view: 'today', page_size: 100 }, { signal }),
-      staleTime: 30_000,
+      // Opt-in to refetchOnWindowFocus (global default off) so when an
+      // admin reconciles from the dashboard, "Hoy" updates the moment
+      // the courier comes back to the tab.
+      staleTime: 15_000,
+      refetchOnWindowFocus: true,
     });
 
   const orders = useMemo(() => data?.orders ?? [], [data?.orders]);

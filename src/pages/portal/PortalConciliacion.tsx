@@ -56,10 +56,16 @@ export default function PortalConciliacion() {
     };
   }, []);
 
+  // Both queries opt-in to refetchOnWindowFocus (global default is off)
+  // so the courier always sees fresh state when they come back to the
+  // tab — critical when an admin reconciles from the dashboard while
+  // the courier has the portal open.
   const pendingQuery = useQuery<PortalPendingSettlementsResult>({
     queryKey: ['portal', 'settlements', 'pending'],
     queryFn: ({ signal }) => portalService.getPendingSettlements({ signal }),
-    staleTime: 30_000,
+    staleTime: 15_000,
+    refetchOnWindowFocus: true,
+    refetchOnMount: 'always',
   });
 
   const historyQuery = useQuery<PortalSettlementsHistoryResult>({
@@ -69,6 +75,7 @@ export default function PortalConciliacion() {
     // Signed URLs in the history payload live ~5 min, so we re-fetch a
     // bit more aggressively than other views to avoid stale links.
     staleTime: 4 * 60_000,
+    refetchOnWindowFocus: true,
   });
 
   const pendingOrders = pendingQuery.data?.orders ?? [];

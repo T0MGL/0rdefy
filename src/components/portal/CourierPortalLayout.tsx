@@ -1,23 +1,31 @@
 /**
- * Mobile-first layout for the courier portal.
+ * Mobile-first layout for the courier portal — also fully usable on web.
  *
  * Three pieces:
- *   - Sticky header: store name (left), carrier name truncated (center),
- *     courier avatar dropdown (right).
- *   - Main: <Outlet /> with bottom-padding so content clears the nav.
- *   - Sticky bottom nav: 4 tabs with safe-area bottom inset.
+ *   - Sticky header: store switcher (left, only when courier carries
+ *     >1 store), carrier name (center, sm+), avatar dropdown (right).
+ *   - Main: <Outlet /> centered with a max width so the long-form
+ *     pages don't sprawl on desktop monitors but still expand a bit
+ *     past the mobile column.
+ *   - Sticky bottom nav: 4 tabs with safe-area bottom inset on mobile;
+ *     same nav on desktop (the portal is a single-purpose surface, the
+ *     bottom nav is the only navigation primitive — keeps web parity
+ *     with mobile).
  *
- * The layout calls /api/portal/me once on mount, caches it through React Query
- * (staleTime 5min), and uses it to render the header. If the call fails we
- * still render the layout — pages handle their own data fetching.
+ * Store switching: a courier user (user_stores.role='courier') may be
+ * active in multiple stores. When that's the case we expose a button
+ * in the header that opens a dropdown of courier-role stores, calling
+ * AuthContext.switchStore() on selection. Switching invalidates all
+ * portal queries so the new store's data loads fresh.
  *
- * No sidebar, no admin Header. Different visual identity from the admin shell.
+ * No sidebar, no admin Header. Different visual identity from the
+ * admin shell, but the same web-grade quality of interactions.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Truck,
   CheckCircle2,
@@ -25,6 +33,8 @@ import {
   Receipt,
   LogOut,
   Settings,
+  ChevronsUpDown,
+  Check,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -62,11 +72,21 @@ function initialsFrom(name: string | null | undefined, email: string): string {
 
 export function CourierPortalLayout() {
   const navigate = useNavigate();
-  const { signOut, user } = useAuth();
+  const queryClient = useQueryClient();
+  const { signOut, user, currentStore, switchStore } = useAuth();
   const [signingOut, setSigningOut] = useState(false);
+  const [switchingStoreId, setSwitchingStoreId] = useState<string | null>(null);
+
+  // Restrict the switcher to stores where this user is an active
+  // courier. The admin shell shows all stores; here we never expose
+  // stores where the user has a different role.
+  const courierStores = useMemo(
+    () => (user?.stores ?? []).filter((s) => s.role?.toLowerCase() === 'courier'),
+    [user?.stores],
+  );
 
   const meQuery = useQuery<PortalMe>({
-    queryKey: ['portal', 'me'],
+    queryKey: ['portal', 'me', currentStore?.id],
     queryFn: ({ signal }) => portalService.getMe({ signal }),
     staleTime: 5 * 60 * 1000,
     retry: 1,
@@ -74,7 +94,7 @@ export function CourierPortalLayout() {
 
   const me = meQuery.data;
   const carrierName = me?.carrier?.name;
-  const storeName = me?.store?.name;
+  const storeName = me?.store?.name ?? currentStore?.name;
   const courierName = me?.user?.name || user?.name || user?.email || 'Operador';
   const courierEmail = me?.user?.email || user?.email || '';
   const initials = initialsFrom(courierName, courierEmail);
@@ -89,6 +109,19 @@ export function CourierPortalLayout() {
     }
   };
 
+  const handleSwitchStore = async (storeId: string) => {
+    if (storeId === currentStore?.id) return;
+    setSwitchingStoreId(storeId);
+    try {
+      await switchStore(storeId);
+      // Invalidate every portal query so the new store's data loads
+      // fresh. React Query will refetch the active subscribers.
+      queryClient.invalidateQueries({ queryKey: ['portal'] });
+    } finally {
+      setSwitchingStoreId(null);
+    }
+  };
+
   return (
     <div className="flex min-h-[100dvh] flex-col bg-gradient-to-b from-background to-muted/40">
       {/* Header */}
@@ -96,18 +129,64 @@ export function CourierPortalLayout() {
         className="sticky top-0 z-40 overflow-hidden border-b border-border/70 bg-background/80 backdrop-blur-md"
         style={{ paddingTop: 'env(safe-area-inset-top)' }}
       >
-        <div className="mx-auto flex h-14 w-full max-w-2xl items-center gap-3 px-4">
-          {/* Left: store mark */}
+        <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-3 px-4">
+          {/* Left: store switcher (or plain label when only one store) */}
           <div className="min-w-0 flex-1">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
               Portal courier
             </p>
-            <p className="truncate text-sm font-semibold text-foreground">
-              {storeName ?? 'Cargando...'}
-            </p>
+            {courierStores.length > 1 ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className="group inline-flex max-w-full items-center gap-1.5 rounded-md text-left text-sm font-semibold text-foreground transition-colors hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                  aria-label="Cambiar de tienda"
+                >
+                  <span className="truncate">
+                    {storeName ?? 'Cargando...'}
+                  </span>
+                  <ChevronsUpDown
+                    className="h-3.5 w-3.5 shrink-0 text-muted-foreground group-hover:text-primary"
+                    strokeWidth={2}
+                  />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-56">
+                  <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Tus tiendas ({courierStores.length})
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {courierStores.map((s) => {
+                    const isActive = s.id === currentStore?.id;
+                    const isSwitching = switchingStoreId === s.id;
+                    return (
+                      <DropdownMenuItem
+                        key={s.id}
+                        onSelect={(e) => {
+                          e.preventDefault();
+                          handleSwitchStore(s.id);
+                        }}
+                        disabled={isSwitching}
+                        className="flex items-center justify-between gap-3"
+                      >
+                        <span className="truncate">{s.name}</span>
+                        {isActive && (
+                          <Check
+                            className="h-3.5 w-3.5 shrink-0 text-primary"
+                            strokeWidth={2.25}
+                          />
+                        )}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <p className="truncate text-sm font-semibold text-foreground">
+                {storeName ?? 'Cargando...'}
+              </p>
+            )}
           </div>
 
-          {/* Center: carrier */}
+          {/* Center: carrier (sm+ only) */}
           <div className="hidden min-w-0 flex-1 text-center sm:block">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
               Transportadora
@@ -163,7 +242,7 @@ export function CourierPortalLayout() {
       {/* Main */}
       <main
         id="portal-main"
-        className="mx-auto w-full max-w-2xl flex-1 overflow-x-hidden px-4 pb-28 pt-4"
+        className="mx-auto w-full max-w-3xl flex-1 overflow-x-hidden px-4 pb-28 pt-4"
       >
         <Outlet />
       </main>

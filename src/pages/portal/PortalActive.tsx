@@ -55,10 +55,13 @@ export default function PortalActive() {
     };
   }, []);
 
+  // Portal queries opt-in to refetchOnWindowFocus (global default off)
+  // so the courier sees fresh state when they return to the tab.
   const summaryQuery = useQuery<PortalFinancialSummary>({
     queryKey: ['portal', 'financial-summary'],
     queryFn: ({ signal }) => portalService.getFinancialSummary({ signal }),
-    staleTime: 30_000,
+    staleTime: 15_000,
+    refetchOnWindowFocus: true,
   });
 
   const ordersQuery = useQuery<PortalOrdersResponse>({
@@ -73,8 +76,9 @@ export default function PortalActive() {
         },
         { signal },
       ),
-    staleTime: 30_000,
+    staleTime: 15_000,
     placeholderData: keepPreviousData,
+    refetchOnWindowFocus: true,
   });
 
   const orders = ordersQuery.data?.orders ?? [];
