@@ -39,6 +39,7 @@ import {
     vatCollected,
     type OrderWithCosts,
 } from '../metrics-canonical';
+import { ACTIVE_SETTLEMENT_STATUSES, isActiveSettlement } from '../order-status';
 
 const o = (overrides: Partial<OrderWithCosts>): OrderWithCosts => ({
     sleeves_status: overrides.sleeves_status ?? 'pending',
@@ -110,6 +111,40 @@ describe('revenueReal', () => {
         assert.equal(revenueReal(orders, 'PYG'), 100);
         assert.equal(revenueReal(orders, 'USD'), 200);
         assert.equal(revenueReal(orders), 300);
+    });
+
+    // Regression test for fix/is-delivered-include-settled (PR #4):
+    // before the fix, settled orders dropped out of analytics.ts realRevenue
+    // because the route used the strict isDelivered helper. The canonical
+    // formula in this file always treated 'settled' as terminal-success, so
+    // we lock that invariant down so neither side can drift again.
+    it('treats settled as revenue, parity with cod-metrics and analytics overview', () => {
+        const orders = [
+            o({ sleeves_status: 'delivered', total_price: 1000 }),
+            o({ sleeves_status: 'settled', total_price: 1000 }),
+        ];
+        // Both states count, same weight. Flipping delivered -> settled (which
+        // is what settlement reconciliation does) must not move the dashboard.
+        assert.equal(revenueReal(orders), 2000);
+
+        const onlyDelivered = [o({ sleeves_status: 'delivered', total_price: 1000 })];
+        const onlySettled = [o({ sleeves_status: 'settled', total_price: 1000 })];
+        assert.equal(revenueReal(onlyDelivered), revenueReal(onlySettled));
+    });
+});
+
+// Settlement queue isolation invariant: orders.sleeves_status='settled' is
+// a separate enum from settlements.status (which the queue filters by). A
+// settled order does NOT appear in the pending settlement queue because
+// ACTIVE_SETTLEMENT_STATUSES is about the settlements table row state, not
+// the order row state. Locks down the assumption baked into PR #4.
+describe('settlement queue vs settled order isolation', () => {
+    it('ACTIVE_SETTLEMENT_STATUSES only references settlement-record states, not order states', () => {
+        assert.equal(ACTIVE_SETTLEMENT_STATUSES.has('settled'), false);
+        assert.equal(ACTIVE_SETTLEMENT_STATUSES.has('delivered'), false);
+        assert.equal(isActiveSettlement('settled'), false);
+        assert.equal(isActiveSettlement('pending'), true);
+        assert.equal(isActiveSettlement('partial'), true);
     });
 });
 
