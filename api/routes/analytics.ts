@@ -279,10 +279,14 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             // Total revenue from ALL orders (for display purposes)
             let rev = ordersList.reduce((sum, order) => sum + (Number(order.total_price) || 0), 0);
 
-            // 1.5. REAL REVENUE (only from delivered orders - actual cash received)
-            // This is the money that actually entered the business
+            // 1.5. REAL REVENUE (terminal-success orders: delivered + settled).
+            // This is the money that actually entered the business. We use
+            // isDeliveredOrSettled because once a delivered order reconciles
+            // through the settlements flow its status flips to 'settled' but the
+            // cash already landed: dropping it from revenue would understate
+            // realized income. Single source of truth with cod-metrics.ts.
             let realRevenue = ordersList
-                .filter(o => isDelivered(o.sleeves_status))
+                .filter(o => isDeliveredOrSettled(o.sleeves_status))
                 .reduce((sum, order) => sum + (Number(order.total_price) || 0), 0);
 
             // 1.6. PROJECTED REVENUE (delivered + in-transit pipeline, weighted)
@@ -300,7 +304,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             // different denominator (delivered + in_transit), which produced a higher
             // rate than the headline and made the two cards disagree by ~4pp on
             // Solenne (60.74% vs 64.51%). See metrics-definitions.md.
-            const deliveredCount = ordersList.filter(o => isDelivered(o.sleeves_status)).length;
+            const deliveredCount = ordersList.filter(o => isDeliveredOrSettled(o.sleeves_status)).length;
             const inTransitCount = inTransitOrdersList.length;
             const dispatched = ordersList.filter(o => isDispatched(o.sleeves_status, o.shipped_at)).length;
             const deliveryRateDecimal = dispatched > 0 && deliveredCount > 0
@@ -327,7 +331,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 const shippingCost = Number(order.shipping_cost) || 0;
                 deliveryCosts += shippingCost;
 
-                if (isDelivered(order.sleeves_status)) {
+                if (isDeliveredOrSettled(order.sleeves_status)) {
                     realDeliveryCosts += shippingCost;
                 } else if (isInTransit(order.sleeves_status)) {
                     inTransitDeliveryCosts += shippingCost;
@@ -345,7 +349,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 !['pending', 'cancelled', 'rejected'].includes(o.sleeves_status)
             );
             const realConfirmedOrders = ordersList.filter(o =>
-                isDelivered(o.sleeves_status)
+                isDeliveredOrSettled(o.sleeves_status)
             );
             const inTransitConfirmedCount = inTransitCount; // every in-transit order paid confirmation
 
@@ -377,7 +381,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                     productCosts += itemCost;
                 }
 
-                if (isDelivered(order.sleeves_status)) {
+                if (isDeliveredOrSettled(order.sleeves_status)) {
                     realProductCosts += orderCost;
                 } else if (isInTransit(order.sleeves_status)) {
                     inTransitProductCosts += orderCost;
@@ -553,10 +557,10 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
         // costs + confirmation fees of delivered + full marketing spend)
         // divided by delivered count. Same set in num and denom, which is
         // what the user actually wants to read in the dashboard.
-        const deliveredCount = currentPeriodOrders.filter(o => isDelivered(o.sleeves_status)).length;
+        const deliveredCount = currentPeriodOrders.filter(o => isDeliveredOrSettled(o.sleeves_status)).length;
         const realCostPerOrder = deliveredCount > 0 ? (currentMetrics.realCosts / deliveredCount) : 0;
 
-        const previousDeliveredCount = previousPeriodOrders.filter(o => isDelivered(o.sleeves_status)).length;
+        const previousDeliveredCount = previousPeriodOrders.filter(o => isDeliveredOrSettled(o.sleeves_status)).length;
         const previousRealCostPerOrder = previousDeliveredCount > 0
             ? (previousMetrics.realCosts / previousDeliveredCount)
             : 0;
@@ -876,7 +880,7 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
             const status = order.sleeves_status;
             const total = Number(order.total_price) || 0;
 
-            if (isDelivered(status)) {
+            if (isDeliveredOrSettled(status)) {
                 dailyData[date].realRevenue += total;
                 dailyData[date].shippingCosts += Number(order.shipping_cost) || 0;
                 totalDeliveredForRate += 1;
@@ -1025,9 +1029,11 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
         }
 
         // Calculate average delivery time (from created_at to delivered_at)
-        // Only for orders that have been delivered
+        // Only for orders that have been delivered (settled too: once carrier
+        // reconciles, status flips from delivered to settled but delivered_at
+        // remains the source-of-truth timestamp for time-to-delivery).
         const deliveredOrders = orders.filter(o =>
-            isDelivered(o.sleeves_status) &&
+            isDeliveredOrSettled(o.sleeves_status) &&
             o.delivered_at &&
             o.created_at
         );
@@ -1127,11 +1133,16 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
         //     placeholder products with cost=0 AND price>0 (e.g. ENVIO PRIORITARIO),
         //     they pollute rankings without representing inventory turnover.
         //   - default window: 365 days, anchored to the store's local calendar.
+        // Terminal-success: 'delivered' + 'settled'. Settled is what a delivered
+        // order becomes once carrier reconciliation lands; same revenue, just
+        // post-reconciliation. Excluding settled here used to hide top-product
+        // rankings the moment Settlements ran. Single source of truth with
+        // realRevenue in /overview. See metrics-definitions.md.
         const orderIdsQuery = supabaseAdmin
             .from('orders')
             .select('id')
             .eq('store_id', req.storeId)
-            .eq('sleeves_status', 'delivered')
+            .in('sleeves_status', ['delivered', 'settled'])
             .is('deleted_at', null)
             .or('is_test.is.null,is_test.eq.false');
 
@@ -2055,7 +2066,10 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
         // Devoluciones sobre pedidos entregados
         // Tasa = (Pedidos Devueltos / Pedidos Entregados + Devueltos) × 100
 
-        const deliveredOrders = orders.filter(o => isDelivered(o.sleeves_status));
+        // Returns denominator: delivered + settled (terminal-success). Same
+        // rationale as realRevenue: a settled order is a delivered order that
+        // reconciled. Excluding it inflates return rate as more orders settle.
+        const deliveredOrders = orders.filter(o => isDeliveredOrSettled(o.sleeves_status));
         const returnedOrders = orders.filter(o => isReturned(o.sleeves_status));
 
         const totalDeliveredAndReturned = deliveredOrders.length + returnedOrders.length;
