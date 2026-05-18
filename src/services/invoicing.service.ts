@@ -382,6 +382,8 @@ export interface FiscalIdentity {
   domicilio_fiscal_distrito: number | null;
   domicilio_fiscal_ciudad: number | null;
   is_active: boolean;
+  /** Migration 189: route emission via SIFEN async lote WS. */
+  sifen_async_enabled?: boolean;
   created_at: string;
   updated_at: string;
   activities: FiscalActivity[];
@@ -404,6 +406,11 @@ export interface FiscalStoreLink {
   next_document_number: number;
   is_active: boolean;
   setup_completed: boolean;
+  /** Migration 163 + 193: opt-in auto-emit on delivery. */
+  auto_emit_invoice_on_delivery?: boolean;
+  /** Migration 163: per-store generic description fallback. */
+  default_generic_description?: string;
+  use_generic_description?: boolean;
 }
 
 export interface FiscalContext {

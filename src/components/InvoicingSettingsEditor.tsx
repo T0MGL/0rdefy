@@ -57,6 +57,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { SifenFlowAnimation } from '@/components/SifenFlowAnimation';
+import { SifenStatusCard } from '@/components/SifenStatusCard';
 import { useToast } from '@/hooks/use-toast';
 import {
   fiscalService,
@@ -479,25 +480,11 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
         transition={{ duration: 0.15 }}
         className="space-y-8 pt-2"
       >
-        {/* RUC (read-only, for context) */}
-        <div className="flex items-center gap-3 rounded-md border bg-muted/40 px-3 py-2 text-sm">
-          <div className="flex-1">
-            <p className="text-xs text-muted-foreground">RUC</p>
-            <p className="font-mono font-medium">
-              {ctx.identity.ruc}-{ctx.identity.ruc_dv}
-            </p>
-          </div>
-          {hasCertificate ? (
-            <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
-              Certificado cargado
-            </Badge>
-          ) : (
-            <Badge variant="outline">Sin certificado</Badge>
-          )}
-        </div>
+        {/* Consolidated status: cert, CSC, timbrado, async, auto-emit. */}
+        <SifenStatusCard ctx={ctx} loading={loading} />
 
         {/* Section 1: Identity */}
-        <section className="space-y-4">
+        <section id="fiscal-identity-section" className="space-y-4 scroll-mt-24">
           <header>
             <h3 className="text-sm font-semibold">Identidad fiscal</h3>
             <p className="text-xs text-muted-foreground">
@@ -678,7 +665,7 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
         <Separator />
 
         {/* Section 4: Establecimiento */}
-        <section className="space-y-4">
+        <section id="fiscal-store-section" className="space-y-4 scroll-mt-24">
           <header>
             <h3 className="text-sm font-semibold">Establecimiento y timbrado</h3>
             <p className="text-xs text-muted-foreground">
@@ -826,7 +813,7 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
         <Separator />
 
         {/* Section 6: Certificate */}
-        <section className="space-y-4">
+        <section id="fiscal-certificate-section" className="space-y-4 scroll-mt-24">
           <header className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-semibold">Certificado digital (.p12)</h3>
@@ -910,7 +897,7 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
         <Separator />
 
         {/* Section 7: CSC (Codigo de Seguridad del Contribuyente) */}
-        <section className="space-y-4">
+        <section id="fiscal-csc-section" className="space-y-4 scroll-mt-24">
           <header className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-semibold flex items-center gap-2">
