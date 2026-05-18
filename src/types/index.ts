@@ -277,6 +277,12 @@ export interface Product {
   id: string;
   name: string;
   description?: string;
+  /**
+   * Descripcion fiscal: como aparece este producto en la factura electronica.
+   * Nullable. Si esta vacia, el auto-emit on delivery se omite y queda
+   * alerta al owner (gate de calidad migration 193).
+   */
+  fiscal_description?: string | null;
   sku?: string;
   category?: string;
   image: string; // Frontend uses 'image', backend uses 'image_url' (transformed in service)

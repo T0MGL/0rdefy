@@ -218,6 +218,7 @@ productsRouter.post('/', requirePermission(Module.PRODUCTS, Permission.CREATE), 
         const {
             name,
             description,
+            fiscal_description,
             sku,
             price,
             cost,
@@ -230,6 +231,12 @@ productsRouter.post('/', requirePermission(Module.PRODUCTS, Permission.CREATE), 
             is_active = true,
             is_service = false
         } = req.body;
+
+        const normalizedFiscalDesc = (() => {
+            if (fiscal_description === undefined) return undefined;
+            const trimmed = typeof fiscal_description === 'string' ? fiscal_description.trim() : '';
+            return trimmed.length > 0 ? trimmed.slice(0, 120) : null;
+        })();
 
         // Basic validation
         if (!name || !price) {
@@ -315,6 +322,7 @@ productsRouter.post('/', requirePermission(Module.PRODUCTS, Permission.CREATE), 
                 store_id: req.storeId,
                 name,
                 description,
+                ...(normalizedFiscalDesc !== undefined ? { fiscal_description: normalizedFiscalDesc } : {}),
                 sku,
                 price: parseFloat(price),
                 cost: cost ? parseFloat(cost) : null,
@@ -506,6 +514,7 @@ productsRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.PRO
         const {
             name,
             description,
+            fiscal_description,
             sku,
             price,
             cost,
@@ -525,6 +534,13 @@ productsRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.PRO
 
         if (name !== undefined) updateData.name = name;
         if (description !== undefined) updateData.description = description;
+        if (fiscal_description !== undefined) {
+            // Gate de calidad para auto-emit: descripcion exacta que va al XML.
+            // Vacio o whitespace lo guardamos como null para que el gate del
+            // worker lo detecte correctamente (migration 193).
+            const trimmed = typeof fiscal_description === 'string' ? fiscal_description.trim() : '';
+            updateData.fiscal_description = trimmed.length > 0 ? trimmed.slice(0, 120) : null;
+        }
         if (sku !== undefined) updateData.sku = sku;
         if (price !== undefined) updateData.price = parseFloat(price);
         if (cost !== undefined) updateData.cost = parseFloat(cost);

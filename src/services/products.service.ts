@@ -89,6 +89,7 @@ export const productsService = {
         name: p.name,
         sku: p.sku || '',
         description: p.description || '',
+        fiscal_description: p.fiscal_description ?? null,
         category: p.category || '',
         image: p.image_url || p.image || '',
         stock: p.stock,
@@ -128,6 +129,7 @@ export const productsService = {
         name: data.name,
         sku: data.sku || '',
         description: data.description || '',
+        fiscal_description: data.fiscal_description ?? null,
         category: data.category || '',
         image: data.image_url || data.image || '',
         stock: data.stock,
@@ -153,6 +155,7 @@ export const productsService = {
         name: product.name,
         sku: product.sku,
         description: product.description,
+        fiscal_description: product.fiscal_description ?? null,
         category: product.category,
         image_url: product.image,
         stock: product.stock,
@@ -182,6 +185,7 @@ export const productsService = {
         name: result.data.name,
         sku: result.data.sku || '',
         description: result.data.description || '',
+        fiscal_description: result.data.fiscal_description ?? null,
         category: result.data.category || '',
         image: result.data.image_url || product.image,
         stock: result.data.stock,
@@ -207,6 +211,7 @@ export const productsService = {
       if (data.name !== undefined) backendData.name = data.name;
       if (data.sku !== undefined) backendData.sku = data.sku;
       if (data.description !== undefined) backendData.description = data.description;
+      if (data.fiscal_description !== undefined) backendData.fiscal_description = data.fiscal_description;
       if (data.category !== undefined) backendData.category = data.category;
       if (data.image !== undefined) backendData.image_url = data.image;
       if (data.stock !== undefined) backendData.stock = data.stock;
@@ -236,6 +241,7 @@ export const productsService = {
         name: result.data.name,
         sku: result.data.sku || '',
         description: result.data.description || '',
+        fiscal_description: result.data.fiscal_description ?? null,
         category: result.data.category || '',
         image: result.data.image_url || '',
         stock: result.data.stock,

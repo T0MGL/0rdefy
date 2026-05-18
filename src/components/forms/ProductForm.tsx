@@ -33,6 +33,12 @@ import { Badge } from '@/components/ui/badge';
 const manualProductSchema = z.object({
   name: z.string().trim().min(1, 'El nombre es requerido').max(100, 'Máximo 100 caracteres'),
   description: z.string().optional(),
+  /**
+   * Descripcion fiscal: como aparece este producto en la factura
+   * electronica. Si esta vacia, el auto-emit on delivery se omite y
+   * queda alerta al owner (gate de calidad migration 193).
+   */
+  fiscal_description: z.string().trim().max(120, 'Máximo 120 caracteres').optional(),
   sku: z.string().trim().min(1, 'El SKU es requerido').max(100, 'Máximo 100 caracteres'),
   category: z.string().optional(),
   image: z.string().url('URL inválida').or(z.literal('')),
@@ -111,6 +117,7 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
     defaultValues: {
       name: product?.name || '',
       description: product?.description || '',
+      fiscal_description: (product as { fiscal_description?: string | null } | undefined)?.fiscal_description || '',
       sku: product?.sku || '',
       category: product?.category || '',
       image: product?.image || '',
@@ -498,6 +505,32 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
               <FormControl>
                 <Textarea placeholder="Descripción del producto..." {...field} />
               </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="fiscal_description"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>
+                Descripción fiscal
+                <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+                  para la factura electrónica
+                </span>
+              </FormLabel>
+              <FormControl>
+                <Input
+                  placeholder={form.watch('name') || 'Cómo aparece este producto en la factura'}
+                  maxLength={120}
+                  {...field}
+                />
+              </FormControl>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Si la dejás vacía, el envío automático de factura al marcar entregado se omite y queda una alerta. Para emisión manual no es necesaria.
+              </p>
               <FormMessage />
             </FormItem>
           )}
