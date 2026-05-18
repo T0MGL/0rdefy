@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import https from 'https';
 import { ShopifyOrder } from '../types/shopify';
 import { logger } from '../utils/logger';
+import { normalizeParaguayPhone } from '../utils/phone';
 
 // Shared HTTP/HTTPS agents with connection pooling (prevents socket exhaustion under load)
 // - keepAlive: Reuses TCP connections instead of creating new ones per request
@@ -1517,11 +1518,17 @@ export class ShopifyWebhookService {
         if (phoneAttr?.value) notePhone = phoneAttr.value.toString();
       }
 
-      const phone = shopifyOrder.phone ||
+      // Normalize so customer matching collapses 0XXXXXXXXX / +5950XXXXXXXXX /
+      // +595XXXXXXXXX onto the same canonical key before upsert_customer_atomic
+      // runs its phone-based lookup. Without this we create duplicate customer
+      // rows for the same human and split their order history. Foreign numbers
+      // pass through untouched (see api/utils/phone.ts safety contract).
+      const rawPhone = shopifyOrder.phone ||
                     shopifyOrder.billing_address?.phone ||
                     shopifyOrder.shipping_address?.phone ||
                     notePhone ||
                     shopifyOrder.customer?.phone || '';
+      const phone = normalizeParaguayPhone(rawPhone);
 
       const email = shopifyOrder.contact_email ||
                     shopifyOrder.email ||
@@ -1627,9 +1634,17 @@ export class ShopifyWebhookService {
       fullAddress = parts.join(', ');
     }
 
-    // Extract phone numbers
-    const primaryPhone = shopifyOrder.phone || shopifyOrder.customer?.phone || shippingAddr?.phone || '';
-    const backupPhone = billingAddr?.phone && billingAddr.phone !== primaryPhone ? billingAddr.phone : '';
+    // Extract phone numbers. Shopify sends a mix of local (0XXXXXXXXX),
+    // double-prefixed (+5950XXXXXXXXX) and correct E.164 (+595XXXXXXXXX)
+    // depending on checkout configuration and how the customer typed it.
+    // Collapse to canonical +595XXXXXXXXX so downstream lookups, WhatsApp links
+    // and dispatch tooling all match on the same string. Foreign numbers
+    // pass through untouched (see api/utils/phone.ts safety contract).
+    const rawPrimaryPhone = shopifyOrder.phone || shopifyOrder.customer?.phone || shippingAddr?.phone || '';
+    const rawBackupPhone = billingAddr?.phone && billingAddr.phone !== rawPrimaryPhone ? billingAddr.phone : '';
+    const primaryPhone = normalizeParaguayPhone(rawPrimaryPhone);
+    const normalizedBackup = normalizeParaguayPhone(rawBackupPhone);
+    const backupPhone = normalizedBackup && normalizedBackup !== primaryPhone ? normalizedBackup : '';
 
     // Extract payment gateway information
     const paymentGateway = shopifyOrder.payment_gateway_names?.[0] ||

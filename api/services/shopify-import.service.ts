@@ -14,6 +14,7 @@ import {
   ShopifyOrder
 } from '../types/shopify';
 import { getTodayInTimezone } from '../utils/dateUtils';
+import { normalizeParaguayPhone } from '../utils/phone';
 
 export class ShopifyImportService {
   private supabaseAdmin: SupabaseClient;
@@ -498,7 +499,7 @@ export class ShopifyImportService {
       last_name: lastName || null,
       name: fullName || null,
       email: shopifyCustomer.email,
-      phone: shopifyCustomer.phone || '',
+      phone: normalizeParaguayPhone(shopifyCustomer.phone || ''),
       address: shopifyCustomer.default_address?.address1 || '',
       city: shopifyCustomer.default_address?.city || '',
       state: shopifyCustomer.default_address?.province || '',
@@ -539,9 +540,17 @@ export class ShopifyImportService {
       fullAddress = parts.join(', ');
     }
 
-    // Extract phone numbers
-    const primaryPhone = shopifyOrder.phone || shopifyOrder.customer?.phone || shippingAddr?.phone || '';
-    const backupPhone = billingAddr?.phone && billingAddr.phone !== primaryPhone ? billingAddr.phone : '';
+    // Extract phone numbers. Shopify sends a mix of local (0XXXXXXXXX),
+    // double-prefixed (+5950XXXXXXXXX) and correct E.164 (+595XXXXXXXXX)
+    // depending on checkout configuration and how the customer typed it.
+    // Collapse to canonical +595XXXXXXXXX so downstream lookups, WhatsApp links
+    // and dispatch tooling all match on the same string. Foreign numbers
+    // pass through untouched (see api/utils/phone.ts safety contract).
+    const rawPrimaryPhone = shopifyOrder.phone || shopifyOrder.customer?.phone || shippingAddr?.phone || '';
+    const rawBackupPhone = billingAddr?.phone && billingAddr.phone !== rawPrimaryPhone ? billingAddr.phone : '';
+    const primaryPhone = normalizeParaguayPhone(rawPrimaryPhone);
+    const normalizedBackup = normalizeParaguayPhone(rawBackupPhone);
+    const backupPhone = normalizedBackup && normalizedBackup !== primaryPhone ? normalizedBackup : '';
 
     // Extract payment gateway information (same logic as webhook service)
     const paymentGateway = shopifyOrder.payment_gateway_names?.[0] ||
