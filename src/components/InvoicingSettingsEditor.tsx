@@ -56,6 +56,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
+import { SifenFlowAnimation } from '@/components/SifenFlowAnimation';
 import { useToast } from '@/hooks/use-toast';
 import {
   fiscalService,
@@ -758,22 +759,26 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
             </div>
           </div>
 
-          <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 flex items-start gap-4">
-            <div className="flex-1 min-w-0">
-              <Label htmlFor="auto-emit-toggle" className="font-medium">
-                Emitir factura al marcar entrega
-              </Label>
-              <p className="text-xs text-muted-foreground mt-1">
-                Cuando lo prendes, marcar un pedido como <span className="font-medium">Entregado</span> intenta emitir factura electronica automaticamente al cliente (si tiene RUC). Cada producto del pedido debe tener su <span className="font-medium">Descripcion fiscal</span> cargada; si falta, la emision se omite y queda una alerta para ti.
-              </p>
+          <div className="space-y-3">
+            <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 flex items-start gap-4">
+              <div className="flex-1 min-w-0">
+                <Label htmlFor="auto-emit-toggle" className="font-medium">
+                  Emitir factura al marcar entrega
+                </Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Cuando lo prendes, marcar un pedido como <span className="font-medium">Entregado</span> intenta emitir factura electronica automaticamente al cliente (si tiene RUC). Cada producto del pedido debe tener su <span className="font-medium">Descripcion fiscal</span> cargada; si falta, la emision se omite y queda una alerta para ti.
+                </p>
+              </div>
+              <Switch
+                id="auto-emit-toggle"
+                checked={storeForm.watch('auto_emit_invoice_on_delivery') ?? false}
+                onCheckedChange={(checked) =>
+                  storeForm.setValue('auto_emit_invoice_on_delivery', checked, { shouldDirty: true })
+                }
+              />
             </div>
-            <Switch
-              id="auto-emit-toggle"
-              checked={storeForm.watch('auto_emit_invoice_on_delivery') ?? false}
-              onCheckedChange={(checked) =>
-                storeForm.setValue('auto_emit_invoice_on_delivery', checked, { shouldDirty: true })
-              }
-            />
+
+            <SifenFlowAnimation />
           </div>
         </section>
 
