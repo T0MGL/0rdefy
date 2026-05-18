@@ -294,17 +294,18 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             const inTransitGrossRevenue = inTransitOrdersList
                 .reduce((sum, order) => sum + (Number(order.total_price) || 0), 0);
 
-            // Calculate historical delivery rate from this period.
-            // Denominator = delivered + in_transit (what was actually shipped or arrived).
-            // We prefer this over a global lookup so the rate reflects the period
-            // the user is looking at (e.g., last 30d) and self-corrects for stores
-            // with seasonally different performance.
+            // Canonical delivery rate: delivered / dispatched.
+            // Single formula used by BOTH the headline card (returned as deliveryRate
+            // below) AND the projection weighting. Previously the projection used a
+            // different denominator (delivered + in_transit), which produced a higher
+            // rate than the headline and made the two cards disagree by ~4pp on
+            // Solenne (60.74% vs 64.51%). See metrics-definitions.md.
             const deliveredCount = ordersList.filter(o => isDelivered(o.sleeves_status)).length;
             const inTransitCount = inTransitOrdersList.length;
-            const deliveryRateDenominator = deliveredCount + inTransitCount;
-            const deliveryRateDecimal = deliveryRateDenominator > 0 && deliveredCount > 0
-                ? (deliveredCount / deliveryRateDenominator)
-                : 0.85; // Default 85% for new stores or when no deliveries yet
+            const dispatched = ordersList.filter(o => isDispatched(o.sleeves_status, o.shipped_at)).length;
+            const deliveryRateDecimal = dispatched > 0 && deliveredCount > 0
+                ? (deliveredCount / dispatched)
+                : 0.85; // Default 85% for new stores or when no dispatched orders yet
 
             // Projected revenue = delivered (100%, already cash) + in_transit * deliveryRate
             const inTransitProjectedRevenue = inTransitGrossRevenue * deliveryRateDecimal;
@@ -462,8 +463,12 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             const realRoasValue = gastoPublicitario > 0 ? (realRevenue / gastoPublicitario) : 0;
 
             // 10. DELIVERY RATE for COD: entregados / despachados.
-            const dispatched = ordersList.filter(o => isDispatched(o.sleeves_status, o.shipped_at)).length;
-            const delivRate = dispatched > 0 ? ((deliveredCount / dispatched) * 100) : 0;
+            // Uses the same deliveryRateDecimal calculated above (single source of
+            // truth between headline card and projection weighting). Multiplied by
+            // 100 here for the percentage display. See metrics-definitions.md.
+            const delivRate = dispatched > 0 && deliveredCount > 0
+                ? deliveryRateDecimal * 100
+                : 0;
 
             return {
                 totalOrders: count,
