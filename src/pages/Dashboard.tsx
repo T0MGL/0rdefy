@@ -435,7 +435,7 @@ export default function Dashboard() {
             title={
               <div className="flex items-center">
                 Beneficio Neto Real
-                <InfoTooltip content={`Ganancia real después de descontar costos de productos, envío, confirmación y publicidad. Solo pedidos entregados del período seleccionado (${periodSuffix}).`} />
+                <InfoTooltip content={`Ganancia ya realizada del período seleccionado (${periodSuffix}). Calculada solo sobre pedidos con estado "entregado": resta costos de productos, envío, confirmación y publicidad correspondientes a esos pedidos. NO incluye pedidos en tránsito, pendientes, ni el valor esperado de los que aún están en pipeline. Para la proyección que pondera el pipeline por la tasa de entrega histórica, ver "Beneficio Neto Proyectado".`} />
               </div>
             }
             value={formatCurrency(dashboardOverview.realNetProfit ?? dashboardOverview.netProfit)}
