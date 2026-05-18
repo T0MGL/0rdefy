@@ -497,15 +497,20 @@ portalRouter.get('/orders', async (req: CourierRequest, res: Response) => {
         .order('in_transit_at', { ascending: true, nullsFirst: false })
         .order('updated_at', { ascending: true });
     } else if (view === 'today') {
-      // "Today" = delivered today in the store-local sense. We compare on
-      // the UTC date because Postgres `date_trunc` would need a timezone
-      // and the store timezone is a column on `stores`. The simpler,
-      // safer rule for Phase 3 is "delivered in the last 24h", which is
-      // both timezone-agnostic and matches what the courier expects:
-      // "what did I close today (last shift)".
+      // "Today" for the courier = "lo que cerré y todavía tengo que rendir
+      // de la última jornada". Filters:
+      //   - sleeves_status = 'delivered'
+      //   - delivered_at within the last 24h (timezone-agnostic for
+      //     simplicity; the store timezone column is not on this row)
+      //   - reconciled_at IS NULL — once an admin (or the courier
+      //     themselves via /portal/settlements/close) reconciles the
+      //     order, it falls out of "Hoy". This matches the
+      //     v_courier_financial_summary "delivered_unsettled" filter so
+      //     the counter at the top and the list below never disagree.
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       q = q
         .eq('sleeves_status', 'delivered')
+        .is('reconciled_at', null)
         .gte('delivered_at', since)
         .order('delivered_at', { ascending: false });
     } else {
