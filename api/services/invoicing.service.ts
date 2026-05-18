@@ -2790,6 +2790,191 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
   };
 }
 
+// ================================================================
+// dispatchApprovedInvoiceEmail
+// ================================================================
+//
+// Reconstruye el kudeInput + dispara dispatchInvoiceEmail para una
+// invoice que ya esta en estado terminal aprobado (`approved` o `demo`).
+// Lo usa el SIFEN async poller cuando marca una invoice aprobada
+// (post-async), y tambien lo puede invocar un endpoint manual de
+// "reenviar email" para una invoice aprobada que por alguna razon
+// no recibio el correo.
+//
+// Toma TODO el contexto desde DB (invoice, order, line items, ctx
+// fiscal) asi que el caller solo necesita el storeId + invoiceId.
+// Nunca lanza: cualquier error se loggea + emite owner_alert.
+export async function dispatchApprovedInvoiceEmail(
+  storeId: string,
+  invoiceId: string,
+): Promise<{ dispatched: boolean; reason: string }> {
+  try {
+    const { data: invoice, error: invErr } = await supabaseAdmin
+      .from('invoices')
+      .select(
+        'id, store_id, order_id, cdc, document_number, tipo_documento, customer_ruc, customer_ruc_dv, customer_name, customer_email, customer_address, subtotal, iva_5, iva_10, iva_exento, total, sifen_status, sifen_response_code, sifen_response_message, xml_signed, kude_url, created_at, approved_at',
+      )
+      .eq('id', invoiceId)
+      .eq('store_id', storeId)
+      .single();
+
+    if (invErr || !invoice) {
+      logger.warn(`[Invoicing] dispatchApprovedInvoiceEmail: invoice ${invoiceId} not found: ${invErr?.message ?? 'no row'}`);
+      return { dispatched: false, reason: 'invoice_not_found' };
+    }
+
+    const status = invoice.sifen_status as string;
+    const isApproved = status === 'approved' || status === 'demo';
+    if (!isApproved) {
+      logger.info(`[Invoicing] dispatchApprovedInvoiceEmail: invoice ${invoiceId} not approved (status=${status}), skipping`);
+      return { dispatched: false, reason: `status_${status}` };
+    }
+
+    if (!invoice.cdc) {
+      logger.warn(`[Invoicing] dispatchApprovedInvoiceEmail: invoice ${invoiceId} approved but missing CDC`);
+      return { dispatched: false, reason: 'missing_cdc' };
+    }
+
+    const ctx = await getFiscalContext(storeId);
+    if (!ctx) {
+      logger.warn(`[Invoicing] dispatchApprovedInvoiceEmail: no fiscal context for store ${storeId}`);
+      return { dispatched: false, reason: 'no_fiscal_context' };
+    }
+
+    // Resolve customer email (invoice column first, then order's customer).
+    let customerEmail: string | null = (invoice.customer_email as string | null) ?? null;
+    let orderPaymentMethod: string | null = null;
+    let orderItems: Array<{
+      product_name: string | null;
+      sku?: string | null;
+      quantity: number;
+      unit_price: number;
+    }> = [];
+
+    if (invoice.order_id) {
+      const { data: order } = await supabaseAdmin
+        .from('orders')
+        .select(
+          'id, customer_id, payment_method, customers(email, name), order_line_items(product_name, sku, quantity, unit_price)',
+        )
+        .eq('id', invoice.order_id)
+        .single();
+      type OrderRow = {
+        payment_method: string | null;
+        customers: { email: string | null; name: string | null } | Array<{ email: string | null; name: string | null }> | null;
+        order_line_items: Array<{ product_name: string | null; sku: string | null; quantity: number; unit_price: number }>;
+      };
+      const o = order as unknown as OrderRow | null;
+      if (o) {
+        orderPaymentMethod = o.payment_method;
+        const cust = Array.isArray(o.customers) ? o.customers[0] : o.customers;
+        if (!customerEmail && cust?.email) customerEmail = cust.email;
+        orderItems = o.order_line_items ?? [];
+      }
+    }
+
+    // Manual invoices have no order: fall back to a synthetic line with the
+    // generic description (or "Productos varios") so the email + KUDE
+    // render something coherent.
+    if (orderItems.length === 0) {
+      orderItems = [
+        {
+          product_name: ctx.link.default_generic_description || 'Productos varios',
+          sku: '001',
+          quantity: 1,
+          unit_price: Number(invoice.total) || 0,
+        },
+      ];
+    }
+
+    const storeResult = await supabaseAdmin.from('stores').select('name').eq('id', storeId).single();
+    const storeName = storeResult.data?.name || 'Tienda';
+
+    type KudeItemInput = {
+      codigo: string;
+      descripcion: string;
+      cantidad: number;
+      precioUnitario: number;
+      ivaRate: 0 | 5 | 10;
+    };
+    const kudeItems: KudeItemInput[] = applyGenericDescription<KudeItemInput>(
+      orderItems.map((it, idx) => ({
+        codigo: (it.sku || String(idx + 1)),
+        descripcion: it.product_name || 'Producto',
+        cantidad: it.quantity || 1,
+        precioUnitario: it.unit_price || 0,
+        ivaRate: 10 as const,
+      })),
+      ctx.link,
+    );
+
+    const env = ctx.identity.sifen_environment;
+    const qrUrl = buildQrUrlForInvoice(
+      invoice.xml_signed as string | null,
+      invoice.cdc as string,
+      env,
+      ctx.identity,
+    );
+
+    const kudeInput = buildKudeInput({
+      ctx,
+      invoiceId: invoice.id as string,
+      tipoDocumento: invoice.tipo_documento as KudeInput['tipoDocumento'],
+      documentNumber: invoice.document_number as number,
+      cdc: invoice.cdc as string,
+      fechaEmision: (invoice.approved_at as string) || (invoice.created_at as string) || new Date().toISOString(),
+      environment: env,
+      qrUrl,
+      customerName: (invoice.customer_name as string) || 'Sin nombre',
+      customerRuc: (invoice.customer_ruc as string | null) ?? null,
+      customerRucDv: (invoice.customer_ruc_dv as number | null) ?? null,
+      customerEmail,
+      customerAddress: (invoice.customer_address as string | null) ?? null,
+      items: kudeItems,
+      totals: {
+        subtotal: Number(invoice.subtotal) || 0,
+        iva10: Number(invoice.iva_10) || 0,
+        iva5: Number(invoice.iva_5) || 0,
+        ivaExento: Number(invoice.iva_exento) || 0,
+        total: Number(invoice.total) || 0,
+      },
+      condicionVenta: orderPaymentMethod === 'cod' ? 'Contado' : 'Contado',
+      moneda: 'PYG',
+    });
+
+    await dispatchInvoiceEmail({
+      invoiceId: invoice.id as string,
+      storeId,
+      storeName,
+      customerEmail,
+      customerName: (invoice.customer_name as string | null) ?? null,
+      documentNumber: invoice.document_number as number,
+      invoiceDate: (invoice.approved_at as string) || (invoice.created_at as string) || new Date().toISOString(),
+      lineItems: orderItems.map((it) => ({
+        product_name: it.product_name,
+        quantity: it.quantity,
+        unit_price: it.unit_price,
+      })),
+      subtotal: Number(invoice.subtotal) || 0,
+      iva10: Number(invoice.iva_10) || 0,
+      total: Number(invoice.total) || 0,
+      kudeUrl: (invoice.kude_url as string | null) ?? null,
+      isDemo: status === 'demo',
+      sifenStatus: status,
+      sifenResponseCode: (invoice.sifen_response_code as string | null) ?? null,
+      sifenResponseMessage: (invoice.sifen_response_message as string | null) ?? null,
+      orderId: (invoice.order_id as string | null) ?? null,
+      kudeInput,
+    });
+
+    return { dispatched: true, reason: 'sent' };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown error';
+    logger.error(`[Invoicing] dispatchApprovedInvoiceEmail crashed for invoice ${invoiceId}: ${message}`);
+    return { dispatched: false, reason: `error_${message}` };
+  }
+}
+
 export async function downloadXML(storeId: string, invoiceId: string) {
   const { data, error } = await supabaseAdmin
     .from('invoices')

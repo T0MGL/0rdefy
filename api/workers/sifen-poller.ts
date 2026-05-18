@@ -35,6 +35,7 @@ import {
   loadCertificateMaterial,
   emitOwnerAlert,
   logInvoiceEvent,
+  dispatchApprovedInvoiceEmail,
 } from '../services/invoicing.service';
 import { SifenKeyCache, type SifenKeyMaterial } from './shared/key-cache';
 import { SifenRealtimeListener } from './shared/realtime-listener';
@@ -427,9 +428,7 @@ export class SifenPoller {
       });
 
       if (entry.approved) {
-        // Owner alert informativa para visibilidad en el dashboard. El
-        // email al cliente lo dispara el flow manual de "reenviar
-        // factura" existente; lo automatizamos en una segunda iteracion.
+        // Owner alert informativa para visibilidad en el dashboard.
         await emitOwnerAlert({
           storeId: inv.store_id,
           alertType: 'invoice_approved_async',
@@ -443,6 +442,21 @@ export class SifenPoller {
             cdc: entry.cdc,
             estado: entry.estado,
           },
+        });
+
+        // Dispatch customer email (PDF + QR). dispatchApprovedInvoiceEmail
+        // re-arma el KUDE desde DB, respeta el gate isApproved, y nunca
+        // throws. Fire-and-forget para no bloquear el ciclo del poller.
+        void dispatchApprovedInvoiceEmail(inv.store_id, inv.id).then((res) => {
+          if (!res.dispatched) {
+            logger.warn(
+              `[SifenPoller] email NOT dispatched for invoice ${inv.id} (reason=${res.reason})`,
+            );
+          } else {
+            logger.info(
+              `[SifenPoller] customer email dispatched for invoice ${inv.id}`,
+            );
+          }
         });
       } else {
         await emitOwnerAlert({
