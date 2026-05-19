@@ -73,7 +73,7 @@ import { isCodPayment } from '../utils/payment';
 import { isCancelled, isDelivered, isRejected, isReturned } from '../utils/order-status';
 import { uploadFile } from '../services/storage.service';
 import { OutboundWebhookService } from '../services/outbound-webhook.service';
-import { sanitizeSearchInput } from '../utils/sanitize';
+import { sanitizeSearchInput, normalizeSearch, tokenizeSearch } from '../utils/sanitize';
 import {
   closeSettlement,
   getPendingSettlements,
@@ -518,21 +518,22 @@ portalRouter.get('/orders', async (req: CourierRequest, res: Response) => {
       q = q.order('updated_at', { ascending: false });
     }
 
-    // Search filter. Parameterized via Supabase's .or() with .ilike inside
-    // a single string. We escape commas and parens defensively even though
-    // they are sanitized upstream.
+    // Multi-token search backed by orders.search_text (Migration 195).
+    // Same approach as the admin /api/orders route: split on whitespace,
+    // AND-chain one ILIKE per token against the generated, unaccented,
+    // lowercased search column. This makes "Sol Gomez" match a customer
+    // whose first name is "Sol" and last name is "Gomez", which the
+    // previous OR-per-column query could never do.
     if (search) {
-      const safe = search.replace(/[,()]/g, ' ');
-      q = q.or(
-        [
-          `customer_first_name.ilike.%${safe}%`,
-          `customer_last_name.ilike.%${safe}%`,
-          `customer_phone.ilike.%${safe}%`,
-          `order_number.ilike.%${safe}%`,
-          `shopify_order_name.ilike.%${safe}%`,
-          `shopify_order_number.ilike.%${safe}%`,
-        ].join(',')
-      );
+      const normalized = normalizeSearch(search);
+      const tokens = tokenizeSearch(normalized);
+      if (tokens.length > 0) {
+        for (const token of tokens) {
+          q = q.ilike('search_text', `%${token}%`);
+        }
+      } else if (normalized.length > 0) {
+        q = q.ilike('search_text', `%${normalized}%`);
+      }
     }
 
     // Defense in depth: even with paging, never serve more than HARD_BOUND.

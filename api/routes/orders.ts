@@ -17,7 +17,7 @@ import { Module, Permission } from '../permissions';
 import { generateDeliveryQRCode } from '../utils/qr-generator';
 import { ShopifyGraphQLClientService } from '../services/shopify-graphql-client.service';
 import { OutboundWebhookService } from '../services/outbound-webhook.service';
-import { isValidUUID, validateUUIDParam, sanitizeSearchInput } from '../utils/sanitize';
+import { isValidUUID, validateUUIDParam, sanitizeSearchInput, normalizeSearch, tokenizeSearch } from '../utils/sanitize';
 import { isCodPayment as isCodPaymentUtil } from '../utils/payment';
 import { endOfDayIso, getStoreTimezone, getTodayInTimezone, startOfDayIso } from '../utils/dateUtils';
 import { validate } from '../utils/validate';
@@ -1184,29 +1184,42 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             }
         }
 
-        // Text search (customer name, phone, shopify order name, order ID, shopify order number)
+        // Multi-token text search.
+        //
+        // Backed by orders.search_text (Migration 195), a generated column that
+        // concatenates customer + order fields, lowercased and unaccented, and
+        // indexed with GIN trigram. We tokenize the user input on whitespace
+        // and AND-chain one ILIKE per token. This makes "Sol Gomez" match a
+        // customer whose first name is "Sol" and last name is "Gomez", which
+        // the old OR-per-column query could never do because no single column
+        // contained the full string.
+        //
+        // UUIDs are still handled as exact id lookups.
         if (search && typeof search === 'string') {
             try {
                 const searchStr = search.trim();
                 logger.debug('ORDERS', 'Search query received', { search: searchStr });
                 if (searchStr.length > 0) {
-                    // Check if search string is a UUID (for exact ID search)
                     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-                    const isUUID = uuidRegex.test(searchStr);
 
-                    if (isUUID) {
-                        // Exact UUID search
+                    if (uuidRegex.test(searchStr)) {
                         query = query.eq('id', searchStr);
                     } else {
-                        // Sanitize for PostgREST filter syntax safety
-                        const searchClean = sanitizeSearchInput(searchStr);
-                        if (searchClean.length > 0) {
-                            // Build OR condition for all searchable fields
-                            // Supabase PostgREST will search across all fields with OR logic
-                            // CRITICAL: id is UUID type - cannot use ilike on UUID columns (causes 500)
-                            // UUID exact search is handled above via isUUID check
-                            const orCondition = `customer_first_name.ilike.%${searchClean}%,customer_last_name.ilike.%${searchClean}%,customer_phone.ilike.%${searchClean}%,shopify_order_name.ilike.%${searchClean}%,shopify_order_number.ilike.%${searchClean}%`;
-                            query = query.or(orCondition);
+                        const cleaned = sanitizeSearchInput(searchStr);
+                        const normalized = normalizeSearch(cleaned);
+                        const tokens = tokenizeSearch(normalized);
+
+                        if (tokens.length > 0) {
+                            // Chain one ILIKE per token. Supabase appends each as
+                            // an additional AND condition on the same query.
+                            for (const token of tokens) {
+                                query = query.ilike('search_text', `%${token}%`);
+                            }
+                        } else if (normalized.length > 0) {
+                            // Short single-char input that survived sanitization
+                            // (rare). Fall back to a single ILIKE so we never
+                            // silently return all rows on a short query.
+                            query = query.ilike('search_text', `%${normalized}%`);
                         }
                     }
                 }

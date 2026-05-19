@@ -81,6 +81,45 @@ export function sanitizeSearchInput(input: string): string {
 }
 
 /**
+ * Normalizes a search string to match the convention used by the
+ * `orders.search_text` generated column (Migration 195): NFD diacritic
+ * stripping followed by lowercase. This keeps the JS-side normalization
+ * byte-for-byte consistent with the DB-side `immutable_unaccent(lower(...))`
+ * applied to the stored column, so an ILIKE on the normalized input matches
+ * the normalized stored text.
+ *
+ * Example: "Gómez O'Brien" -> "gomez obrien".
+ */
+export function normalizeSearch(input: string): string {
+    if (!input || typeof input !== 'string') {
+        return '';
+    }
+    return input
+        .normalize('NFD')
+        // Strip combining diacritical marks (U+0300 - U+036F).
+        // Spelled out with \u escapes so editors don't mangle the regex.
+        .replace(/[̀-ͯ]/g, '')
+        .toLowerCase();
+}
+
+/**
+ * Splits a normalized search string into tokens for multi-field matching.
+ * Tokens shorter than 2 characters are dropped UNLESS they are purely numeric
+ * (a short order suffix like "9" should still match).
+ *
+ * Returns at most `maxTokens` tokens to bound the number of ILIKE conditions
+ * we chain in any single query.
+ */
+export function tokenizeSearch(input: string, maxTokens: number = 6): string[] {
+    if (!input) return [];
+    const tokens = input
+        .split(/\s+/)
+        .map(t => t.trim())
+        .filter(t => t.length >= 2 || /^\d+$/.test(t));
+    return tokens.slice(0, maxTokens);
+}
+
+/**
  * Validates that a string is a valid UUID
  *
  * @param id - The string to validate

@@ -398,7 +398,9 @@ export default function Orders() {
   const [isBulkStatusLoading, setIsBulkStatusLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const { executeAction } = useUndoRedo({ toastDuration: 5000 });
-  const debouncedSearch = useDebounce(search, 500);
+  // 300ms keeps the input responsive without hammering the API on every
+  // keystroke. Matches the PortalActive courier search debounce.
+  const debouncedSearch = useDebounce(search, 300);
   const { isHighlighted } = useHighlight();
   const previousCountRef = useRef(0);
   // AbortController for load-more requests: cancelled when filters/date change to prevent
@@ -800,6 +802,15 @@ export default function Orders() {
   // AbortController cancels in-flight requests when filters change again (rapid filter clicks),
   // preventing a slow stale request from overwriting the correct filtered data.
   // Also aborts any pending load-more: its stale paginated data must not be appended to new results.
+  // Refetch when date range or server filters change - reset pagination
+  //
+  // UX: we deliberately do NOT call setIsLoading(true) on every filter/search
+  // change. Doing so replaces the entire table with the skeleton on every
+  // keystroke (after debounce), which Gaston flagged as "carga el pedido cada
+  // vez que cambiamos una letra". Instead we keep the existing rows visible
+  // and rely on isRefreshing for a subtle "Actualizando..." indicator. The
+  // full-page skeleton only fires on the very first load (handled by the
+  // initial isLoading state being true on mount).
   useEffect(() => {
     // Kill any in-flight load-more so it doesn't append stale pages on top of new filter results
     loadMoreAbortRef.current?.abort();
@@ -814,12 +825,16 @@ export default function Orders() {
 
     setPagination(prev => ({ ...prev, offset: 0 }));
     previousCountRef.current = 0; // Reset new-order detection when filters change
-    setIsLoading(true);
 
     // CRITICAL: When user searches, ignore date range to find ANY order by name/ID.
     // Otherwise if ivan's orders are from 2 months ago and you're viewing "this week",
     // searching "ivan" returns 0 results. Search must bypass pagination date filters.
     const isSearching = !!serverFilters.search;
+
+    // Stale-while-revalidate: keep existing rows visible while the next batch
+    // streams in. setIsRefreshing(true) flips the "Actualizando..." chip in the
+    // header without replacing the table body.
+    setIsRefreshing(true);
 
     // Fetch directly with current filter values (not refs)
     ordersService.getAll({
@@ -832,10 +847,12 @@ export default function Orders() {
       setOrders(result.data);
       setPagination(result.pagination);
       setIsLoading(false);
+      setIsRefreshing(false);
     }).catch(error => {
       if (abortController.signal.aborted) return;
       logger.error('Error fetching orders:', error);
       setIsLoading(false);
+      setIsRefreshing(false);
     });
 
     return () => {
