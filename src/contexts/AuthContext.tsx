@@ -262,7 +262,7 @@ interface AuthContextType {
   signUp: (email: string, password: string, name: string, referralCode?: string) => Promise<{ error?: string }>;
   signOut: () => void;
   switchStore: (storeId: string) => void;
-  updateProfile: (data: { userName?: string; userPhone?: string; storeName?: string }) => Promise<{ error?: string }>;
+  updateProfile: (data: { userName?: string; userPhone?: string; storeName?: string; storeId?: string }) => Promise<{ error?: string }>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<{ success?: boolean; error?: string }>;
   deleteAccount: (password: string) => Promise<{ success?: boolean; error?: string }>;
   createStore: (data: { name: string; country?: string; currency?: string; taxRate?: number; adminFee?: number }) => Promise<{ success?: boolean; error?: string; storeId?: string }>;
@@ -702,13 +702,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [createCancellableRequest, cleanupRequest, currentStore?.id]);
 
-  const updateProfile = useCallback(async (data: { userName?: string; userPhone?: string; storeName?: string }) => {
+  const updateProfile = useCallback(async (data: { userName?: string; userPhone?: string; storeName?: string; storeId?: string }) => {
     logger.log('📝 [AUTH] Updating profile:', data);
 
     const cancelSource = createCancellableRequest();
 
+    // Auto-fill storeId from current store when storeName is being updated and storeId not explicitly provided
+    const payload = data.storeName && !data.storeId && currentStore?.id
+      ? { ...data, storeId: currentStore.id }
+      : data;
+
     try {
-      const response = await axios.put(`${API_URL}/profile`, data, {
+      const response = await axios.put(`${API_URL}/profile`, payload, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
         },
