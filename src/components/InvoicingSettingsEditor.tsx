@@ -822,23 +822,23 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
               </p>
             </div>
             {hasCertificate && (
-              <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 gap-1">
+              <Badge className="bg-primary/10 text-primary border border-primary/30 gap-1">
                 <CheckCircle2 size={12} /> Cargado
               </Badge>
             )}
           </header>
 
-          <div className="flex items-start gap-2.5 rounded-md border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-900/15 px-3 py-2.5">
-            <Shield size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-            <p className="text-xs text-emerald-800 dark:text-emerald-300 leading-relaxed">
+          <div className="flex items-start gap-2.5 rounded-md border border-primary/30 bg-primary/5 dark:bg-primary/10 px-3 py-2.5">
+            <Shield size={14} className="text-primary shrink-0 mt-0.5" />
+            <p className="text-xs text-foreground/80 leading-relaxed">
               El .p12 nunca se almacena. Extraemos solo la clave privada encriptada
               (AES-256-GCM) y el certificado publico.
             </p>
           </div>
 
           {certFile ? (
-            <div className="flex items-center gap-3 rounded-md border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-900/10 px-3 py-2.5">
-              <FileKey2 size={15} className="text-emerald-600 dark:text-emerald-400" />
+            <div className="flex items-center gap-3 rounded-md border border-primary/30 bg-primary/5 dark:bg-primary/10 px-3 py-2.5">
+              <FileKey2 size={15} className="text-primary" />
               <span className="text-sm font-medium flex-1 truncate">{certFile.name}</span>
               <button
                 type="button"
@@ -909,7 +909,7 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
               </p>
             </div>
             {hasCsc ? (
-              <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 gap-1">
+              <Badge className="bg-primary/10 text-primary border border-primary/30 gap-1">
                 <CheckCircle2 size={12} /> Cargado
               </Badge>
             ) : selectedEnv === 'prod' ? (
@@ -921,9 +921,9 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
             )}
           </header>
 
-          <div className="flex items-start gap-2.5 rounded-md border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-900/15 px-3 py-2.5">
-            <Shield size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-            <p className="text-xs text-emerald-800 dark:text-emerald-300 leading-relaxed">
+          <div className="flex items-start gap-2.5 rounded-md border border-primary/30 bg-primary/5 dark:bg-primary/10 px-3 py-2.5">
+            <Shield size={14} className="text-primary shrink-0 mt-0.5" />
+            <p className="text-xs text-foreground/80 leading-relaxed">
               El CSC se guarda encriptado (AES-256-GCM) y nunca se devuelve al navegador.
               Si lo perdes, tenes que generar uno nuevo en Marangatu y cargarlo aca.
             </p>

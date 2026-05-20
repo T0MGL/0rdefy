@@ -112,7 +112,7 @@ export function SifenFlowAnimation() {
           />
           {/* Connector line (active progress) */}
           <motion.div
-            className="absolute top-[26px] h-[2px] bg-gradient-to-r from-emerald-500 via-emerald-400 to-emerald-500/60"
+            className="absolute top-[26px] h-[2px] bg-gradient-to-r from-primary via-primary/80 to-primary/60"
             style={{ left: '8%' }}
             animate={{
               width: `${(activeIdx / (STEPS.length - 1)) * 84}%`,
@@ -153,7 +153,7 @@ export function SifenFlowAnimation() {
                                 ease: 'easeOut',
                                 repeat: Infinity,
                               }}
-                              className="absolute inset-0 rounded-full bg-emerald-500/30"
+                              className="absolute inset-0 rounded-full bg-primary/30"
                             />
                           )}
                         </AnimatePresence>
@@ -161,9 +161,9 @@ export function SifenFlowAnimation() {
                           className={[
                             'relative flex h-[52px] w-[52px] items-center justify-center rounded-full border-2 transition-colors',
                             isActive
-                              ? 'border-emerald-500 bg-emerald-500 text-white shadow-lg shadow-emerald-500/30'
+                              ? 'border-primary bg-primary text-primary-foreground shadow-lg shadow-primary/30'
                               : isPast
-                                ? 'border-emerald-500/60 bg-emerald-500/15 text-emerald-600'
+                                ? 'border-primary/60 bg-primary/15 text-primary'
                                 : 'border-border bg-card text-muted-foreground',
                             isHovered && !isActive ? 'border-foreground/40 text-foreground' : '',
                           ].join(' ')}
