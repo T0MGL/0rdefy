@@ -331,24 +331,45 @@ export async function getSettlementsHistory(
 
   const signedMap = new Map<string, string>();
   if (allProofPaths.length > 0) {
-    const signed = await Promise.all(
-      allProofPaths.map(({ path }) =>
-        supabaseAdmin.storage
-          .from(STORAGE_BUCKET)
-          .createSignedUrl(path, SIGNED_URL_TTL_SECONDS)
-          .then((r) => ({ path, url: r.data?.signedUrl ?? null, error: r.error }))
-          .catch((err) => ({ path, url: null, error: err }))
-      )
-    );
-    for (const { path, url, error: signErr } of signed) {
-      if (signErr || !url) {
-        logger.warn('PORTAL_SETTLEMENTS', 'sign URL failed (non-blocking)', {
-          path,
-          error: signErr instanceof Error ? signErr.message : String(signErr ?? 'unknown'),
-        });
-        continue;
+    // Cap concurrency at SIGN_BATCH_SIZE per wave. Supabase Storage rate-
+    // limits aggressive parallel requests; firing 30+ at once gets a chunk
+    // of 429s back and the courier sees "comprobante no disponible" across
+    // their history. Serial batches keep us well below the limit while
+    // still being fast enough (latency is ~50–150ms per signing call).
+    const SIGN_BATCH_SIZE = 5;
+    for (let i = 0; i < allProofPaths.length; i += SIGN_BATCH_SIZE) {
+      const batch = allProofPaths.slice(i, i + SIGN_BATCH_SIZE);
+      const settled = await Promise.allSettled(
+        batch.map(({ path }) =>
+          supabaseAdmin.storage
+            .from(STORAGE_BUCKET)
+            .createSignedUrl(path, SIGNED_URL_TTL_SECONDS)
+            .then((r) => ({ path, url: r.data?.signedUrl ?? null, error: r.error })),
+        ),
+      );
+      for (let j = 0; j < settled.length; j++) {
+        const item = settled[j];
+        const { path } = batch[j];
+        if (item.status === 'rejected') {
+          logger.warn('PORTAL_SETTLEMENTS', 'sign URL rejected (non-blocking)', {
+            path,
+            error: item.reason instanceof Error ? item.reason.message : String(item.reason),
+          });
+          continue;
+        }
+        const { url, error: signErr } = item.value;
+        if (signErr || !url) {
+          logger.warn('PORTAL_SETTLEMENTS', 'sign URL failed (non-blocking)', {
+            path,
+            error:
+              signErr instanceof Error
+                ? signErr.message
+                : String(signErr ?? 'unknown'),
+          });
+          continue;
+        }
+        signedMap.set(path, url);
       }
-      signedMap.set(path, url);
     }
   }
 
@@ -454,12 +475,18 @@ export async function closeSettlement(args: {
   const notes = sanitizeText(input.notes ?? null, NOTES_MAX_LEN);
 
   // ---- 2) Pre-flight scope check --------------------------------------
-  // Quick existence + scope test before we burn time on the RPC. The
-  // RPC re-validates, but a pre-flight surfaces ID mismatches cleanly.
+  // Filtramos por (store_id AND courier_id) en la propia query para no
+  // exponer existencia de orders de OTRAS transportadoras (un courier
+  // malicioso podría enumerar IDs ajenos por diff de 404 vs 403). Todo lo
+  // que no caiga en el scope se reporta uniformemente como NOT_FOUND.
+  // Hacemos un segundo paso para identificar IDs que sí existen en la
+  // tienda pero pertenecen a otro courier — sólo para auditar la
+  // intentona, NO para exponer información al cliente.
   const { data: scopedRows, error: scopeErr } = await supabaseAdmin
     .from('orders')
-    .select('id, sleeves_status, reconciled_at, courier_id')
+    .select('id, sleeves_status, reconciled_at')
     .eq('store_id', storeId)
+    .eq('courier_id', carrierId)
     .in('id', input.order_ids);
 
   if (scopeErr) {
@@ -478,25 +505,36 @@ export async function closeSettlement(args: {
   const found = new Set<string>((scopedRows ?? []).map((o: any) => String(o.id)));
   const missing = input.order_ids.filter((id) => !found.has(id));
   if (missing.length > 0) {
+    // Audit the cross-carrier subset asynchronously without surfacing it to
+    // the caller. The user-facing error is always the same (NOT_FOUND) so
+    // the response shape can't be used to enumerate orders.
+    void supabaseAdmin
+      .from('orders')
+      .select('id, courier_id')
+      .eq('store_id', storeId)
+      .in('id', missing)
+      .then(({ data: ambiguous }) => {
+        const crossCarrier = (ambiguous ?? []).filter(
+          (o: any) => o.courier_id && String(o.courier_id) !== carrierId,
+        );
+        if (crossCarrier.length > 0) {
+          logger.security(
+            'PORTAL_SETTLEMENTS',
+            'close: cross-carrier enumeration attempt blocked',
+            {
+              user_id: userId,
+              store_id: storeId,
+              carrier_id: carrierId,
+              order_count: crossCarrier.length,
+            },
+          );
+        }
+      });
+
     throw new PortalSettlementsError(
-      `${missing.length} pedido(s) no pertenecen a tu tienda o no existen.`,
+      `${missing.length} pedido(s) no pertenecen a tu rendición o no existen.`,
       404,
       'ORDERS_NOT_FOUND'
-    );
-  }
-
-  const wrongCarrier = (scopedRows ?? []).filter((o: any) => String(o.courier_id) !== carrierId);
-  if (wrongCarrier.length > 0) {
-    logger.security('PORTAL_SETTLEMENTS', 'close: cross-carrier attempt blocked', {
-      user_id: userId,
-      store_id: storeId,
-      carrier_id: carrierId,
-      order_ids: wrongCarrier.map((o: any) => o.id),
-    });
-    throw new PortalSettlementsError(
-      'Algunos pedidos pertenecen a otra transportadora.',
-      403,
-      'CROSS_CARRIER_FORBIDDEN'
     );
   }
 

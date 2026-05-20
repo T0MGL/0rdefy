@@ -18,7 +18,8 @@
  * courier never confuses them.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { CheckCircle2, History, Receipt, Loader2 } from 'lucide-react';
@@ -43,11 +44,38 @@ import { PendingReconciliationCard } from '@/components/portal/PendingReconcilia
 import { SettlementCard } from '@/components/portal/SettlementCard';
 import { SettlementCloseSheet } from '@/components/portal/SettlementCloseSheet';
 
+type ConciliacionTab = 'pending' | 'history';
+
 export default function PortalConciliacion() {
   const queryClient = useQueryClient();
   const isMountedRef = useRef(true);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [closeOpen, setCloseOpen] = useState(false);
+
+  // Tab state persisted in the URL so a courier who refreshes (or opens the
+  // proof on a share link) lands on the same tab they were viewing.
+  const rawTab = searchParams.get('tab');
+  const activeTab: ConciliacionTab = rawTab === 'history' ? 'history' : 'pending';
+
+  const handleTabChange = useCallback(
+    (next: string) => {
+      const value: ConciliacionTab = next === 'history' ? 'history' : 'pending';
+      setSearchParams(
+        (prev) => {
+          const params = new URLSearchParams(prev);
+          if (value === 'pending') {
+            params.delete('tab');
+          } else {
+            params.set('tab', value);
+          }
+          return params;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -65,7 +93,6 @@ export default function PortalConciliacion() {
     queryFn: ({ signal }) => portalService.getPendingSettlements({ signal }),
     staleTime: 15_000,
     refetchOnWindowFocus: true,
-    refetchOnMount: 'always',
   });
 
   const historyQuery = useQuery<PortalSettlementsHistoryResult>({
@@ -78,14 +105,18 @@ export default function PortalConciliacion() {
     refetchOnWindowFocus: true,
   });
 
-  const pendingOrders = pendingQuery.data?.orders ?? [];
+  const pendingOrders = useMemo(
+    () => pendingQuery.data?.orders ?? [],
+    [pendingQuery.data],
+  );
   const pendingSummary = pendingQuery.data?.summary;
 
   // Sync selection: drop any selected id that is no longer in the list
   // (e.g. another courier closed an overlapping settlement and the list
-  // refreshed).
+  // refreshed). Depend only on pendingOrders (memoized above) so the effect
+  // doesn't fire on every render with a fresh array identity.
   useEffect(() => {
-    if (!pendingQuery.data) return;
+    if (pendingOrders.length === 0) return;
     const ids = new Set(pendingOrders.map((o) => o.id));
     setSelectedIds((prev) => {
       let changed = false;
@@ -96,7 +127,7 @@ export default function PortalConciliacion() {
       }
       return changed ? next : prev;
     });
-  }, [pendingQuery.data, pendingOrders]);
+  }, [pendingOrders]);
 
   const toggleOne = (orderId: string) => {
     setSelectedIds((prev) => {
@@ -163,14 +194,14 @@ export default function PortalConciliacion() {
         </h1>
       </div>
 
-      <Tabs defaultValue="pending" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
         <TabsList className="grid grid-cols-2">
           <TabsTrigger value="pending">Pendientes</TabsTrigger>
           <TabsTrigger value="history">Historial</TabsTrigger>
         </TabsList>
 
         {/* ------------------ PENDIENTES ----------------------------- */}
-        <TabsContent value="pending" className="space-y-4 pb-44 outline-none">
+        <TabsContent value="pending" className="space-y-4 pb-56 outline-none">
           {/* Summary card */}
           <PendingSummary
             isLoading={pendingQuery.isLoading}
@@ -178,7 +209,7 @@ export default function PortalConciliacion() {
             summary={pendingSummary}
           />
 
-          {/* Select all + counter */}
+          {/* Select all + counter + clear (only when selection exists) */}
           {pendingOrders.length > 0 && (
             <div className="flex items-center justify-between gap-3 px-1">
               <Label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -189,9 +220,20 @@ export default function PortalConciliacion() {
                 />
                 Seleccionar todos
               </Label>
-              <span className="text-[11px] tabular-nums text-muted-foreground">
-                {selectedIds.size} de {pendingOrders.length}
-              </span>
+              <div className="flex items-center gap-3">
+                {selectedIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedIds(new Set())}
+                    className="text-[11px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus:outline-none focus-visible:underline"
+                  >
+                    Limpiar
+                  </button>
+                )}
+                <span className="text-[11px] tabular-nums text-muted-foreground">
+                  {selectedIds.size} de {pendingOrders.length}
+                </span>
+              </div>
             </div>
           )}
 

@@ -154,12 +154,14 @@ All colors MUST be HSL.
   }
 
   /* Form controls: explicit base font-size to prevent iOS Safari zoom-on-focus.
-     iOS auto-zooms when input font-size < 16px. Setting 16px on mobile, scaling down on lg+. */
+     iOS auto-zooms when input font-size < 16px. !important so Tailwind utility
+     classes like `text-sm` (loaded in @layer utilities, higher precedence)
+     cannot drop a control below the zoom threshold on mobile. */
   @media (max-width: 1023px) {
     input,
     select,
     textarea {
-      font-size: 16px;
+      font-size: 16px !important;
     }
   }
 }

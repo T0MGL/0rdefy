@@ -84,10 +84,12 @@ export function OrderCard({
             </span>
           </div>
 
-          {/* Row 2: address */}
+          {/* Row 2: address. Two lines: PY addresses commonly include
+              floor/apartment after the street that we MUST preserve so the
+              courier doesn't ring the wrong door. */}
           <div className="mt-1 flex items-start gap-1.5 text-xs text-muted-foreground">
             <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-            <span className="line-clamp-1">
+            <span className="line-clamp-2 leading-snug">
               {[order.customer_address, order.customer_city]
                 .filter(Boolean)
                 .join(' · ') || 'Sin dirección'}
@@ -118,7 +120,7 @@ export function OrderCard({
         {order.shipping_cost > 0 && (
           <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 ring-1 ring-inset ring-violet-200/60 dark:bg-violet-500/15 dark:text-violet-300 dark:ring-violet-400/30">
             <Truck className="h-3 w-3" strokeWidth={2} />
-            Flete {formatCurrency(order.shipping_cost)}
+            Tu cobro {formatCurrency(order.shipping_cost)}
           </span>
         )}
       </div>

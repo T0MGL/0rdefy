@@ -57,13 +57,15 @@ export function MarkFailedSheet({
   const { toast } = useToast();
   const isMountedRef = useRef(true);
 
-  const [reason, setReason] = useState<FailedReason>('customer_absent');
+  // No default reason: pre-selecting "Cliente ausente" biased analytics —
+  // couriers confirmed the default without thinking. Force a conscious choice.
+  const [reason, setReason] = useState<FailedReason | ''>('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setReason('customer_absent');
+      setReason('');
       setNotes('');
       setSubmitting(false);
     }
@@ -78,6 +80,7 @@ export function MarkFailedSheet({
 
   const handleSubmit = async () => {
     if (submitting) return;
+    if (!reason) return; // Defensive: button is disabled, but guard the path.
     setSubmitting(true);
 
     try {
@@ -149,8 +152,13 @@ export function MarkFailedSheet({
               value={reason}
               onValueChange={(v) => setReason(v as FailedReason)}
             >
-              <SelectTrigger id="failed-reason" className="h-12">
-                <SelectValue />
+              <SelectTrigger
+                id="failed-reason"
+                className="h-12"
+                aria-required="true"
+                aria-invalid={reason === ''}
+              >
+                <SelectValue placeholder="Elegí un motivo" />
               </SelectTrigger>
               <SelectContent>
                 {REASONS.map((r) => (
@@ -183,7 +191,7 @@ export function MarkFailedSheet({
             type="button"
             variant="destructive"
             onClick={handleSubmit}
-            disabled={submitting}
+            disabled={submitting || !reason}
             className="h-12 w-full text-base"
             size="lg"
           >
@@ -192,6 +200,8 @@ export function MarkFailedSheet({
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Guardando...
               </>
+            ) : !reason ? (
+              'Elegí un motivo'
             ) : (
               'Registrar intento fallido'
             )}

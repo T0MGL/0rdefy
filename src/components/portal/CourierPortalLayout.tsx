@@ -123,7 +123,7 @@ export function CourierPortalLayout() {
   };
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-gradient-to-b from-background to-muted/40">
+    <div className="flex min-h-[100dvh] w-full max-w-[100vw] flex-col overflow-x-hidden bg-gradient-to-b from-background to-muted/40">
       {/* Header */}
       <header
         className="sticky top-0 z-40 overflow-hidden border-b border-border/70 bg-background/80 backdrop-blur-md"

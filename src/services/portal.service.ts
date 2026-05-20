@@ -25,12 +25,31 @@ API_URL = API_URL.trim().replace(/(\/api\/?)+$/i, '').replace(/\/+$/, '');
 export class PortalApiError extends Error {
   status: number;
   payload: unknown;
+  /**
+   * Backend error code (e.g. `PROOF_UPLOAD_FAILED`, `COURIER_REASSIGNED`).
+   * Extracted from `payload.code` on construction so call sites can branch
+   * on it without re-typing the payload every time. Pass an explicit string
+   * as the `payload` argument and it becomes the code; pass an object and
+   * we read `payload.code` if present.
+   */
+  code: string | null;
 
   constructor(message: string, status: number, payload: unknown) {
     super(message);
     this.name = 'PortalApiError';
     this.status = status;
     this.payload = payload;
+    if (typeof payload === 'string') {
+      this.code = payload;
+    } else if (
+      payload &&
+      typeof payload === 'object' &&
+      typeof (payload as { code?: unknown }).code === 'string'
+    ) {
+      this.code = (payload as { code: string }).code;
+    } else {
+      this.code = null;
+    }
   }
 }
 
@@ -158,6 +177,10 @@ export interface PortalOrder {
   total_price: number;
   shipping_cost: number;
   payment_method: string | null;
+  /** Set when the order was paid up-front (transferencia, QR, online). Null
+   *  for COD orders. Used to distinguish "Prepago · transferencia" from a
+   *  generic "Prepago" label and to render the right UI in the inline confirm. */
+  prepaid_method: string | null;
   is_cod: boolean;
   sleeves_status: string;
   delivery_status: string | null;
@@ -442,20 +465,23 @@ export const portalService = {
   },
 
   /**
-   * Upload a proof-of-delivery photo. Returns a public URL the caller
-   * passes back to markDelivered as `photo_url`.
+   * Upload a proof-of-delivery photo.
+   *
+   * DISABLED for production launch — the previous implementation wrote PII
+   * (customer + address) into the public `merchandise` Supabase bucket. The
+   * backend endpoint now returns 501. Calling this helper throws so the
+   * mistake is caught at the call site instead of round-tripping a useless
+   * request. Re-enable once the private delivery-proofs bucket lands.
    */
   async uploadProof(
-    orderId: string,
-    file: File,
-    opts?: { signal?: AbortSignal },
+    _orderId: string,
+    _file: File,
+    _opts?: { signal?: AbortSignal },
   ): Promise<UploadProofResult> {
-    const formData = new FormData();
-    formData.append('file', file);
-    return multipartRequest<UploadProofResult>(
-      `/portal/orders/${encodeURIComponent(orderId)}/upload-proof`,
-      formData,
-      opts?.signal,
+    throw new PortalApiError(
+      'Subida de comprobante temporalmente deshabilitada',
+      501,
+      'UPLOAD_PROOF_DISABLED',
     );
   },
 
@@ -510,6 +536,7 @@ export const portalService = {
   async closeSettlement(
     payload: CloseSettlementInput,
     file: File,
+    opts?: { signal?: AbortSignal },
   ): Promise<CloseSettlementResult> {
     const formData = new FormData();
     formData.append('order_ids', JSON.stringify(payload.order_ids));
@@ -521,6 +548,7 @@ export const portalService = {
     return multipartRequest<CloseSettlementResult>(
       '/portal/settlements/close',
       formData,
+      opts?.signal,
     );
   },
 };

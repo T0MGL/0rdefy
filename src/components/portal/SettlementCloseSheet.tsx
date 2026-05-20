@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Loader2, Upload, X, CheckCircle2, AlertCircle, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -81,9 +82,17 @@ export function SettlementCloseSheet({
   onSuccess,
 }: SettlementCloseSheetProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const isMountedRef = useRef(true);
   const previewUrlRef = useRef<string | null>(null);
+  // AbortController for the in-flight close request. We abort on unmount and
+  // when the sheet closes mid-upload so the network request stops uploading
+  // the file. Without this, the courier could trigger a duplicate close by
+  // closing the sheet and re-opening it: the first request keeps running and
+  // can either succeed (charging the courier twice mentally) or race against
+  // the second one on the advisory lock.
+  const submitAbortRef = useRef<AbortController | null>(null);
 
   const [paymentMethod, setPaymentMethod] = useState<SettlementPaymentMethod>('transfer');
   const [paymentReference, setPaymentReference] = useState('');
@@ -96,13 +105,14 @@ export function SettlementCloseSheet({
   // Mount / unmount lifecycle. Revoke any lingering preview URL on unmount.
   useEffect(() => {
     isMountedRef.current = true;
-    const localPreviewRef = previewUrlRef;
     return () => {
       isMountedRef.current = false;
-      if (localPreviewRef.current) {
-        URL.revokeObjectURL(localPreviewRef.current);
-        localPreviewRef.current = null;
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+        previewUrlRef.current = null;
       }
+      submitAbortRef.current?.abort();
+      submitAbortRef.current = null;
     };
   }, []);
 
@@ -111,9 +121,15 @@ export function SettlementCloseSheet({
     previewUrlRef.current = previewUrl;
   }, [previewUrl]);
 
-  // Reset every time the sheet opens with a fresh selection.
+  // Reset every time the sheet opens with a fresh selection. When the sheet
+  // CLOSES we also abort any in-flight close — the courier dismissing the
+  // sheet is a clear signal that they don't want this submission anymore.
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      submitAbortRef.current?.abort();
+      submitAbortRef.current = null;
+      return;
+    }
     setPaymentMethod('transfer');
     setPaymentReference('');
     setNotes('');
@@ -171,6 +187,11 @@ export function SettlementCloseSheet({
 
   const handleSubmit = async () => {
     if (submitDisabled || !file) return;
+    // Cancel any leftover request from a previous attempt before starting a
+    // fresh one. The controller is unmount/close-aware via the effects above.
+    submitAbortRef.current?.abort();
+    const controller = new AbortController();
+    submitAbortRef.current = controller;
     setSubmitting(true);
 
     try {
@@ -183,9 +204,10 @@ export function SettlementCloseSheet({
           notes: notes.trim() || null,
         },
         file,
+        { signal: controller.signal },
       );
 
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || controller.signal.aborted) return;
 
       toast({
         title: 'Conciliación cerrada',
@@ -195,7 +217,48 @@ export function SettlementCloseSheet({
       onSuccess(result);
       onOpenChange(false);
     } catch (err) {
+      // Abort is an explicit user action (closed the sheet or remounted) —
+      // no toast, no error, just exit. AbortError is what fetch raises;
+      // we also short-circuit on aborted signal in case the polyfill differs.
+      if (
+        controller.signal.aborted ||
+        (err instanceof DOMException && err.name === 'AbortError')
+      ) {
+        return;
+      }
       if (!isMountedRef.current) return;
+
+      // Post-RPC error codes: the orders are ALREADY reconciled in the DB
+      // but something downstream failed (payment update, proof upload, or
+      // proof insert). The courier's work is locked in; retrying the close
+      // here will get them ALREADY_RECONCILED. Best UX: close the sheet,
+      // surface a clear message about admin follow-up, and refresh history
+      // so they can see the (disputed) settlement immediately.
+      const code =
+        err instanceof PortalApiError ? (err.code ?? '') : '';
+      const POST_RPC_FAILURE_CODES = new Set([
+        'PAYMENT_UPDATE_FAILED',
+        'PROOF_UPLOAD_FAILED',
+        'PROOF_INSERT_FAILED',
+      ]);
+      if (POST_RPC_FAILURE_CODES.has(code)) {
+        toast({
+          title: 'Conciliación con incidencia',
+          description:
+            'Tu rendición quedó registrada pero el comprobante no se guardó. El admin la va a revisar — no la vuelvas a cerrar.',
+          variant: 'destructive',
+          duration: 10000,
+        });
+        // Invalidate locally so the courier sees the disputed settlement
+        // appear in Historial as soon as the sheet closes. We don't call
+        // onSuccess (the result type is success:true; this path failed).
+        queryClient.invalidateQueries({ queryKey: ['portal', 'settlements'] });
+        queryClient.invalidateQueries({ queryKey: ['portal', 'orders'] });
+        queryClient.invalidateQueries({ queryKey: ['portal', 'financial-summary'] });
+        onOpenChange(false);
+        return;
+      }
+
       const message =
         err instanceof PortalApiError
           ? err.message
@@ -209,6 +272,9 @@ export function SettlementCloseSheet({
       });
     } finally {
       if (isMountedRef.current) setSubmitting(false);
+      if (submitAbortRef.current === controller) {
+        submitAbortRef.current = null;
+      }
     }
   };
 
@@ -243,7 +309,7 @@ export function SettlementCloseSheet({
               value={formatCurrency(totals.totalCodToRemit)}
             />
             <SummaryRow
-              label="Flete a tu favor"
+              label="Tu cobro acumulado"
               value={formatCurrency(totals.estimatedCarrierFees)}
             />
             <div className="mt-2 border-t border-border pt-2">
@@ -289,7 +355,11 @@ export function SettlementCloseSheet({
               maxLength={PAYMENT_REFERENCE_MAX}
               placeholder="TX-2026051712345"
               className="h-12 tabular-nums"
-              autoCapitalize="characters"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              inputMode="text"
             />
           </div>
 

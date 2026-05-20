@@ -23,6 +23,7 @@ import {
   ChevronLeft,
   Phone,
   MapPin,
+  Navigation,
   CalendarClock,
   ClipboardList,
   Coins,
@@ -107,9 +108,16 @@ export default function PortalOrderDetail() {
   }, [orderId, queryClient]);
 
   // If we have no cached order, fetch the active list as a best-effort
-  // fallback. The portal API today does not expose a single-order GET.
-  const fallbackQuery = useQuery<PortalOrdersResponse>({
-    queryKey: ['portal', 'orders', 'active', ''],
+  // fallback. The portal API today does not expose a single-order GET, so
+  // we try `active` first then fall back to `today` and `history` so
+  // deep-linking an already-delivered or historical order still works.
+  //
+  // Critical: use an ISOLATED queryKey (not the same as PortalActive). The
+  // home page's own ['portal','orders','active', debouncedSearch] cache
+  // uses page_size=50 by default; if we share keys we either pollute the
+  // home with 100-item pages or get the home's 50 here and miss the order.
+  const fallbackActive = useQuery<PortalOrdersResponse>({
+    queryKey: ['portal', 'orders', 'detail-fallback', orderId, 'active'],
     queryFn: ({ signal }) =>
       portalService.getOrders(
         { view: 'active', page_size: 100 },
@@ -119,9 +127,49 @@ export default function PortalOrderDetail() {
     staleTime: 30_000,
   });
 
+  const activeHit = fallbackActive.data?.orders.find((o) => o.id === orderId);
+
+  const fallbackToday = useQuery<PortalOrdersResponse>({
+    queryKey: ['portal', 'orders', 'detail-fallback', orderId, 'today'],
+    queryFn: ({ signal }) =>
+      portalService.getOrders(
+        { view: 'today', page_size: 100 },
+        { signal },
+      ),
+    enabled: !cachedOrder && !!orderId && fallbackActive.isFetched && !activeHit,
+    staleTime: 30_000,
+  });
+
+  const todayHit = fallbackToday.data?.orders.find((o) => o.id === orderId);
+
+  const fallbackHistory = useQuery<PortalOrdersResponse>({
+    queryKey: ['portal', 'orders', 'detail-fallback', orderId, 'history'],
+    queryFn: ({ signal }) =>
+      portalService.getOrders(
+        { view: 'history', page_size: 100 },
+        { signal },
+      ),
+    enabled:
+      !cachedOrder &&
+      !!orderId &&
+      fallbackActive.isFetched &&
+      fallbackToday.isFetched &&
+      !activeHit &&
+      !todayHit,
+    staleTime: 30_000,
+  });
+
+  const fallbackQuery = activeHit
+    ? fallbackActive
+    : todayHit
+      ? fallbackToday
+      : fallbackHistory;
+
   const order =
     cachedOrder ??
-    fallbackQuery.data?.orders.find((o) => o.id === orderId);
+    activeHit ??
+    todayHit ??
+    fallbackHistory.data?.orders.find((o) => o.id === orderId);
 
   const invalidatePortalLists = () => {
     queryClient.invalidateQueries({ queryKey: ['portal', 'orders'] });
@@ -132,7 +180,9 @@ export default function PortalOrderDetail() {
 
   const handleDeliveredSuccess = () => {
     invalidatePortalLists();
-    navigate('/portal/today', { replace: true });
+    // Back to Activos — that's where the courier keeps working. "Hoy" is a
+    // wrap-up view they consult at end-of-shift, not the next-step surface.
+    navigate('/portal', { replace: true });
   };
 
   const handleFailedSuccess = () => {
@@ -225,17 +275,51 @@ export default function PortalOrderDetail() {
             </a>
           )}
 
-          <div className="flex min-w-0 items-start gap-2 px-1 text-sm text-muted-foreground">
-            <MapPin
-              className="mt-0.5 h-4 w-4 shrink-0"
-              strokeWidth={1.75}
-            />
-            <span className="min-w-0 break-words leading-5 line-clamp-3">
-              {[order.customer_address, order.customer_city]
+          {(() => {
+            const addressText =
+              [order.customer_address, order.customer_city]
                 .filter(Boolean)
-                .join(' · ') || 'Sin dirección'}
-            </span>
-          </div>
+                .join(' · ') || null;
+            const navigationTarget = [order.customer_address, order.customer_city]
+              .filter(Boolean)
+              .join(', ');
+            const mapsUrl = navigationTarget
+              ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(navigationTarget)}`
+              : null;
+
+            if (mapsUrl) {
+              return (
+                <a
+                  href={mapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex min-w-0 items-start gap-2 rounded-xl bg-muted/50 px-3 py-2.5 text-sm text-foreground transition-colors hover:bg-muted active:bg-muted/80"
+                  aria-label={`Cómo llegar a ${navigationTarget}`}
+                >
+                  <MapPin
+                    className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+                    strokeWidth={1.75}
+                  />
+                  <span className="min-w-0 flex-1 break-words leading-5 line-clamp-3">
+                    {addressText}
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-[11px] font-normal text-primary">
+                    <Navigation className="h-3 w-3" strokeWidth={2} />
+                    Ir
+                  </span>
+                </a>
+              );
+            }
+
+            return (
+              <div className="flex min-w-0 items-start gap-2 px-1 text-sm text-muted-foreground">
+                <MapPin className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} />
+                <span className="min-w-0 break-words leading-5 line-clamp-3">
+                  Sin dirección
+                </span>
+              </div>
+            );
+          })()}
         </div>
       </motion.section>
 

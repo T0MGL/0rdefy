@@ -82,6 +82,69 @@ export function extensionFromMime(mime: string): string {
   }
 }
 
+/**
+ * Detect the actual file type from the first bytes of the buffer.
+ *
+ * Multer only validates the `mimetype` HEADER, which is fully under the
+ * client's control. A user can set `Content-Type: image/jpeg` on a `.html`
+ * payload or a PDF with embedded JS and Multer accepts it. For
+ * proof-of-payment receipts we don't want to host arbitrary content under a
+ * Supabase signed URL (an iframe of a malicious PDF still executes JS).
+ *
+ * We don't pull in the `file-type` npm package — for our 4 accepted types
+ * a hand-written sniffer is ~20 lines and has no supply-chain surface.
+ */
+function detectMimeFromBuffer(buffer: Buffer): string | null {
+  if (!buffer || buffer.length < 4) return null;
+
+  // JPEG: FF D8 FF
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'image/jpeg';
+  }
+
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+
+  // WebP: RIFF....WEBP
+  if (
+    buffer.length >= 12 &&
+    buffer[0] === 0x52 && // R
+    buffer[1] === 0x49 && // I
+    buffer[2] === 0x46 && // F
+    buffer[3] === 0x46 && // F
+    buffer[8] === 0x57 && // W
+    buffer[9] === 0x45 && // E
+    buffer[10] === 0x42 && // B
+    buffer[11] === 0x50    // P
+  ) {
+    return 'image/webp';
+  }
+
+  // PDF: %PDF
+  if (
+    buffer[0] === 0x25 && // %
+    buffer[1] === 0x50 && // P
+    buffer[2] === 0x44 && // D
+    buffer[3] === 0x46    // F
+  ) {
+    return 'application/pdf';
+  }
+
+  return null;
+}
+
 export function validateProof(file: { buffer: Buffer; mimetype: string }): void {
   if (!PROOF_ALLOWED_MIME.has(file.mimetype)) {
     throw new PortalSettlementsError(
@@ -98,6 +161,18 @@ export function validateProof(file: { buffer: Buffer; mimetype: string }): void 
       'El archivo excede el límite de 5 MB.',
       413,
       'FILE_TOO_LARGE'
+    );
+  }
+
+  // Magic-byte check: the declared mime must match the actual file content.
+  // This blocks executable / script files masquerading as images and PDFs
+  // with mismatched extensions used to bypass downstream renderers.
+  const sniffed = detectMimeFromBuffer(file.buffer);
+  if (!sniffed || sniffed !== file.mimetype) {
+    throw new PortalSettlementsError(
+      'El archivo no coincide con su tipo declarado.',
+      400,
+      'MIME_CONTENT_MISMATCH'
     );
   }
 }

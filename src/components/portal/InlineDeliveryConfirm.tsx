@@ -14,14 +14,19 @@
  * so the courier can record notes.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react';
 import { motion } from 'framer-motion';
-import { Loader2, X, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { X, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { formatCurrency } from '@/utils/currency';
+import { formatCurrency, parseAmountInput } from '@/utils/currency';
 import {
   portalService,
   PortalApiError,
@@ -35,16 +40,30 @@ interface InlineDeliveryConfirmProps {
   onSuccess: (result: MarkDeliveredResult) => void;
   /** Open the full sheet for edge cases (prepago notes, discrepancy, etc.) */
   onEscalate: () => void;
+  /** Owner sets this to true while the outer CTA is in-flight. */
+  onSubmittingChange?: (submitting: boolean) => void;
+  /** Owner reads this to gate the outer CTA. */
+  onValidityChange?: (canConfirm: boolean) => void;
+}
+
+export interface InlineDeliveryConfirmHandle {
+  /** Programmatically trigger the same confirm path as the inline button. */
+  submit: () => void;
 }
 
 const DISCREPANCY_THRESHOLD = 0.05;
 
-export function InlineDeliveryConfirm({
+export const InlineDeliveryConfirm = forwardRef<
+  InlineDeliveryConfirmHandle,
+  InlineDeliveryConfirmProps
+>(function InlineDeliveryConfirm({
   order,
   onClose,
   onSuccess,
   onEscalate,
-}: InlineDeliveryConfirmProps) {
+  onSubmittingChange,
+  onValidityChange,
+}, ref) {
   const { toast } = useToast();
   const isMountedRef = useRef(true);
   const isCod = order.is_cod;
@@ -61,13 +80,18 @@ export function InlineDeliveryConfirm({
     };
   }, []);
 
-  const numericAmount = isCod ? Number(amount) || 0 : 0;
-  const discrepancyRatio = isCod
+  // Locale-aware parser: "150.000" / "150,000" / "150000" all map to 150000 for
+  // 0-decimal currencies (PYG). Number(amount) without this returns 150 for the
+  // first case and silently destroys cash reconciliation.
+  const parsedAmount = isCod ? parseAmountInput(amount, 0) : 0;
+  const numericAmount = Number.isFinite(parsedAmount) ? parsedAmount : NaN;
+  const hasParsedValue = isCod ? Number.isFinite(numericAmount) : true;
+  const discrepancyRatio = isCod && hasParsedValue
     ? Math.abs(numericAmount - order.total_price) /
       Math.max(order.total_price, 1)
     : 0;
-  const hasDiscrepancy = discrepancyRatio > DISCREPANCY_THRESHOLD;
-  const invalid = isCod && (Number.isNaN(numericAmount) || numericAmount < 0);
+  const hasDiscrepancy = hasParsedValue && discrepancyRatio > DISCREPANCY_THRESHOLD;
+  const invalid = isCod && (!hasParsedValue || numericAmount < 0);
 
   const handleConfirm = async () => {
     if (submitting) return;
@@ -81,6 +105,7 @@ export function InlineDeliveryConfirm({
     }
 
     setSubmitting(true);
+    onSubmittingChange?.(true);
     try {
       const result = await portalService.markDelivered(order.id, {
         amount_collected: isCod ? numericAmount : 0,
@@ -114,8 +139,18 @@ export function InlineDeliveryConfirm({
       });
     } finally {
       if (isMountedRef.current) setSubmitting(false);
+      onSubmittingChange?.(false);
     }
   };
+
+  useImperativeHandle(ref, () => ({ submit: handleConfirm }), [handleConfirm]);
+
+  // Tell the parent whether the outer CTA should be enabled. We mirror the
+  // same disabled rules used by the (now removed) inline button so the outer
+  // CTA stays the single source of truth for the action.
+  useEffect(() => {
+    onValidityChange?.(!invalid && !submitting);
+  }, [invalid, submitting, onValidityChange]);
 
   return (
     <motion.div
@@ -154,15 +189,31 @@ export function InlineDeliveryConfirm({
               </div>
               <Input
                 id={`inline-amount-${order.id}`}
-                type="number"
-                inputMode="decimal"
-                min="0"
-                step="any"
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                enterKeyHint="done"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.currentTarget.blur();
+                  }
+                }}
                 placeholder="0"
                 className="h-11 text-base font-medium tabular-nums"
+                aria-invalid={invalid}
               />
+              {hasParsedValue ? (
+                <p className="text-[11px] text-muted-foreground tabular-nums">
+                  Interpretado como <span className="font-medium text-foreground">{formatCurrency(numericAmount)}</span>
+                </p>
+              ) : amount.length > 0 ? (
+                <p className="flex items-start gap-1.5 text-[11px] text-rose-700 dark:text-rose-400">
+                  <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                  Monto inválido. Usá solo números.
+                </p>
+              ) : null}
               {hasDiscrepancy && (
                 <p className="flex items-start gap-1.5 text-[11px] text-amber-700 dark:text-amber-300">
                   <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
@@ -186,31 +237,21 @@ export function InlineDeliveryConfirm({
           )}
         </div>
 
-        <div className="mt-3 flex items-center justify-between gap-3">
+        {/*
+          Confirm action lives in the outer CTA (ActiveOrderRow). This footer
+          is just the escape hatch to the full sheet for edge cases the inline
+          panel can't handle (notes, photo, complex discrepancy).
+        */}
+        <div className="mt-3 flex items-center justify-end gap-3">
           <button
             type="button"
             onClick={onEscalate}
             className="text-[11px] font-medium text-primary hover:underline focus:outline-none focus-visible:underline"
           >
-            Editar detalle →
+            {hasDiscrepancy ? 'Ajustar y confirmar →' : 'Editar detalle →'}
           </button>
-          <Button
-            type="button"
-            onClick={handleConfirm}
-            disabled={submitting || invalid}
-            size="sm"
-            className="h-10 min-w-[120px]"
-          >
-            {submitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : hasDiscrepancy ? (
-              'Ajustar y confirmar →'
-            ) : (
-              'Confirmar'
-            )}
-          </Button>
         </div>
       </div>
     </motion.div>
   );
-}
+});

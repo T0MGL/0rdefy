@@ -2013,12 +2013,59 @@ export class ExternalWebhookService {
         const cheapest = await this.findCheapestCarrierForCity(storeId, resolvedCity);
         if (cheapest) {
           options.courier_id = cheapest.carrier_id;
-          options.shipping_cost = options.shipping_cost ?? cheapest.rate;
+          // Treat 0/null/undefined shipping_cost as "auto-calculate". Callers that
+          // intentionally want free shipping must pass courier_id explicitly so
+          // they opt out of auto-assignment entirely. `??` alone is not enough
+          // because n8n payloads commonly default to 0 when the rate is unknown.
+          const explicitRate = Number(options.shipping_cost);
+          options.shipping_cost = Number.isFinite(explicitRate) && explicitRate > 0
+            ? explicitRate
+            : cheapest.rate;
           options.delivery_zone = options.delivery_zone || cheapest.zone_code || undefined;
           autoCarrier = true;
           logger.info('BACKEND', `✅ [ExternalWebhook] Auto-selected carrier for city "${resolvedCity}": ${cheapest.carrier_name} (rate: ${cheapest.rate})`);
         } else {
           logger.info('BACKEND', `⚠️ [ExternalWebhook] No carrier coverage for city "${resolvedCity}" - confirming without carrier`);
+        }
+      }
+
+      // Safety net: courier_id is set (either passed explicitly by the caller or
+      // auto-assigned above) but shipping_cost is still 0/null/undefined and we
+      // have a shipping_city. Look up the rate for THIS specific carrier in the
+      // city's coverage. This protects against n8n payloads that pass courier_id
+      // but ship shipping_cost: 0 (the default value when the rate is unknown).
+      // Without this, the courier delivers without getting paid for the flete.
+      if (
+        options.courier_id &&
+        !options.is_pickup &&
+        resolvedCity &&
+        (options.shipping_cost === undefined ||
+          options.shipping_cost === null ||
+          Number(options.shipping_cost) === 0)
+      ) {
+        const { data: coverageRow } = await supabaseAdmin
+          .from('carrier_coverage')
+          .select('rate, zone_code')
+          .eq('store_id', storeId)
+          .eq('carrier_id', options.courier_id)
+          .ilike('city', resolvedCity.trim())
+          .gt('rate', 0)
+          .order('rate', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+
+        if (coverageRow && Number(coverageRow.rate) > 0) {
+          options.shipping_cost = Number(coverageRow.rate);
+          options.delivery_zone = options.delivery_zone || coverageRow.zone_code || undefined;
+          logger.info(
+            'BACKEND',
+            `🛡️ [ExternalWebhook] Backfilled shipping_cost for explicit carrier in "${resolvedCity}": ${coverageRow.rate}`
+          );
+        } else {
+          logger.warn(
+            'BACKEND',
+            `⚠️ [ExternalWebhook] courier_id ${options.courier_id} has no coverage rate for "${resolvedCity}" - order will be created with shipping_cost=0`
+          );
         }
       }
 

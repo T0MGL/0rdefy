@@ -66,20 +66,38 @@ export default function PortalLogin() {
     setSubmitting(true);
     setErrorMessage(null);
 
-    const result = await signIn(email.trim(), password);
+    try {
+      const result = await signIn(email.trim(), password);
 
-    if (!isMountedRef.current) return;
+      if (!isMountedRef.current) return;
 
-    if (result.error) {
+      if (result.error) {
+        setSubmitting(false);
+        setErrorMessage(result.error);
+        return;
+      }
+
+      // After signIn, AuthContext re-renders with the new currentStore.
+      // The effect above either redirects or surfaces "not a courier" via
+      // setErrorMessage. Either way the user has feedback — we don't want a
+      // permanent spinner if the role check fails, so release it after a
+      // short delay if no navigation happened.
+      if (isMountedRef.current) {
+        setTimeout(() => {
+          if (isMountedRef.current) setSubmitting(false);
+        }, 800);
+      }
+    } catch (err) {
+      // signIn can throw on transport errors (500/network). Without this
+      // catch the spinner stayed forever and the user couldn't retry.
+      if (!isMountedRef.current) return;
       setSubmitting(false);
-      setErrorMessage(result.error);
-      return;
+      setErrorMessage(
+        err instanceof Error && err.message
+          ? err.message
+          : 'No se pudo iniciar sesión. Probá de nuevo.',
+      );
     }
-
-    // After signIn, AuthContext re-renders with the new currentStore.
-    // The effect above will then handle the redirect. We just stay here
-    // and let it run. We don't release the spinner so the form doesn't
-    // flash before navigation.
   };
 
   const fromLocation = (location.state as { from?: Location })?.from;

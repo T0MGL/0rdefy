@@ -22,17 +22,23 @@
  *     owns presentation state.
  */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
+  Loader2,
+  Navigation,
+  Phone,
   RotateCcw,
   XCircle,
 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { OrderCard } from './OrderCard';
-import { InlineDeliveryConfirm } from './InlineDeliveryConfirm';
+import {
+  InlineDeliveryConfirm,
+  type InlineDeliveryConfirmHandle,
+} from './InlineDeliveryConfirm';
 import { MarkDeliveredSheet } from './MarkDeliveredSheet';
 import { MarkFailedSheet } from './MarkFailedSheet';
 import { MarkReturnedSheet } from './MarkReturnedSheet';
@@ -59,6 +65,9 @@ export function ActiveOrderRow({
 }: ActiveOrderRowProps) {
   const [expanded, setExpanded] = useState<ExpandedState>('idle');
   const [openSheet, setOpenSheet] = useState<SheetKind>(null);
+  const [inlineSubmitting, setInlineSubmitting] = useState(false);
+  const [inlineCanConfirm, setInlineCanConfirm] = useState(false);
+  const inlineRef = useRef<InlineDeliveryConfirmHandle>(null);
 
   const isExpanded = expanded === 'delivered';
 
@@ -71,6 +80,23 @@ export function ActiveOrderRow({
     setOpenSheet(null);
     onMutation();
   };
+
+  // The outer CTA has two modes:
+  //   1. idle    -> "Entregar" lime, expands the inline panel
+  //   2. expanded -> "Confirmar entrega" lime, triggers inline.submit()
+  // Cancel lives only as the X chip in the inline panel header — this avoids
+  // the regression where the primary lime CTA turned gray "Cancelar" and the
+  // courier double-tapped expecting "confirm" but got "close".
+  const handlePrimaryClick = () => {
+    if (isExpanded) {
+      if (!inlineCanConfirm || inlineSubmitting) return;
+      inlineRef.current?.submit();
+      return;
+    }
+    setExpanded('delivered');
+  };
+
+  const primaryDisabled = isExpanded && (!inlineCanConfirm || inlineSubmitting);
 
   return (
     <div className="space-y-2">
@@ -89,29 +115,65 @@ export function ActiveOrderRow({
         className={cn(isExpanded && 'ring-2 ring-primary/40')}
       />
 
-      {/* Primary CTA */}
+      {/* Call + navigate shortcuts — the two highest-frequency courier
+          actions on the street. Visible without opening the detail. */}
+      {(order.customer_phone || order.customer_address || order.customer_city) && (
+        <div className="flex items-stretch gap-2">
+          {order.customer_phone && (
+            <a
+              href={`tel:${order.customer_phone}`}
+              onClick={(e) => e.stopPropagation()}
+              aria-label={`Llamar a ${order.customer_name || 'cliente'}`}
+              className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-border bg-card text-xs font-medium text-foreground transition-colors hover:bg-accent/40 active:bg-accent/60"
+            >
+              <Phone className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2} />
+              Llamar
+            </a>
+          )}
+          {(order.customer_address || order.customer_city) && (
+            <a
+              href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+                [order.customer_address, order.customer_city].filter(Boolean).join(', '),
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              aria-label="Cómo llegar"
+              className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-border bg-card text-xs font-medium text-foreground transition-colors hover:bg-accent/40 active:bg-accent/60"
+            >
+              <Navigation className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2} />
+              Ir
+            </a>
+          )}
+        </div>
+      )}
+
+      {/* Primary CTA — stays lime in both states, semantics never invert. */}
       <button
         type="button"
-        onClick={() =>
-          setExpanded((prev) => (prev === 'delivered' ? 'idle' : 'delivered'))
-        }
+        onClick={handlePrimaryClick}
         aria-expanded={isExpanded}
+        disabled={primaryDisabled}
         className={cn(
           'flex h-11 w-full items-center justify-center gap-2 rounded-2xl text-sm font-semibold shadow-sm transition-colors',
+          'bg-primary text-primary-foreground hover:bg-primary/90 active:scale-[0.99]',
           'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-          isExpanded
-            ? 'bg-primary/15 text-primary ring-1 ring-inset ring-primary/30'
-            : 'bg-primary text-primary-foreground hover:bg-primary/90 active:scale-[0.99]',
+          'disabled:opacity-60 disabled:active:scale-100',
         )}
       >
-        <CheckCircle2 className="h-4 w-4" strokeWidth={2.25} />
-        {isExpanded ? 'Cancelar' : 'Entregar'}
+        {inlineSubmitting ? (
+          <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.25} />
+        ) : (
+          <CheckCircle2 className="h-4 w-4" strokeWidth={2.25} />
+        )}
+        {isExpanded ? (inlineSubmitting ? 'Guardando...' : 'Confirmar entrega') : 'Entregar'}
       </button>
 
       {/* Inline confirm */}
       <AnimatePresence initial={false}>
         {isExpanded && (
           <InlineDeliveryConfirm
+            ref={inlineRef}
             order={order}
             onClose={() => setExpanded('idle')}
             onEscalate={() => {
@@ -119,12 +181,14 @@ export function ActiveOrderRow({
               setOpenSheet('delivered');
             }}
             onSuccess={handleDeliveredSuccess}
+            onSubmittingChange={setInlineSubmitting}
+            onValidityChange={setInlineCanConfirm}
           />
         )}
       </AnimatePresence>
 
       {/* Secondary actions row */}
-      <div className="flex items-center justify-between gap-2 px-1 text-[11px]">
+      <div className="flex items-stretch justify-between gap-2 px-1 text-[11px]">
         <SecondaryAction
           icon={RotateCcw}
           label="Devuelto"
@@ -182,13 +246,16 @@ function SecondaryAction({
   label: string;
   onClick: () => void;
 }) {
+  // h-11 (44px) keeps the tap area at Apple HIG / WCAG 2.5.5 minimum so a
+  // courier in a moving bus with a wet thumb doesn't fat-finger between
+  // "Devuelto" and "Incidencia".
   return (
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+      className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-lg text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 active:bg-muted/80"
     >
-      <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
+      <Icon className="h-4 w-4" strokeWidth={2} />
       {label}
     </button>
   );

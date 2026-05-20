@@ -141,7 +141,10 @@ function buildCards(summary?: PortalFinancialSummary): CardSpec[] {
           : net < 0
             ? 'Te debe el store'
             : 'Estás al día',
-      tone: net > 0 ? 'rose' : net < 0 ? 'primary' : 'neutral',
+      // Neutral by default — "rose" implied danger for the normal case of
+      // owing the store. The textual label below the amount carries the
+      // direction; color is reserved for actually anomalous states.
+      tone: 'neutral',
     },
   ];
 }

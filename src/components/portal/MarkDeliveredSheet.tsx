@@ -35,7 +35,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { formatCurrency } from '@/utils/currency';
+import { cn } from '@/lib/utils';
+import { formatCurrency, parseAmountInput } from '@/utils/currency';
 import {
   portalService,
   PortalApiError,
@@ -95,11 +96,16 @@ export function MarkDeliveredSheet({
     };
   }, []);
 
-  const numericAmount = isCod ? Number(amount) || 0 : 0;
-  const discrepancyRatio = isCod
+  // Locale-aware parser: PY couriers type "150.000" expecting 150000; Number()
+  // would parse it as 150 and silently destroy the conciliation. Returns NaN on
+  // bad input — caller must gate submit on hasParsedValue.
+  const parsedAmount = isCod ? parseAmountInput(amount, 0) : 0;
+  const numericAmount = Number.isFinite(parsedAmount) ? parsedAmount : NaN;
+  const hasParsedValue = isCod ? Number.isFinite(numericAmount) : true;
+  const discrepancyRatio = isCod && hasParsedValue
     ? Math.abs(numericAmount - order.total_price) / Math.max(order.total_price, 1)
     : 0;
-  const hasDiscrepancy = discrepancyRatio > DISCREPANCY_THRESHOLD;
+  const hasDiscrepancy = hasParsedValue && discrepancyRatio > DISCREPANCY_THRESHOLD;
 
   const handleSubmit = async () => {
     if (submitting) return;
@@ -152,7 +158,7 @@ export function MarkDeliveredSheet({
 
   const submitDisabled =
     submitting ||
-    (isCod && (Number.isNaN(numericAmount) || numericAmount < 0));
+    (isCod && (!hasParsedValue || numericAmount < 0));
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -186,18 +192,38 @@ export function MarkDeliveredSheet({
               </div>
               <Input
                 id="amount"
-                type="number"
-                inputMode="decimal"
-                min="0"
-                step="any"
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                enterKeyHint="done"
                 value={amount}
                 onChange={(e) => {
                   setAmount(e.target.value);
                   setConfirmDiscrepancy(false);
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.currentTarget.blur();
+                  }
+                }}
                 placeholder="0"
                 className="h-12 text-lg font-medium tabular-nums"
+                aria-invalid={!hasParsedValue}
               />
+
+              {hasParsedValue ? (
+                <p className="text-xs text-muted-foreground tabular-nums">
+                  Interpretado como{' '}
+                  <span className="font-medium text-foreground">
+                    {formatCurrency(numericAmount)}
+                  </span>
+                </p>
+              ) : amount.length > 0 ? (
+                <p className="flex items-start gap-1.5 text-xs text-rose-700 dark:text-rose-400">
+                  <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                  Monto inválido. Usá solo números.
+                </p>
+              ) : null}
 
               <AnimatePresence>
                 {hasDiscrepancy && (
@@ -257,7 +283,12 @@ export function MarkDeliveredSheet({
             type="button"
             onClick={handleSubmit}
             disabled={submitDisabled}
-            className="h-12 w-full text-base"
+            variant={confirmDiscrepancy && hasDiscrepancy ? 'destructive' : 'default'}
+            className={cn(
+              'h-12 w-full text-base transition-colors',
+              confirmDiscrepancy && hasDiscrepancy &&
+                'bg-amber-500 text-amber-950 hover:bg-amber-600 dark:bg-amber-500 dark:text-amber-950',
+            )}
             size="lg"
           >
             {submitting ? (
@@ -266,11 +297,19 @@ export function MarkDeliveredSheet({
                 Guardando...
               </>
             ) : confirmDiscrepancy && hasDiscrepancy ? (
-              'Confirmar entrega con discrepancia'
+              <>
+                <AlertCircle className="mr-2 h-4 w-4" strokeWidth={2.25} />
+                Confirmar con discrepancia
+              </>
             ) : (
               'Confirmar entrega'
             )}
           </Button>
+          {confirmDiscrepancy && hasDiscrepancy && (
+            <p className="mt-2 text-center text-[11px] text-amber-700 dark:text-amber-300">
+              Va a quedar marcado para revisión administrativa.
+            </p>
+          )}
         </div>
       </SheetContent>
     </Sheet>

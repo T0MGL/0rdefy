@@ -35,9 +35,10 @@ export function PendingReconciliationCard({
   onToggle,
 }: PendingReconciliationCardProps) {
   const days = daysAgo(order.delivered_at);
-  const amount = order.is_cod
-    ? order.cod_amount || order.total_price
-    : order.total_price;
+  // Reconciliation is about cash to remit, not order value. For prepaid orders
+  // the courier collected nothing at the door, so the displayed amount must
+  // be 0 (not total_price). For COD it's whatever was actually collected.
+  const amount = order.is_cod ? order.cod_amount || order.total_price : 0;
 
   return (
     <label
@@ -86,7 +87,7 @@ export function PendingReconciliationCard({
             )}
           >
             <Coins className="h-3 w-3" strokeWidth={2} />
-            {order.is_cod ? 'Cobrado' : 'Prepago'} {formatCurrency(amount)}
+            {order.is_cod ? 'Cobrado' : 'Prepago · sin cobro'} {formatCurrency(amount)}
           </span>
 
           <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">

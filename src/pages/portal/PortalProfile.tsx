@@ -120,17 +120,39 @@ export default function PortalProfile() {
           label="Cambiar contraseña"
           onClick={() => setPasswordSheetOpen(true)}
         />
-        <Divider />
-        <ProfileAction
-          icon={HelpCircle}
-          label="Soporte"
-          onClick={() =>
-            window.open(
-              'mailto:soporte@ordefy.io?subject=Portal%20courier',
-              '_blank',
-            )
-          }
-        />
+        {(() => {
+          // Support is rendered only when VITE_SUPPORT_WHATSAPP is set in the
+          // env (digits only, country code first, no `+`). Hiding the entry
+          // when unconfigured beats sending Mike to a dead number. Set the
+          // var in .env.production before launch.
+          const supportNumber = (
+            import.meta.env.VITE_SUPPORT_WHATSAPP as string | undefined
+          )?.replace(/\D/g, '');
+          if (!supportNumber) return null;
+          return (
+            <>
+              <Divider />
+              <ProfileAction
+                icon={HelpCircle}
+                label="Soporte por WhatsApp"
+                onClick={() => {
+                  const courierLabel =
+                    me?.user?.name?.trim() ||
+                    me?.user?.email ||
+                    'courier';
+                  const prefilled = encodeURIComponent(
+                    `Hola, soy ${courierLabel}. Necesito ayuda con el portal courier.`,
+                  );
+                  window.open(
+                    `https://wa.me/${supportNumber}?text=${prefilled}`,
+                    '_blank',
+                    'noopener,noreferrer',
+                  );
+                }}
+              />
+            </>
+          );
+        })()}
         <Divider />
         <ProfileAction
           icon={LogOut}

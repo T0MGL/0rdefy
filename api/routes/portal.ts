@@ -71,7 +71,9 @@ import { supabaseAdmin } from '../db/connection';
 import { logger } from '../utils/logger';
 import { isCodPayment } from '../utils/payment';
 import { isCancelled, isDelivered, isRejected, isReturned } from '../utils/order-status';
-import { uploadFile } from '../services/storage.service';
+// uploadFile import dropped together with the disabled upload-proof handler
+// (see POST /orders/:id/upload-proof below for context). Re-import once the
+// private delivery-proofs bucket migration lands.
 import { OutboundWebhookService } from '../services/outbound-webhook.service';
 import { sanitizeSearchInput, normalizeSearch, tokenizeSearch } from '../utils/sanitize';
 import {
@@ -114,13 +116,8 @@ const FAILED_REASON_VALUES = [
 // within this window is absorbed silently.
 const FAILED_DEDUPE_WINDOW_MS = 5 * 60_000;
 
-// Photo upload limits (mirror api/routes/upload.ts contract)
-const PROOF_MAX_BYTES = 5 * 1024 * 1024;
-const PROOF_ALLOWED_MIME = new Set([
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-]);
+// Photo upload limits removed together with the disabled upload-proof
+// handler. The private-bucket migration should reintroduce its own.
 
 // Statuses considered "in transit" for the active list view. These match
 // the same set used by Migration 175 v_courier_financial_summary, so the
@@ -280,38 +277,9 @@ function fireAndForget(
 // Multer (proof-of-delivery upload)
 // ============================================================================
 
-const proofUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: PROOF_MAX_BYTES },
-  fileFilter: (_req, file, cb) => {
-    if (PROOF_ALLOWED_MIME.has(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Tipo de archivo no permitido. Solo JPEG, PNG, WEBP.'));
-    }
-  },
-});
-
-function handleMulterError(
-  err: unknown,
-  _req: CourierRequest,
-  res: Response,
-  next: NextFunction
-): void {
-  if (err instanceof multer.MulterError) {
-    if (err.code === 'LIMIT_FILE_SIZE') {
-      res.status(400).json({ error: 'El archivo excede el límite de 5MB' });
-      return;
-    }
-    res.status(400).json({ error: 'Error al subir el archivo' });
-    return;
-  }
-  if (err instanceof Error) {
-    res.status(400).json({ error: err.message });
-    return;
-  }
-  next();
-}
+// proofUpload + handleMulterError dropped together with the disabled
+// upload-proof handler. Re-add once the private delivery-proofs bucket
+// migration lands.
 
 // ============================================================================
 // Auth chain (applied to every route below)
@@ -374,9 +342,30 @@ portalRouter.get('/me', async (req: CourierRequest, res: Response) => {
       return;
     }
 
-    const user = (data as any).users;
-    const carrier = (data as any).carriers;
-    const store = (data as any).stores;
+    // Supabase JS can coerce single-FK joins to either an object or a
+    // single-element array depending on ambiguity / version. Normalise so we
+    // never crash on `user.id` when the row is `[{...}]`.
+    const pickOne = (v: unknown): any => {
+      if (Array.isArray(v)) return v[0] ?? null;
+      return v ?? null;
+    };
+
+    const user = pickOne((data as any).users);
+    const carrier = pickOne((data as any).carriers);
+    const store = pickOne((data as any).stores);
+
+    if (!user || !carrier || !store) {
+      logger.error('PORTAL', 'GET /me: join payload missing expected relation', {
+        user_id: userId,
+        store_id: storeId,
+        carrier_id: carrierId,
+        has_user: !!user,
+        has_carrier: !!carrier,
+        has_store: !!store,
+      });
+      res.status(500).json({ error: 'Error interno del servidor' });
+      return;
+    }
 
     res.json({
       user: {
@@ -527,12 +516,17 @@ portalRouter.get('/orders', async (req: CourierRequest, res: Response) => {
     if (search) {
       const normalized = normalizeSearch(search);
       const tokens = tokenizeSearch(normalized);
+      // Escape ILIKE wildcards (`%` `_`) and the backslash escape itself so a
+      // user typing literal "%" doesn't match the entire catalog (DoS) and
+      // typing "abc_xyz" doesn't widen the match to single-char wildcards.
+      // PostgreSQL ILIKE uses backslash as default escape character.
+      const escapeWildcards = (s: string) => s.replace(/[\\%_]/g, '\\$&');
       if (tokens.length > 0) {
         for (const token of tokens) {
-          q = q.ilike('search_text', `%${token}%`);
+          q = q.ilike('search_text', `%${escapeWildcards(token)}%`);
         }
       } else if (normalized.length > 0) {
-        q = q.ilike('search_text', `%${normalized}%`);
+        q = q.ilike('search_text', `%${escapeWildcards(normalized)}%`);
       }
     }
 
@@ -564,6 +558,10 @@ portalRouter.get('/orders', async (req: CourierRequest, res: Response) => {
         total_price: Number(o.total_price ?? 0),
         shipping_cost: Number(o.shipping_cost ?? 0),
         payment_method: o.payment_method ?? null,
+        // Surface prepaid_method so the UI can show "Prepago · transferencia"
+        // or "Prepago · QR" instead of a vague "Prepago" label. Used by
+        // OrderCard and InlineDeliveryConfirm to render the chip + tooltip.
+        prepaid_method: o.prepaid_method ?? null,
         is_cod: isCod,
         sleeves_status: ALL_OBSERVABLE_STATUSES.has(o.sleeves_status)
           ? o.sleeves_status
@@ -617,11 +615,21 @@ const MarkDeliveredSchema = z.object({
       const n = typeof v === 'string' ? Number(v) : v;
       return Number.isFinite(n) ? n : undefined;
     }),
+  // Acotamos el set para evitar que un cliente comprometido o un payload
+  // mal formado contamine analytics/conciliación con valores libres
+  // (`orders.payment_method` se lee desde múltiples superficies). Mantener
+  // sincronizado con el dropdown en MarkDeliveredSheet.tsx PAYMENT_METHODS.
   payment_method: z
-    .string()
-    .max(40)
+    .union([z.string(), z.null(), z.undefined()])
     .optional()
-    .transform((v) => (typeof v === 'string' ? v.trim().toLowerCase() : undefined)),
+    .transform((v) =>
+      typeof v === 'string' && v.trim() !== '' ? v.trim().toLowerCase() : undefined,
+    )
+    .pipe(
+      z
+        .enum(['cash', 'qr', 'pos', 'transfer', 'transferencia', 'mixed', 'other'])
+        .optional(),
+    ),
   photo_url: z.string().url().max(2048).optional(),
   notes: z.string().max(NOTES_MAX_LEN).optional(),
 });
@@ -765,8 +773,45 @@ portalRouter.post(
     }
 
     if (!updated) {
-      // Concurrent writer beat us. Treat as idempotent success.
-      res.json({ already_delivered: true, order: { id: orderId, sleeves_status: 'delivered' } });
+      // UPDATE filtered on (id, store_id, courier_id, !=delivered). Zero rows
+      // can mean any of:
+      //   a) concurrent writer beat us to 'delivered' (idempotent success)
+      //   b) admin reassigned courier_id mid-flight (we should NOT lie to
+      //      the courier saying "already delivered" — surface it)
+      //   c) order soft-deleted, etc.
+      const { data: probe } = await supabaseAdmin
+        .from('orders')
+        .select('id, sleeves_status, courier_id, deleted_at')
+        .eq('id', orderId)
+        .eq('store_id', storeId)
+        .maybeSingle();
+
+      if (probe?.deleted_at) {
+        res.status(410).json({ error: 'Pedido eliminado', code: 'ORDER_DELETED' });
+        return;
+      }
+      if (probe && String(probe.courier_id) !== carrierId) {
+        logger.security('PORTAL', 'mark-delivered: courier reassigned mid-flight', {
+          order_id: orderId,
+          user_id: userId,
+          previous_carrier: carrierId,
+          current_carrier: probe.courier_id,
+        });
+        res.status(409).json({
+          error: 'El pedido fue reasignado a otra transportadora',
+          code: 'COURIER_REASSIGNED',
+        });
+        return;
+      }
+      if (probe && isDelivered(String(probe.sleeves_status))) {
+        res.json({ already_delivered: true, order: { id: orderId, sleeves_status: 'delivered' } });
+        return;
+      }
+      // Unknown state — treat as conflict so the courier retries / refreshes.
+      res.status(409).json({
+        error: 'No se pudo marcar como entregado. Refrescá la lista.',
+        code: 'CONCURRENT_MODIFICATION',
+      });
       return;
     }
 
@@ -1351,66 +1396,37 @@ portalRouter.post(
 // POST /api/portal/orders/:id/upload-proof
 // ============================================================================
 //
-// Multipart upload of a proof-of-delivery photo. We reuse the
-// `merchandise` Supabase Storage bucket (public-read, 5MB cap, image
-// mimes only) instead of creating a dedicated bucket: the path is
-// scoped to the store + order id, so leakage is impossible across
-// stores. The frontend is expected to call this BEFORE mark-delivered
-// and pass the returned URL as `photo_url`.
+// DISABLED for production launch. The previous implementation wrote
+// proof-of-delivery photos (customer name + address + package, i.e. PII) into
+// the `merchandise` Supabase bucket, which is public-read by RLS policy
+// (see db/migrations/037_storage_buckets_setup.sql). The path layout
+// `{store_id}/{order_id}/{8-char-uuid}.ext` is enumerable: store_id and
+// order_id leak through other endpoints/logs, and 8 hex chars is brute-
+// forceable. Any non-authenticated client could fetch the photo.
+//
+// The active courier portal does NOT call this endpoint (verified across
+// src/components/portal/ and src/services/portal.service.ts:uploadProof
+// — the service helper exists but has no caller in the portal flow). We
+// disable the route so an external integration can't reactivate the leak
+// before the proper migration lands.
+//
+// TO RE-ENABLE: create a private bucket `delivery-proofs` mirroring the
+// settlement-proofs pattern (signed URLs, ~5min TTL), extend storage.service
+// to know about it, and only THEN swap the body of this handler.
 
 portalRouter.post(
   '/orders/:id/upload-proof',
   requireOrderInCourierScope,
-  proofUpload.single('file'),
-  handleMulterError,
   async (req: CourierRequest, res: Response) => {
-    const orderId = req.params.id;
-    const storeId = req.storeId!;
-    const userId = req.courierUserId!;
-
-    if (!req.file) {
-      res.status(400).json({ error: 'No se proporcionó archivo' });
-      return;
-    }
-
-    if (!PROOF_ALLOWED_MIME.has(req.file.mimetype)) {
-      res.status(400).json({ error: 'Tipo de archivo no permitido' });
-      return;
-    }
-
-    try {
-      // We use the `merchandise` bucket. The entityId becomes the order_id
-      // so the storage layout segregates files per order. This bucket is
-      // already public-read (matching the existing photo flows) and has
-      // the same 5MB cap we enforce here.
-      const result = await uploadFile(
-        'merchandise',
-        req.file.buffer,
-        req.file.mimetype,
-        storeId,
-        orderId,
-        req.file.originalname || 'proof.jpg'
-      );
-
-      if (!result.success || !result.url) {
-        logger.error('PORTAL', 'upload-proof: storage upload failed', {
-          order_id: orderId,
-          user_id: userId,
-          error: result.error,
-        });
-        res.status(500).json({ error: 'No se pudo subir la foto' });
-        return;
-      }
-
-      res.json({ photo_url: result.url, path: result.path ?? null });
-    } catch (err) {
-      logger.error('PORTAL', 'upload-proof: unexpected error', {
-        order_id: orderId,
-        user_id: userId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      res.status(500).json({ error: 'Error interno del servidor' });
-    }
+    logger.warn('PORTAL', 'upload-proof: endpoint disabled (pending private bucket migration)', {
+      order_id: req.params.id,
+      user_id: req.courierUserId,
+      ip: req.ip,
+    });
+    res.status(501).json({
+      error: 'Upload de comprobante temporalmente deshabilitado',
+      code: 'UPLOAD_PROOF_DISABLED',
+    });
   }
 );
 
@@ -1582,16 +1598,16 @@ portalRouter.get('/settlements/pending', async (req: CourierRequest, res: Respon
 portalRouter.get('/settlements/history', async (req: CourierRequest, res: Response) => {
   const storeId = req.storeId!;
   const carrierId = req.courierCarrierId!;
-  const page = parseInt((req.query.page as string) ?? '1', 10);
-  const pageSize = parseInt((req.query.page_size as string) ?? '20', 10);
+  // Clamp at the edge so an arbitrary `?page=999999999` doesn't waste a
+  // round-trip into the service layer just to be clamped there. Same hard
+  // upper bound (1000) used by GET /orders.
+  const rawPage = parseInt((req.query.page as string) ?? '1', 10);
+  const rawPageSize = parseInt((req.query.page_size as string) ?? '20', 10);
+  const page = Number.isFinite(rawPage) ? Math.max(1, Math.min(1000, rawPage)) : 1;
+  const pageSize = Number.isFinite(rawPageSize) ? Math.max(1, Math.min(50, rawPageSize)) : 20;
 
   try {
-    const result = await getSettlementsHistory(
-      storeId,
-      carrierId,
-      Number.isFinite(page) ? page : 1,
-      Number.isFinite(pageSize) ? pageSize : 20
-    );
+    const result = await getSettlementsHistory(storeId, carrierId, page, pageSize);
     res.set('Cache-Control', 'private, max-age=15');
     res.json(result);
   } catch (err) {
