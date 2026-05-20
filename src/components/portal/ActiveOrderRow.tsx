@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { normalizeTelHref } from '@/utils/phone';
 import { OrderCard } from './OrderCard';
 import {
   InlineDeliveryConfirm,
@@ -119,9 +120,9 @@ export function ActiveOrderRow({
           actions on the street. Visible without opening the detail. */}
       {(order.customer_phone || order.customer_address || order.customer_city) && (
         <div className="flex items-stretch gap-2">
-          {order.customer_phone && (
+          {order.customer_phone && normalizeTelHref(order.customer_phone) && (
             <a
-              href={`tel:${order.customer_phone}`}
+              href={normalizeTelHref(order.customer_phone)}
               onClick={(e) => e.stopPropagation()}
               aria-label={`Llamar a ${order.customer_name || 'cliente'}`}
               className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-border bg-card text-xs font-medium text-foreground transition-colors hover:bg-accent/40 active:bg-accent/60"
@@ -131,19 +132,29 @@ export function ActiveOrderRow({
             </a>
           )}
           {(order.customer_address || order.customer_city) && (
-            <a
-              href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-                [order.customer_address, order.customer_city].filter(Boolean).join(', '),
-              )}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                // window.open forces a fresh top-level context — PWA shells
+                // and in-app browsers respect this where bare target=_blank
+                // fell back to in-place navigation. On mobile the system
+                // picks up Google Maps' universal link and opens the app.
+                const destination = [order.customer_address, order.customer_city]
+                  .filter(Boolean)
+                  .join(', ');
+                window.open(
+                  `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`,
+                  '_blank',
+                  'noopener,noreferrer',
+                );
+              }}
               aria-label="Cómo llegar"
               className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-border bg-card text-xs font-medium text-foreground transition-colors hover:bg-accent/40 active:bg-accent/60"
             >
               <Navigation className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2} />
               Ir
-            </a>
+            </button>
           )}
         </div>
       )}

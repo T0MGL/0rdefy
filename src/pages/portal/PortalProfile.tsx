@@ -36,6 +36,7 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { portalService, type PortalMe } from '@/services/portal.service';
+import { normalizeWhatsappNumber } from '@/utils/phone';
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || '1.0.0';
 
@@ -122,12 +123,13 @@ export default function PortalProfile() {
         />
         {(() => {
           // Support is rendered only when VITE_SUPPORT_WHATSAPP is set in the
-          // env (digits only, country code first, no `+`). Hiding the entry
-          // when unconfigured beats sending Mike to a dead number. Set the
-          // var in .env.production before launch.
-          const supportNumber = (
-            import.meta.env.VITE_SUPPORT_WHATSAPP as string | undefined
-          )?.replace(/\D/g, '');
+          // env. Accepts any format ("+595 983 912 902", "0983912902", etc.)
+          // — normalizeWhatsappNumber strips formatting AND drops the spurious
+          // leading 0 that wa.me rejects. Hiding the entry when unconfigured
+          // beats sending Mike to a dead number.
+          const supportNumber = normalizeWhatsappNumber(
+            import.meta.env.VITE_SUPPORT_WHATSAPP as string | undefined,
+          );
           if (!supportNumber) return null;
           return (
             <>
@@ -143,6 +145,9 @@ export default function PortalProfile() {
                   const prefilled = encodeURIComponent(
                     `Hola, soy ${courierLabel}. Necesito ayuda con el portal courier.`,
                   );
+                  // window.open with explicit _blank + noopener so the link
+                  // actually leaves the PWA shell on iOS instead of getting
+                  // stuck inside the in-app browser.
                   window.open(
                     `https://wa.me/${supportNumber}?text=${prefilled}`,
                     '_blank',

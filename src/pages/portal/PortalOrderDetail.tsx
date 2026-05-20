@@ -37,6 +37,7 @@ import {
 import { cn } from '@/lib/utils';
 import { isCancelled, isReturned, isStrictDelivered } from '@/lib/status';
 import { formatCurrency } from '@/utils/currency';
+import { normalizeTelHref } from '@/utils/phone';
 import {
   portalService,
   type PortalOrder,
@@ -259,9 +260,9 @@ export default function PortalOrderDetail() {
         </div>
 
         <div className="mt-3 space-y-2">
-          {order.customer_phone && (
+          {order.customer_phone && normalizeTelHref(order.customer_phone) && (
             <a
-              href={`tel:${order.customer_phone}`}
+              href={normalizeTelHref(order.customer_phone)}
               className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted active:bg-muted/80"
             >
               <Phone
@@ -289,11 +290,16 @@ export default function PortalOrderDetail() {
 
             if (mapsUrl) {
               return (
-                <a
-                  href={mapsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex min-w-0 items-start gap-2 rounded-xl bg-muted/50 px-3 py-2.5 text-sm text-foreground transition-colors hover:bg-muted active:bg-muted/80"
+                <button
+                  type="button"
+                  onClick={() => {
+                    // window.open with explicit _blank so the universal link
+                    // hands off to the Google Maps app (iOS/Android) or a
+                    // fresh browser tab. target=_blank on an <a> was navigating
+                    // in-place inside PWA shells and the in-app webview.
+                    window.open(mapsUrl, '_blank', 'noopener,noreferrer');
+                  }}
+                  className="flex min-w-0 w-full items-start gap-2 rounded-xl bg-muted/50 px-3 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-muted active:bg-muted/80"
                   aria-label={`Cómo llegar a ${navigationTarget}`}
                 >
                   <MapPin
@@ -307,7 +313,7 @@ export default function PortalOrderDetail() {
                     <Navigation className="h-3 w-3" strokeWidth={2} />
                     Ir
                   </span>
-                </a>
+                </button>
               );
             }
 
