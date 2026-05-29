@@ -2809,7 +2809,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                           {!order.shopify_order_id && (
                             <Badge
                               variant="outline"
-                              className="bg-primary/5 dark:bg-primary/30 text-primary dark:text-primary border-primary/40 dark:border-primary text-xs px-1.5 py-0"
+                              className="bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800 text-xs px-1.5 py-0"
                             >
                               ORDEFY
                             </Badge>
@@ -2971,7 +2971,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                       </td>
                       <td className="py-4 px-6 text-sm whitespace-nowrap">
                         {order.is_pickup ? (
-                          <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary border border-primary/30 dark:border-primary">
+                          <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border border-green-300 dark:border-green-800">
                             <Store size={12} />
                             Retiro en local
                           </span>
@@ -3001,7 +3001,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-7 px-2.5 text-xs bg-primary/5 dark:bg-primary/20 text-primary dark:text-primary border-primary/40 dark:border-primary hover:bg-primary/10 dark:hover:bg-primary/30 hover:border-primary/60 dark:hover:border-primary hover:shadow-sm transition-all duration-200"
+                                    className="h-7 px-2.5 text-xs bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-950/40 hover:border-green-400 dark:hover:border-green-700 hover:shadow-sm transition-all duration-200"
                                     onClick={() => handleContact(order.id, generateWhatsAppConfirmationLink(order))}
                                   >
                                     <MessageSquare size={14} className="mr-1" />
@@ -3211,7 +3211,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-6 px-2 text-[10px] bg-primary/5 dark:bg-primary/20 text-primary dark:text-primary border-primary/40 dark:border-primary hover:bg-primary/10 dark:hover:bg-primary/30"
+                                className="h-6 px-2 text-[10px] bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-950/40"
                                 onClick={() => handleDTEDownload(order)}
                                 disabled={dteLoadingOrderId === order.id}
                               >
