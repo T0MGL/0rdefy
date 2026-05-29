@@ -434,6 +434,29 @@ function applyGenericDescription<T extends { descripcion: string }>(
   return items.map((it) => ({ ...it, descripcion: generic }));
 }
 
+/**
+ * Resolve the fiscal description for an order line item. The invoice must
+ * carry the legal/fiscal product description, NOT the commercial/marketing
+ * name (e.g. "NOCTE Blue Light Blocking Glasses" is a brand label, not a
+ * valid invoice line). Priority:
+ *   1. products.fiscal_description (per-product fiscal name, migration 193)
+ *   2. product_name (commercial fallback when fiscal one is missing)
+ *   3. 'Producto'
+ * The per-store generic override (applyGenericDescription) is applied ON TOP
+ * of this when the store opts in, so it always wins.
+ */
+function resolveItemFiscalDescription(item: {
+  product_name?: string | null;
+  products?:
+    | { fiscal_description?: string | null }
+    | Array<{ fiscal_description?: string | null }>
+    | null;
+}): string {
+  const product = Array.isArray(item.products) ? item.products[0] : item.products;
+  const fiscalDesc = product?.fiscal_description?.trim();
+  return fiscalDesc || item.product_name || 'Producto';
+}
+
 function buildQrUrlForInvoice(
   xmlSigned: string | null,
   cdc: string,
@@ -1643,7 +1666,7 @@ export async function generateInvoice(
       .from('orders')
       .select(
         `*,
-        order_line_items(id, product_name, quantity, unit_price, sku),
+        order_line_items(id, product_name, quantity, unit_price, sku, products(fiscal_description)),
         customers(name, email, address)`,
       )
       .eq('id', orderId)
@@ -1759,21 +1782,24 @@ export async function generateInvoice(
           ? [{ tipo: 1, monto: String(total), moneda: 'PYG' }]
           : undefined,
     },
-    items: lineItems.map((item: any, index: number) => ({
-      codigo: item.sku || String(index + 1),
-      descripcion: item.product_name || 'Producto',
-      observacion: '',
-      unidadMedida: 77,
-      cantidad: item.quantity || 1,
-      precioUnitario: item.unit_price || 0,
-      cambio: 0,
-      descuento: 0,
-      anticipo: 0,
-      ivaTipo: 1,
-      ivaBase: 100,
-      iva: 10,
-      propina: 0,
-    })),
+    items: applyGenericDescription(
+      lineItems.map((item: any, index: number) => ({
+        codigo: item.sku || String(index + 1),
+        descripcion: resolveItemFiscalDescription(item),
+        observacion: '',
+        unidadMedida: 77,
+        cantidad: item.quantity || 1,
+        precioUnitario: item.unit_price || 0,
+        cambio: 0,
+        descuento: 0,
+        anticipo: 0,
+        ivaTipo: 1,
+        ivaBase: 100,
+        iva: 10,
+        propina: 0,
+      })),
+      ctx.link,
+    ),
   };
 
   let xmlGenerated: string;
@@ -1973,7 +1999,7 @@ export async function generateInvoice(
     const kudeItems: KudeItemInput[] = applyGenericDescription<KudeItemInput>(
       lineItems.map((item: any, index: number) => ({
         codigo: item.sku || String(index + 1),
-        descripcion: item.product_name || 'Producto',
+        descripcion: resolveItemFiscalDescription(item),
         cantidad: item.quantity || 1,
         precioUnitario: item.unit_price || 0,
         ivaRate: 10,
