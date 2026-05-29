@@ -1659,6 +1659,122 @@ export async function validateConfig(storeId: string) {
 // Invoice Generation
 // ================================================================
 
+/**
+ * Builds + xmlgen-generates the DTE XML for an order from the CURRENT fiscal
+ * context. Shared by generateInvoice (first emission) and retryInvoice
+ * (re-emission), so a rejection caused by corrected master data (timbrado
+ * dates, address, RUC) is actually reflected in the re-sent payload instead
+ * of reusing the stale signed XML.
+ *
+ * Caller owns: docNumber allocation (new vs reuse), persistence, signing.
+ * Returns the unsigned xmlGenerated + extracted CDC + computed totals.
+ */
+async function buildInvoiceDteData(
+  ctx: FiscalContext,
+  order: any,
+  documentNumber: number,
+  storeTimezone: string,
+  customerEmail: string | null,
+  opts?: { activityCode?: string },
+): Promise<{ xmlGenerated: string; cdc: string | undefined; subtotal: number; iva10: number; total: number }> {
+  const lineItems = order.order_line_items || [];
+  const subtotal = lineItems.reduce(
+    (sum: number, item: any) => sum + (item.unit_price || 0) * (item.quantity || 1),
+    0,
+  );
+  const iva10 = Math.round(subtotal / 11);
+  const total = subtotal;
+
+  const params = buildXmlgenParams(ctx, {
+    activityCode: opts?.activityCode,
+    storeTimezone,
+  });
+
+  const nowLocal = getNowInTimezone(storeTimezone);
+  const numeroStr = String(documentNumber).padStart(7, '0');
+  const estab = ctx.link.establecimiento_codigo || '001';
+  const punto = ctx.link.punto_expedicion || '001';
+
+  const data = {
+    tipoDocumento: 1,
+    establecimiento: estab,
+    punto,
+    numero: numeroStr,
+    fecha: nowLocal,
+    codigoSeguridadAleatorio: generateCodigoSeguridad(),
+    tipoEmision: 1,
+    tipoTransaccion: 1,
+    tipoImpuesto: 1,
+    moneda: 'PYG',
+    cliente: (() => {
+      const orderHasRuc =
+        !!order.customer_ruc &&
+        order.customer_ruc_dv !== undefined &&
+        order.customer_ruc_dv !== null;
+      return {
+        contribuyente: orderHasRuc,
+        ruc: orderHasRuc ? `${order.customer_ruc}-${order.customer_ruc_dv}` : undefined,
+        dvRuc: orderHasRuc ? order.customer_ruc_dv : undefined,
+        tipoOperacion: orderHasRuc ? 1 : 2,
+        razonSocial: order.customer_name || order.customers?.name || 'Sin nombre',
+        nombreFantasia: order.customer_name || order.customers?.name || 'Sin nombre',
+        tipoContribuyente: 1,
+        documentoTipo: orderHasRuc ? undefined : 1,
+        documentoNumero: orderHasRuc ? undefined : String(order.customer_ruc || '0'),
+        direccion: order.customer_address || order.customers?.address || order.address || 'Asuncion',
+        numeroCasa: '0',
+        departamento: ASUNCION_DEFAULTS.departamento,
+        departamentoDescripcion: ASUNCION_DEFAULTS.departamentoDescripcion,
+        distrito: ASUNCION_DEFAULTS.distrito,
+        distritoDescripcion: ASUNCION_DEFAULTS.distritoDescripcion,
+        ciudad: ASUNCION_DEFAULTS.ciudad,
+        ciudadDescripcion: ASUNCION_DEFAULTS.ciudadDescripcion,
+        pais: 'PRY',
+        paisDescripcion: 'Paraguay',
+        email: customerEmail || undefined,
+      };
+    })(),
+    usuario: buildUsuarioBlock(ctx),
+    factura: { presencia: 1 },
+    condicion: {
+      tipo: order.payment_method === 'cod' ? 1 : 2,
+      entregas:
+        order.payment_method === 'cod'
+          ? [{ tipo: 1, monto: String(total), moneda: 'PYG' }]
+          : undefined,
+    },
+    items: applyGenericDescription(
+      lineItems.map((item: any, index: number) => ({
+        codigo: item.sku || String(index + 1),
+        descripcion: resolveItemFiscalDescription(item),
+        observacion: '',
+        unidadMedida: 77,
+        cantidad: item.quantity || 1,
+        precioUnitario: item.unit_price || 0,
+        cambio: 0,
+        descuento: 0,
+        anticipo: 0,
+        ivaTipo: 1,
+        ivaBase: 100,
+        iva: 10,
+        propina: 0,
+      })),
+      ctx.link,
+    ),
+  };
+
+  const xmlgenLib = await getXmlgen();
+  const result = await xmlgenLib.generateXMLDE(params, data);
+  const xmlGenerated: string = typeof result === 'string' ? result : result.xml || result;
+  const cdcMatch =
+    xmlGenerated.match(/\bId="([0-9]{44})"/) ||
+    xmlGenerated.match(/<Id>([0-9]{44})<\/Id>/) ||
+    xmlGenerated.match(/<dCDC>([0-9]{44})<\/dCDC>/);
+  const cdc = cdcMatch ? cdcMatch[1] : undefined;
+
+  return { xmlGenerated, cdc, subtotal, iva10, total };
+}
+
 export async function generateInvoice(
   storeId: string,
   orderId: string,
@@ -1728,116 +1844,25 @@ export async function generateInvoice(
 
   const isDemo = ctx.identity.sifen_environment === 'demo';
   const lineItems = order.order_line_items || [];
-  const subtotal = lineItems.reduce(
-    (sum: number, item: any) => sum + (item.unit_price || 0) * (item.quantity || 1),
-    0,
-  );
-  const iva10 = Math.round(subtotal / 11);
-  const total = subtotal;
 
   // SIFEN requires the invoice date in local Paraguay time. Building it from
   // UTC at 21:00+ local drifts into "tomorrow" and the receipt is rejected.
   const storeTz = await getStoreTimezone(supabaseAdmin, storeId);
-  const params = buildXmlgenParams(ctx, {
-    activityCode: opts?.activityCode,
-    storeTimezone: storeTz,
-  });
-
-  // Use the actual current local time in the store's timezone for both
-  // dFeEmiDE and dFecFirma. Hardcoding "T12:00:00" broke whenever the
-  // emission happened before local noon (XML looked future-dated vs the
-  // SIFEN server clock, triggering code 1004 "firma digital adelantada").
-  const nowLocal = getNowInTimezone(storeTz);
-  const today = nowLocal.slice(0, 10);
-  const numeroStr = String(docNumber).padStart(7, '0');
-  const estab = ctx.link.establecimiento_codigo || '001';
-  const punto = ctx.link.punto_expedicion || '001';
-
-  const data = {
-    tipoDocumento: 1,
-    establecimiento: estab,
-    punto,
-    numero: numeroStr,
-    fecha: nowLocal,
-    codigoSeguridadAleatorio: generateCodigoSeguridad(),
-    tipoEmision: 1,
-    tipoTransaccion: 1,
-    tipoImpuesto: 1,
-    moneda: 'PYG',
-    cliente: (() => {
-      // Same rule as generateManualInvoice: RUC only when we have both
-      // number and dv; otherwise a bare document goes in documentoNumero.
-      const orderHasRuc =
-        !!order.customer_ruc &&
-        order.customer_ruc_dv !== undefined &&
-        order.customer_ruc_dv !== null;
-      return {
-        contribuyente: orderHasRuc,
-        ruc: orderHasRuc ? `${order.customer_ruc}-${order.customer_ruc_dv}` : undefined,
-        dvRuc: orderHasRuc ? order.customer_ruc_dv : undefined,
-        tipoOperacion: orderHasRuc ? 1 : 2,
-        razonSocial: order.customer_name || order.customers?.name || 'Sin nombre',
-        nombreFantasia: order.customer_name || order.customers?.name || 'Sin nombre',
-        tipoContribuyente: 1,
-        documentoTipo: orderHasRuc ? undefined : 1,
-        documentoNumero: orderHasRuc ? undefined : String(order.customer_ruc || '0'),
-        direccion: order.customer_address || order.customers?.address || order.address || 'Asuncion',
-        numeroCasa: '0',
-        departamento: ASUNCION_DEFAULTS.departamento,
-        departamentoDescripcion: ASUNCION_DEFAULTS.departamentoDescripcion,
-        distrito: ASUNCION_DEFAULTS.distrito,
-        distritoDescripcion: ASUNCION_DEFAULTS.distritoDescripcion,
-        ciudad: ASUNCION_DEFAULTS.ciudad,
-        ciudadDescripcion: ASUNCION_DEFAULTS.ciudadDescripcion,
-        pais: 'PRY',
-        paisDescripcion: 'Paraguay',
-        email: customerEmail || undefined,
-      };
-    })(),
-    usuario: buildUsuarioBlock(ctx),
-    factura: { presencia: 1 },
-    condicion: {
-      tipo: order.payment_method === 'cod' ? 1 : 2,
-      entregas:
-        order.payment_method === 'cod'
-          ? [{ tipo: 1, monto: String(total), moneda: 'PYG' }]
-          : undefined,
-    },
-    items: applyGenericDescription(
-      lineItems.map((item: any, index: number) => ({
-        codigo: item.sku || String(index + 1),
-        descripcion: resolveItemFiscalDescription(item),
-        observacion: '',
-        unidadMedida: 77,
-        cantidad: item.quantity || 1,
-        precioUnitario: item.unit_price || 0,
-        cambio: 0,
-        descuento: 0,
-        anticipo: 0,
-        ivaTipo: 1,
-        ivaBase: 100,
-        iva: 10,
-        propina: 0,
-      })),
-      ctx.link,
-    ),
-  };
 
   let xmlGenerated: string;
   let cdc: string | undefined;
-
+  let subtotal: number;
+  let iva10: number;
+  let total: number;
   try {
-    const xmlgenLib = await getXmlgen();
-    const result = await xmlgenLib.generateXMLDE(params, data);
-    xmlGenerated = typeof result === 'string' ? result : result.xml || result;
-    // xmlgen v1.0.280 emits the CDC as an attribute on <rDE Id="..."> rather
-    // than as a child element. Accept both shapes (and <dCDC>) to survive
-    // minor version bumps without losing the CDC on approved invoices.
-    const cdcMatch =
-      xmlGenerated.match(/\bId="([0-9]{44})"/) ||
-      xmlGenerated.match(/<Id>([0-9]{44})<\/Id>/) ||
-      xmlGenerated.match(/<dCDC>([0-9]{44})<\/dCDC>/);
-    cdc = cdcMatch ? cdcMatch[1] : undefined;
+    ({ xmlGenerated, cdc, subtotal, iva10, total } = await buildInvoiceDteData(
+      ctx,
+      order,
+      docNumber as number,
+      storeTz,
+      customerEmail,
+      opts,
+    ));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'unknown error';
     logger.error(`[Invoicing] XML generation failed: ${message}`);
@@ -2722,34 +2747,69 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
     throw new Error('Certificado digital no configurado para re-firmar.');
   }
 
-  // Async branch: re-firmar (si la previa fallo antes de persistir
-  // xml_signed) + re-encolar para que el dispatcher worker la tome.
-  // Limpiamos dispatch_key (libera el UNIQUE), protocol y timing.
+  // Async branch: REGENERAR el DTE desde la orden + el contexto fiscal
+  // actual, re-firmar y re-encolar para que el dispatcher worker lo tome.
+  // CRITICO: no reusamos el xml_signed guardado. Si la rejection vino de
+  // datos fiscales mal cargados (fecha de timbrado, direccion, RUC) y el
+  // owner los corrigio, reenviar el XML viejo manda exactamente el mismo
+  // payload rechazado (SIFEN devuelve el mismo error). Regenerar garantiza
+  // que la correccion llega a SIFEN. Reusamos el mismo document_number para
+  // no saltear correlativo; el CDC se recalcula (codigo de seguridad +
+  // fecha nuevos), lo cual es correcto para un intento nuevo no aprobado.
   if (ctx.identity.sifen_async_enabled) {
-    // Si la invoice no tiene xml_signed (pre-dispatch error o retry de
-    // una rejection temprana), re-firmamos desde xml_generated. Sin
-    // xml_signed el dispatcher no la puede tomar.
-    let xmlSignedToPersist: string | null = invoice.xml_signed as string | null;
-    if (!xmlSignedToPersist && invoice.xml_generated) {
-      const { certPem, privateKeyPem, csc } = await loadCertificateMaterial(ctx.identity.id);
-      const storeTz = await getStoreTimezone(supabaseAdmin, storeId);
-      const xmlWithLocalFirma = rewriteFecFirmaToLocalTz(invoice.xml_generated, storeTz);
-      const xmlSigned = await signXML(xmlWithLocalFirma, privateKeyPem, certPem);
-      const envForRetry = ctx.identity.sifen_environment as 'test' | 'prod';
-      const idCSCRetry = envForRetry === 'prod'
-        ? (ctx.identity.csc_id as string)
-        : SIFEN_TEST_ID_CSC;
-      const cscRetry = envForRetry === 'prod' ? (csc as string) : SIFEN_TEST_CSC;
-      if (envForRetry === 'prod' && (!idCSCRetry || !cscRetry)) {
-        throw new Error('CSC no configurado. Cargalo en Configuracion Fiscal antes de reintentar en produccion.');
-      }
-      xmlSignedToPersist = await injectQR(xmlSigned, envForRetry, idCSCRetry, cscRetry);
+    if (!invoice.order_id) {
+      throw new Error('La factura no tiene orden asociada; no se puede regenerar para reintentar.');
     }
+
+    const { data: order, error: orderErr } = await supabaseAdmin
+      .from('orders')
+      .select(
+        `*,
+        order_line_items(id, product_name, quantity, unit_price, sku, products(fiscal_description)),
+        customers(name, email, address)`,
+      )
+      .eq('id', invoice.order_id)
+      .eq('store_id', storeId)
+      .single();
+
+    if (orderErr || !order) {
+      throw new Error('No se encontro la orden para regenerar la factura.');
+    }
+
+    const customerEmail =
+      (order.customer_email as string | null)?.trim() ||
+      (order.customers?.email as string | null)?.trim() ||
+      null;
+
+    const { certPem, privateKeyPem, csc } = await loadCertificateMaterial(ctx.identity.id);
+    const envForRetry = ctx.identity.sifen_environment as 'test' | 'prod';
+    const idCSCRetry = envForRetry === 'prod'
+      ? (ctx.identity.csc_id as string)
+      : SIFEN_TEST_ID_CSC;
+    const cscRetry = envForRetry === 'prod' ? (csc as string) : SIFEN_TEST_CSC;
+    if (envForRetry === 'prod' && (!idCSCRetry || !cscRetry)) {
+      throw new Error('CSC no configurado. Cargalo en Configuracion Fiscal antes de reintentar en produccion.');
+    }
+
+    const storeTz = await getStoreTimezone(supabaseAdmin, storeId);
+    const { xmlGenerated, cdc } = await buildInvoiceDteData(
+      ctx,
+      order,
+      invoice.document_number as number,
+      storeTz,
+      customerEmail,
+    );
+
+    const xmlWithLocalFirma = rewriteFecFirmaToLocalTz(xmlGenerated, storeTz);
+    const xmlSigned = await signXML(xmlWithLocalFirma, privateKeyPem, certPem);
+    const xmlSignedToPersist = await injectQR(xmlSigned, envForRetry, idCSCRetry, cscRetry);
 
     await supabaseAdmin
       .from('invoices')
       .update({
+        xml_generated: xmlGenerated,
         xml_signed: xmlSignedToPersist,
+        cdc,
         sifen_status: 'queued',
         sifen_lote_dispatch_key: null,
         sifen_protocol_number: null,
@@ -2765,12 +2825,13 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
     await logInvoiceEvent(storeId, invoiceId, 'queued', {
       retry: true,
       mode: 'async_lote',
-      re_signed: !invoice.xml_signed,
+      regenerated: true,
+      cdc,
     });
 
     return {
       success: true,
-      message: 'Invoice re-encolada para envio asincrono',
+      message: 'Invoice regenerada y re-encolada para envio asincrono',
       status: 'queued',
     };
   }
