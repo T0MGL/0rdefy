@@ -14,6 +14,7 @@
  */
 
 import { config } from '@/config';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 let API_URL = config.api.baseUrl;
 API_URL = API_URL.trim().replace(/(\/api\/?)+$/i, '').replace(/\/+$/, '');
@@ -59,7 +60,7 @@ export class PortalApiError extends Error {
 
 function getHeaders(): HeadersInit {
   const token = localStorage.getItem('auth_token');
-  const storeId = localStorage.getItem('current_store_id');
+  const storeId = getActiveStoreId();
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
   if (storeId) headers['X-Store-ID'] = storeId;
@@ -68,7 +69,7 @@ function getHeaders(): HeadersInit {
 
 function getMultipartHeaders(): HeadersInit {
   const token = localStorage.getItem('auth_token');
-  const storeId = localStorage.getItem('current_store_id');
+  const storeId = getActiveStoreId();
   const headers: HeadersInit = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
   if (storeId) headers['X-Store-ID'] = storeId;

@@ -9,6 +9,7 @@
  */
 
 import apiClient from './api.client';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 export interface OnboardingStep {
   id: string;
@@ -64,7 +65,7 @@ const TIP_STATE_CACHE_TTL = 60000; // 60 seconds
  */
 function getCacheKey(): string {
   const userId = localStorage.getItem('user_id') || 'anonymous';
-  const storeId = localStorage.getItem('current_store_id') || 'no-store';
+  const storeId = getActiveStoreId() || 'no-store';
   return `${userId}:${storeId}`;
 }
 

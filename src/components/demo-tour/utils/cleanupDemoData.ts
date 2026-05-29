@@ -1,12 +1,13 @@
 // Utility functions for cleaning up demo data after tour completion
 
 import type { DemoData } from '../DemoTourProvider';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 const API_BASE = '/api';
 
 function getAuthHeaders(): HeadersInit {
   const token = localStorage.getItem('auth_token');
-  const storeId = localStorage.getItem('current_store_id');
+  const storeId = getActiveStoreId();
 
   return {
     'Authorization': `Bearer ${token}`,

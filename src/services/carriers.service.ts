@@ -1,3 +1,4 @@
+import { getActiveStoreId } from '@/lib/activeStore';
 export interface Carrier {
   id: string;
   store_id?: string;
@@ -113,7 +114,7 @@ API_URL = API_URL.replace(/\/+$/, '');
 
 const getHeaders = () => {
   const token = localStorage.getItem('auth_token');
-  const storeId = localStorage.getItem('current_store_id');
+  const storeId = getActiveStoreId();
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
   };

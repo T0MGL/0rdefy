@@ -21,6 +21,7 @@ import { useEffect, useRef } from 'react';
 import { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { logger } from '@/utils/logger';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 export type RealtimeEvent = 'INSERT' | 'UPDATE' | 'DELETE' | '*';
 
@@ -81,6 +82,11 @@ export function useRealtimeSubscription({
   const channelRef = useRef<RealtimeChannel | null>(null);
   const callbackRef = useRef(callback);
 
+  // Resolve in render (not inside the effect) and put it in the deps array, so
+  // the subscription rebinds on store switch even for callers that rely on the
+  // getActiveStoreId() fallback instead of passing storeId explicitly.
+  const resolvedStoreId = storeId ?? getActiveStoreId();
+
   useEffect(() => {
     callbackRef.current = callback;
   });
@@ -89,8 +95,6 @@ export function useRealtimeSubscription({
     if (!enabled) {
       return;
     }
-
-    const resolvedStoreId = storeId ?? localStorage.getItem('current_store_id');
 
     if (filterByStore && !resolvedStoreId) {
       logger.warn(`[Realtime] No store_id resolved. Subscription to ${table} skipped.`);
@@ -157,7 +161,7 @@ export function useRealtimeSubscription({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [table, event, filterByStore, storeId, enabled, filter?.column, filter?.value]);
+  }, [table, event, filterByStore, resolvedStoreId, enabled, filter?.column, filter?.value]);
 
   return {
     channel: channelRef.current,

@@ -1,3 +1,4 @@
+import { getActiveStoreId } from '@/lib/activeStore';
 /**
  * Settlements Page - Conciliaciones, Cuentas y Pagos
  * Unified carrier account management with reconciliation workflow
@@ -364,7 +365,7 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 const getAuthHeaders = () => ({
   'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
-  'X-Store-ID': localStorage.getItem('current_store_id') || '',
+  'X-Store-ID': getActiveStoreId() || '',
   'Content-Type': 'application/json',
 });
 

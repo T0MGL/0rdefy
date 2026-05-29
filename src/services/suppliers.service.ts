@@ -1,4 +1,5 @@
 import { Supplier } from '@/types';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 let cleanBaseURL = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
 cleanBaseURL = cleanBaseURL.trim();
@@ -8,7 +9,7 @@ const API_BASE_URL = `${cleanBaseURL}/api`;
 
 const getHeaders = () => {
   const token = localStorage.getItem('auth_token');
-  const storeId = localStorage.getItem('current_store_id');
+  const storeId = getActiveStoreId();
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
   };

@@ -5,12 +5,13 @@
 // ================================================================
 
 import { DeliveryAttempt } from '@/types';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
 
 const getAuthHeaders = (): HeadersInit => {
   const token = localStorage.getItem('auth_token');
-  const storeId = localStorage.getItem('current_store_id');
+  const storeId = getActiveStoreId();
   return {
     'Content-Type': 'application/json',
     ...(token && { 'Authorization': `Bearer ${token}` }),

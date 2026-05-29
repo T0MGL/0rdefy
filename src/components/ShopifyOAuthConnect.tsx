@@ -8,6 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Store, AlertCircle, ExternalLink, CheckCircle2 } from 'lucide-react';
 import { safeJsonParse } from '@/lib/utils';
 import { logger } from '@/utils/logger';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 interface ShopifyOAuthConnectProps {
   open: boolean;
@@ -65,7 +66,7 @@ export function ShopifyOAuthConnect({ open, onOpenChange }: ShopifyOAuthConnectP
 
     try {
       // Get user and store IDs from localStorage
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
       const userId = safeJsonParse<{ id?: string }>(localStorage.getItem('user'), {})?.id;
 
       // Build OAuth installation URL

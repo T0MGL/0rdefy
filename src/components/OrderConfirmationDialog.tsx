@@ -63,6 +63,7 @@ import { cn } from '@/lib/utils';
 import type { Order, Product } from '@/types';
 import { DeliveryPreferencesAccordion, type DeliveryPreferences } from '@/components/DeliveryPreferencesAccordion';
 import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 interface OrderConfirmationDialogProps {
   open: boolean;
@@ -175,7 +176,7 @@ export function OrderConfirmationDialog({
       try {
         setLoadingSeparateFlow(true);
         const token = localStorage.getItem('auth_token');
-        const storeId = localStorage.getItem('current_store_id');
+        const storeId = getActiveStoreId();
 
         if (!token || !storeId) {
           setSeparateFlowEnabled(currentStore?.separate_confirmation_flow === true);
@@ -248,7 +249,7 @@ export function OrderConfirmationDialog({
     }
     const controller = new AbortController();
     const token = localStorage.getItem('auth_token');
-    const storeId = localStorage.getItem('current_store_id');
+    const storeId = getActiveStoreId();
     if (!token || !storeId) return;
 
     fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/invoicing/config`, {
@@ -309,7 +310,7 @@ export function OrderConfirmationDialog({
       try {
         setLoadingCities(true);
         const token = localStorage.getItem('auth_token');
-        const storeId = localStorage.getItem('current_store_id');
+        const storeId = getActiveStoreId();
 
         const response = await fetch(
           `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/carriers/locations/search?q=${encodeURIComponent(citySearch)}&limit=10`,
@@ -362,7 +363,7 @@ export function OrderConfirmationDialog({
       try {
         setLoadingCoverage(true);
         const token = localStorage.getItem('auth_token');
-        const storeId = localStorage.getItem('current_store_id');
+        const storeId = getActiveStoreId();
 
         const response = await fetch(
           `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/carriers/coverage/city?city=${encodeURIComponent(selectedCity.city)}&department=${encodeURIComponent(selectedCity.department || '')}&zone_code=${encodeURIComponent(selectedCity.zone_code || '')}`,
@@ -471,7 +472,7 @@ export function OrderConfirmationDialog({
       try {
         setLoadingZones(true);
         const token = localStorage.getItem('auth_token');
-        const storeId = localStorage.getItem('current_store_id');
+        const storeId = getActiveStoreId();
 
         const response = await fetch(
           `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/carriers/${courierId}/zones`,
@@ -633,7 +634,7 @@ export function OrderConfirmationDialog({
       const updateUpsell = async () => {
         try {
           const token = localStorage.getItem('auth_token');
-          const storeId = localStorage.getItem('current_store_id');
+          const storeId = getActiveStoreId();
 
           const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${order.id}`, {
             method: 'PUT',
@@ -733,7 +734,7 @@ export function OrderConfirmationDialog({
       });
 
       const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
 
       // Get selected zone details (legacy system) or city (new system)
       const zoneData = carrierZones.find((z) => z.id === selectedZone);

@@ -1,3 +1,4 @@
+import { getActiveStoreId } from '@/lib/activeStore';
 /**
  * InvoicingSettingsEditor
  *
@@ -112,6 +113,11 @@ const storeSchema = z.object({
   // Migration 193: opt-in explicito. Default false; al marcar order
   // como delivered NO se auto-emite factura salvo que esto sea true.
   auto_emit_invoice_on_delivery: z.boolean().optional().default(false),
+  // Migration 163: descripcion generica por tienda. Permite que dos tiendas
+  // de la misma identidad (misma empresa, distinta marca) facturen con
+  // descripciones distintas.
+  use_generic_description: z.boolean().optional().default(false),
+  default_generic_description: z.string().max(120).optional().default(''),
 });
 
 type IdentityForm = z.infer<typeof identitySchema>;
@@ -186,6 +192,8 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
       establecimiento_telefono: '',
       establecimiento_email: '',
       auto_emit_invoice_on_delivery: false,
+      use_generic_description: false,
+      default_generic_description: '',
     },
   });
 
@@ -250,6 +258,8 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
         establecimiento_telefono: data.link.establecimiento_telefono ?? '',
         establecimiento_email: data.link.establecimiento_email ?? '',
         auto_emit_invoice_on_delivery: Boolean(data.link.auto_emit_invoice_on_delivery),
+        use_generic_description: Boolean(data.link.use_generic_description),
+        default_generic_description: data.link.default_generic_description ?? '',
       });
     } catch (err: any) {
       if (!isMountedRef.current) return;
@@ -315,6 +325,8 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
       'establecimiento_telefono',
       'establecimiento_email',
       'auto_emit_invoice_on_delivery',
+      'use_generic_description',
+      'default_generic_description',
     ];
     for (const k of keys) {
       if (!dirty[k]) continue;
@@ -347,6 +359,19 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
       return;
     }
 
+    // Cross-field: generic description must be present when its toggle is on.
+    if (
+      storeForm.getValues('use_generic_description') &&
+      !(storeForm.getValues('default_generic_description') ?? '').trim()
+    ) {
+      toast({
+        title: 'Falta la descripcion generica',
+        description: 'Activaste la descripcion generica pero el texto esta vacio. Escribilo o apaga el switch.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     const identityPatch = buildIdentityPatch();
     const storePatch = buildStorePatch();
     if (Object.keys(identityPatch).length === 0 && Object.keys(storePatch).length === 0) {
@@ -360,7 +385,7 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
         await fiscalService.updateIdentity(ctx.identity.id, identityPatch);
       }
       if (Object.keys(storePatch).length > 0) {
-        const storeId = localStorage.getItem('current_store_id');
+        const storeId = getActiveStoreId();
         if (!storeId) throw new Error('No hay tienda seleccionada.');
         await fiscalService.updateStoreFields(storeId, storePatch);
       }
@@ -763,6 +788,42 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
                   storeForm.setValue('auto_emit_invoice_on_delivery', checked, { shouldDirty: true })
                 }
               />
+            </div>
+
+            <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 space-y-3">
+              <div className="flex items-start gap-4">
+                <div className="flex-1 min-w-0">
+                  <Label htmlFor="generic-desc-toggle" className="font-medium">
+                    Usar descripcion generica en facturas
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Si lo prendes, las facturas de <span className="font-medium">esta tienda</span> usan una descripcion fija en vez del nombre de cada producto. Util para facturar bajo otra marca con la misma identidad fiscal. Es por tienda: no afecta a las demas tiendas de esta identidad.
+                  </p>
+                </div>
+                <Switch
+                  id="generic-desc-toggle"
+                  checked={storeForm.watch('use_generic_description') ?? false}
+                  onCheckedChange={(checked) =>
+                    storeForm.setValue('use_generic_description', checked, { shouldDirty: true })
+                  }
+                />
+              </div>
+              {storeForm.watch('use_generic_description') && (
+                <div>
+                  <Label htmlFor="generic-desc-input">Descripcion generica (1 a 120 caracteres)</Label>
+                  <Input
+                    id="generic-desc-input"
+                    placeholder="Venta de productos"
+                    maxLength={120}
+                    {...storeForm.register('default_generic_description')}
+                  />
+                  {storeForm.formState.errors.default_generic_description && (
+                    <p className="text-xs text-destructive mt-1">
+                      {storeForm.formState.errors.default_generic_description.message}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             <SifenFlowAnimation />

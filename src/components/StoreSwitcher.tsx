@@ -36,8 +36,8 @@ export function StoreSwitcher({ className, collapsed = false }: StoreSwitcherPro
     if (storeId !== currentStore?.id) {
       switchStore(storeId);
       setOpen(false);
-      // Refresh the page to reload data for the new store
-      window.location.reload();
+      // No reload: StoreScopedQueryProvider swaps to the new store's QueryClient,
+      // so data re-renders instantly from that store's isolated cache.
     }
   };
 

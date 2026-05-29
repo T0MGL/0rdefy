@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { config } from '@/config';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 const apiClient = axios.create({
   baseURL: `${config.api.baseUrl}/api`,
@@ -61,7 +62,7 @@ function isShopifyEmbedded(): boolean {
 // Priority: Shopify App Bridge token > Regular auth token
 apiClient.interceptors.request.use(async (config) => {
   const authToken = localStorage.getItem('auth_token');
-  const storeId = localStorage.getItem('current_store_id');
+  const storeId = getActiveStoreId();
 
   // Check if we're truly in Shopify embedded mode
   if (isShopifyEmbedded()) {

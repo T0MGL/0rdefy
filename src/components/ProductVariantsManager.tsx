@@ -31,6 +31,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { VariantType, isBundle } from '@/types';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 interface Variant {
   id: string;
@@ -70,7 +71,7 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const getAuthHeaders = () => ({
   'Content-Type': 'application/json',
   'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
-  'X-Store-ID': localStorage.getItem('current_store_id') || ''
+  'X-Store-ID': getActiveStoreId() || ''
 });
 
 export function ProductVariantsManager({

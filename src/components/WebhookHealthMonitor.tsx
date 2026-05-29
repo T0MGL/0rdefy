@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, CheckCircle2, XCircle, Activity, Clock, TrendingUp } from 'lucide-react';
 import { logger } from '@/utils/logger';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 interface WebhookHealth {
   status: 'healthy' | 'degraded' | 'unhealthy';
@@ -65,7 +66,7 @@ export const WebhookHealthMonitor: React.FC<WebhookHealthMonitorProps> = ({
       setError(null);
 
       const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
 
       const response = await fetch('/api/shopify/webhook-health?hours=24', {
         signal,
@@ -120,7 +121,7 @@ export const WebhookHealthMonitor: React.FC<WebhookHealthMonitorProps> = ({
       setProcessingRetries(true);
 
       const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
 
       const response = await fetch('/api/shopify/webhook-retry/process', {
         method: 'POST',

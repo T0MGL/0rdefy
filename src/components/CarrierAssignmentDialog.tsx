@@ -31,6 +31,7 @@ import { cn } from '@/lib/utils';
 import type { Order } from '@/types';
 import { formatCurrency } from '@/utils/currency';
 import { getOrderDisplayId } from '@/utils/orderDisplay';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 // Types for city coverage system
 interface CityLocation {
@@ -106,7 +107,7 @@ export function CarrierAssignmentDialog({
       try {
         setLoadingCities(true);
         const token = localStorage.getItem('auth_token');
-        const storeId = localStorage.getItem('current_store_id');
+        const storeId = getActiveStoreId();
 
         const response = await fetch(
           `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/carriers/locations/search?q=${encodeURIComponent(citySearch)}&limit=10`,
@@ -157,7 +158,7 @@ export function CarrierAssignmentDialog({
       try {
         setLoadingCoverage(true);
         const token = localStorage.getItem('auth_token');
-        const storeId = localStorage.getItem('current_store_id');
+        const storeId = getActiveStoreId();
 
         const response = await fetch(
           `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/carriers/coverage/city?city=${encodeURIComponent(selectedCity.city)}&department=${encodeURIComponent(selectedCity.department || '')}`,
@@ -266,7 +267,7 @@ export function CarrierAssignmentDialog({
       setLoading(true);
 
       const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
 
       const payload = {
         courier_id: courierId,

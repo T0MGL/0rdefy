@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Store, AlertCircle, ExternalLink, CheckCircle2, ArrowLeft, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { logger } from '@/utils/logger';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 interface ShopifyManualConnectDialogProps {
   open: boolean;
@@ -70,7 +71,7 @@ export function ShopifyManualConnectDialog({ open, onOpenChange, onSuccess, onBa
 
     try {
       const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
 
       // Normalize shop domain
       let shopDomain = formData.shop_domain.trim().toLowerCase();

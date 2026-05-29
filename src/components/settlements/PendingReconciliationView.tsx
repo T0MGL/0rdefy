@@ -77,12 +77,13 @@ import { logger } from '@/utils/logger';
 import { formatCurrency } from '@/utils/currency';
 import { generateReconciliationPDF } from './ReconciliationPDF';
 import { ExtraChargesEditor, type ExtraCharge } from './ExtraChargesEditor';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 const getAuthHeaders = () => ({
   'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
-  'X-Store-ID': localStorage.getItem('current_store_id') || '',
+  'X-Store-ID': getActiveStoreId() || '',
   'Content-Type': 'application/json',
 });
 
@@ -188,7 +189,7 @@ interface ReconciliationDraft {
 function getDraftKey(carrierId: string) {
   // Key is now scoped to (storeId, carrierId). Legacy keys with a date
   // segment will simply expire on their own 24h TTL.
-  const storeId = localStorage.getItem('current_store_id') || 'default';
+  const storeId = getActiveStoreId() || 'default';
   return `${DRAFT_PREFIX}${storeId}_${carrierId}`;
 }
 

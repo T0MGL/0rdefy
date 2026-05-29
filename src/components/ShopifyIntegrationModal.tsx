@@ -16,6 +16,7 @@ import { useSubscription, FEATURE_MIN_PLAN } from '@/contexts/SubscriptionContex
 import { config } from '@/config';
 import { logger } from '@/utils/logger';
 import { confirm } from '@/components/ui/confirm';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 interface ShopifyIntegration {
   id: string;
@@ -66,7 +67,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
     setIsLoading(true);
     try {
       const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
 
       const response = await fetch(`${config.api.baseUrl}/api/shopify/integration`, {
         headers: {
@@ -102,7 +103,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
 
     try {
       const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
 
       const response = await fetch(`${config.api.baseUrl}/api/shopify/manual-sync`, {
         method: 'POST',
@@ -141,7 +142,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
     setIsLoading(true);
     try {
       const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
 
       const response = await fetch(`${config.api.baseUrl}/api/shopify/debug`, {
         headers: {
@@ -190,7 +191,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
     setIsLoading(true);
     try {
       const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
 
       const response = await fetch(`${config.api.baseUrl}/api/shopify/disconnect?shop=${integration.shop_domain}`, {
         method: 'DELETE',

@@ -8,6 +8,7 @@ import { Progress } from '@/components/ui/progress';
 import { RefreshCw, CheckCircle2, AlertCircle, Clock, Package, Users, ShoppingCart } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { logger } from '@/utils/logger';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 interface ShopifyIntegration {
   id: string;
@@ -67,7 +68,7 @@ export function ShopifySyncStatus() {
   const loadSyncStatus = useCallback(async (integrationId: string, signal?: AbortSignal) => {
     try {
       const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
 
       const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/shopify/import-status/${integrationId}`, {
         headers: {
@@ -99,7 +100,7 @@ export function ShopifySyncStatus() {
   const loadIntegration = useCallback(async () => {
     try {
       const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
 
       const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/shopify/integration`, {
         headers: {
@@ -154,7 +155,7 @@ export function ShopifySyncStatus() {
 
     try {
       const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
 
       const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/shopify/manual-sync`, {
         method: 'POST',

@@ -1,10 +1,11 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useMemo, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
 import axios, { CancelTokenSource } from 'axios';
 import { safeJsonParse } from '@/lib/utils';
 import { logger } from '@/utils/logger';
 import { supabase } from '@/lib/supabase';
+import { getActiveStoreId, setActiveStoreId, clearActiveStore } from '@/lib/activeStore';
+import { resetStoreQueryClients } from '@/lib/queryClients';
 
 // Bridges the custom Express JWT to Supabase Realtime. The backend mints a
 // second token signed with SUPABASE_JWT_SECRET on login/register/profile-update.
@@ -344,9 +345,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user');
-    localStorage.removeItem('current_store_id');
+    clearActiveStore();
     localStorage.removeItem('onboarding_completed');
     applySupabaseRealtimeToken(null);
+
+    // Purge every store's QueryClient cache so order/customer/settlement PII
+    // does not survive in the JS heap after the session ends (no page reload
+    // on logout means the per-store client map would otherwise persist).
+    resetStoreQueryClients();
 
     setUser(null);
     setStores([]);
@@ -360,7 +366,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const token = localStorage.getItem('auth_token');
     const savedUser = localStorage.getItem('user');
-    const savedStoreId = localStorage.getItem('current_store_id');
+    const savedStoreId = getActiveStoreId();
     const savedSupabaseToken = localStorage.getItem(SUPABASE_TOKEN_STORAGE_KEY);
 
     if (token && savedUser) {
@@ -382,10 +388,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (savedStoreId && parsedUser.stores) {
           const store = parsedUser.stores.find((s: Store) => s.id === savedStoreId);
-          setCurrentStore(store || parsedUser.stores[0]);
+          const resolved = store || parsedUser.stores[0];
+          setCurrentStore(resolved);
+          // Pin the resolved store to THIS tab's sessionStorage. On a fresh tab
+          // savedStoreId comes from the localStorage fallback; without this seed
+          // the tab would keep tracking the global value and another tab could
+          // change it underneath us.
+          if (resolved) setActiveStoreId(resolved.id);
         } else if (parsedUser.stores && parsedUser.stores.length > 0) {
           setCurrentStore(parsedUser.stores[0]);
-          localStorage.setItem('current_store_id', parsedUser.stores[0].id);
+          setActiveStoreId(parsedUser.stores[0].id);
         }
       } else {
         // Parse failed - clear corrupted data
@@ -502,7 +514,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         if (userData.stores && userData.stores.length > 0) {
-          localStorage.setItem('current_store_id', userData.stores[0].id);
+          setActiveStoreId(userData.stores[0].id);
           setCurrentStore(userData.stores[0]);
         }
 
@@ -577,7 +589,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // The onboarding will be set after the user completes the onboarding form
 
         if (userData.stores && userData.stores.length > 0) {
-          localStorage.setItem('current_store_id', userData.stores[0].id);
+          setActiveStoreId(userData.stores[0].id);
           setCurrentStore(userData.stores[0]);
         }
 
@@ -610,28 +622,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [createCancellableRequest, cleanupRequest]);
 
-  // Inject query client for manual invalidation
-  const queryClient = useQueryClient();
-
   const switchStore = useCallback(async (storeId: string) => {
     logger.log('🔄 [AUTH] Switching store:', storeId);
 
     const store = stores.find(s => s.id === storeId);
     if (store) {
-      // 1. Update localStorage
-      localStorage.setItem('current_store_id', storeId);
-
-      // 2. Clear query cache to prevent data bleeding
-      // This ensures we don't show Order #123 from Store A in Store B
-      queryClient.cancelQueries();
-      queryClient.clear();
-
-      // 3. Update state (triggers re-render)
+      // Pin the store to this tab (sessionStorage) + update the new-tab default
+      // (localStorage). No cache clear: StoreScopedQueryProvider in App.tsx swaps
+      // to this store's own QueryClient, which keeps each store's cache isolated.
+      // Data from another store can never appear because they never share a cache.
+      setActiveStoreId(storeId);
       setCurrentStore(store);
-
-      // 4. Invalidate all queries to force refetch with new store ID
-      // Since API calls usually depend on currentStore or get it from localStorage/context
-      await queryClient.invalidateQueries();
 
       logger.log('✅ [AUTH] Switched to store:', store.name);
 
@@ -639,7 +640,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // window.location.href = '/'; // Still reload? No, we want soft switch.
       // But we might want to redirect to '/' if they are on a specific resource page
     }
-  }, [stores, queryClient]);
+  }, [stores]);
 
   const refreshStores = useCallback(async () => {
     logger.log('🔄 [AUTH] Refreshing stores from server');
@@ -673,14 +674,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return updated;
       });
 
-      const preferredStoreId = localStorage.getItem('current_store_id') || currentStore?.id || nextStores[0]?.id;
+      const preferredStoreId = getActiveStoreId() || currentStore?.id || nextStores[0]?.id;
       const updatedCurrentStore = nextStores.find(s => s.id === preferredStoreId) || nextStores[0] || null;
       setCurrentStore(updatedCurrentStore);
 
       if (updatedCurrentStore) {
-        localStorage.setItem('current_store_id', updatedCurrentStore.id);
+        setActiveStoreId(updatedCurrentStore.id);
       } else {
-        localStorage.removeItem('current_store_id');
+        clearActiveStore();
       }
 
       return { success: true };
@@ -923,7 +924,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setStores(updatedUser.stores);
           setCurrentStore(newStoreData);
           localStorage.setItem('user', JSON.stringify(updatedUser));
-          localStorage.setItem('current_store_id', newStore.id);
+          setActiveStoreId(newStore.id);
 
           // Reload the page to ensure all data is fresh
           window.location.reload();
@@ -990,11 +991,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // If the deleted store was the current store, switch to another one
           if (currentStore?.id === storeId && updatedStores.length > 0) {
             setCurrentStore(updatedStores[0]);
-            localStorage.setItem('current_store_id', updatedStores[0].id);
+            setActiveStoreId(updatedStores[0].id);
           } else if (updatedStores.length === 0) {
             // This shouldn't happen due to backend validation, but just in case
             setCurrentStore(null);
-            localStorage.removeItem('current_store_id');
+            clearActiveStore();
           }
 
           localStorage.setItem('user', JSON.stringify(updatedUser));

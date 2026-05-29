@@ -18,6 +18,7 @@ import { Store, DollarSign, CheckCircle2, ArrowRight, ArrowLeft } from 'lucide-r
 import { z } from 'zod';
 import { preserveShopifyParams } from '@/utils/shopifyNavigation';
 import { config } from '@/config';
+import { setActiveStoreId } from '@/lib/activeStore';
 
 // Validation schemas
 // Country phone codes mapping
@@ -189,7 +190,7 @@ export default function Onboarding() {
 
       // Update user and store info in localStorage
       localStorage.setItem('user', JSON.stringify(data.user));
-      localStorage.setItem('current_store_id', data.store.id);
+      setActiveStoreId(data.store.id);
       localStorage.setItem('onboarding_completed', 'true');
 
       logger.log('✅ [ONBOARDING] LocalStorage updated');

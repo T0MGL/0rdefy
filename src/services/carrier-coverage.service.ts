@@ -1,3 +1,4 @@
+import { getActiveStoreId } from '@/lib/activeStore';
 // ================================================================
 // CARRIER COVERAGE SERVICE
 // ================================================================
@@ -47,7 +48,7 @@ export interface BulkCoverageItem {
 
 const getHeaders = (): HeadersInit => {
   const token = localStorage.getItem('auth_token');
-  const storeId = localStorage.getItem('current_store_id');
+  const storeId = getActiveStoreId();
   return {
     'Content-Type': 'application/json',
     ...(token && { 'Authorization': `Bearer ${token}` }),

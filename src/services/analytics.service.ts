@@ -1,5 +1,6 @@
 import { DashboardOverview, ChartData, Product, ConfirmationMetrics } from '@/types';
 import { logger } from '@/utils/logger';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 const API_BASE_URL = `${import.meta.env.VITE_API_URL || 'https://api.ordefy.io'}/api`;
 
@@ -40,7 +41,7 @@ const defaultConfirmationMetrics: ConfirmationMetrics = {
 
 const getHeaders = () => {
   const token = localStorage.getItem('auth_token');
-  const storeId = localStorage.getItem('current_store_id');
+  const storeId = getActiveStoreId();
 
   return {
     'Authorization': `Bearer ${token}`,

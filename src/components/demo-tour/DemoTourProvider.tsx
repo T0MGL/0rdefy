@@ -5,6 +5,7 @@ import type { Carrier } from '@/services/carriers.service';
 import type { Product, Order, Customer } from '@/types';
 import { logger } from '@/utils/logger';
 import { TOUR_TARGETS } from './tourTargets';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 // Demo data types
 export interface DemoData {
@@ -653,7 +654,7 @@ export function DemoTourProvider({ children }: DemoTourProviderProps) {
   const cleanupDemoData = useCallback(async () => {
     const { order, pickingSessionId, dispatchSessionId } = state.demoData;
     const token = localStorage.getItem('auth_token');
-    const storeId = localStorage.getItem('current_store_id');
+    const storeId = getActiveStoreId();
 
     if (!token || !storeId) return;
 

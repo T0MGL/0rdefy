@@ -1,3 +1,4 @@
+import { getActiveStoreId } from '@/lib/activeStore';
 /**
  * InvoicingSetupWizard (v2)
  *
@@ -84,6 +85,27 @@ function calcularDV(ruc: string): number | null {
   }
   const resto = total % 11;
   return resto > 1 ? 11 - resto : 0;
+}
+
+// ================================================================
+// Emission point suggestion (multi-store reuse)
+// ================================================================
+// Two stores under the same RUC cannot share the same
+// establecimiento + punto_expedicion (SIFEN numbering would collide,
+// enforced by uniq_identity_estab_punto). When reusing an identity on a
+// second store, suggest the next free punto over the chosen establecimiento.
+function puntosEnUso(identity: FiscalIdentity | undefined, estab: string): string[] {
+  return (identity?.stores ?? [])
+    .filter((s) => s.establecimiento_codigo === estab)
+    .map((s) => s.punto_expedicion);
+}
+
+function suggestNextPunto(identity: FiscalIdentity | undefined, estab: string): string {
+  const used = puntosEnUso(identity, estab)
+    .map((p) => parseInt(p, 10))
+    .filter((n) => !Number.isNaN(n));
+  if (used.length === 0) return '001';
+  return String(Math.max(...used) + 1).padStart(3, '0');
 }
 
 // ================================================================
@@ -196,6 +218,9 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
   const [existingIdentities, setExistingIdentities] = useState<FiscalIdentity[]>([]);
   const [selectedIdentityId, setSelectedIdentityId] = useState<string | null>(null);
   const [loadingIdentities, setLoadingIdentities] = useState(false);
+  // True until the mount-time identity load resolves, so we can decide the
+  // default flow (reuse vs create) without flashing the "choose" screen.
+  const [initializing, setInitializing] = useState(true);
 
   const [rucDV, setRucDV] = useState<number | null>(null);
 
@@ -254,9 +279,27 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
     },
   });
 
-  // Load existing identities once the user picks the "existing" path.
+  // Pre-fill the per-store form when an identity is (re)used: carry over the
+  // first linked store's timbrado and auto-suggest the next free punto so the
+  // user does not hit uniq_identity_estab_punto.
+  const applyIdentityDefaults = (identity: FiscalIdentity) => {
+    const firstLink = identity.stores?.[0];
+    const estab = firstLink?.establecimiento_codigo ?? '001';
+    establecimientoForm.setValue('establecimiento_codigo', estab);
+    establecimientoForm.setValue('punto_expedicion', suggestNextPunto(identity, estab));
+    if (firstLink?.timbrado) establecimientoForm.setValue('timbrado', firstLink.timbrado);
+  };
+
+  const selectIdentity = (identity: FiscalIdentity) => {
+    setSelectedIdentityId(identity.id);
+    applyIdentityDefaults(identity);
+  };
+
+  // Load existing identities on mount. If the account already has at least one
+  // fiscal identity, default to the reuse flow (Flow B): same company, new
+  // brand/store is by far the common case once invoicing is set up once.
+  // "Create new" stays available behind the "Atras" button.
   useEffect(() => {
-    if (flow !== 'existing') return;
     let cancelled = false;
     setLoadingIdentities(true);
     fiscalService
@@ -264,7 +307,10 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
       .then((list) => {
         if (cancelled || !isMountedRef.current) return;
         setExistingIdentities(list);
-        if (list.length === 1) setSelectedIdentityId(list[0].id);
+        if (list.length >= 1) {
+          setFlow('existing');
+          if (list.length === 1) selectIdentity(list[0]);
+        }
       })
       .catch((err) => {
         if (cancelled || !isMountedRef.current) return;
@@ -275,12 +321,16 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
         });
       })
       .finally(() => {
-        if (!cancelled && isMountedRef.current) setLoadingIdentities(false);
+        if (!cancelled && isMountedRef.current) {
+          setLoadingIdentities(false);
+          setInitializing(false);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [flow, toast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ================================================================
   // Handlers - Flow A (new identity)
@@ -373,7 +423,7 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
       }
 
       // 3. Link to the current store
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
       if (!storeId) throw new Error('No hay tienda seleccionada');
 
       const linkInput: FiscalStoreLinkInput = {
@@ -444,7 +494,7 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
     }
     setSaving(true);
     try {
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
       if (!storeId) throw new Error('No hay tienda seleccionada');
 
       const linkInput: FiscalStoreLinkInput = {
@@ -495,6 +545,23 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
   // ================================================================
   // Render
   // ================================================================
+  const selectedIdentity = useMemo(
+    () => existingIdentities.find((i) => i.id === selectedIdentityId),
+    [existingIdentities, selectedIdentityId],
+  );
+  // Live points-in-use for whatever establecimiento the user is typing, so the
+  // hint stays accurate without fighting manual edits to the punto field.
+  const watchedEstab = establecimientoForm.watch('establecimiento_codigo') || '001';
+  const reusedPuntosEnUso = puntosEnUso(selectedIdentity, watchedEstab);
+
+  if (initializing) {
+    return (
+      <div className="max-w-2xl mx-auto flex items-center justify-center py-16">
+        <Loader2 className="animate-spin text-muted-foreground" size={22} />
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-2xl mx-auto">
       <AnimatePresence mode="wait">
@@ -944,7 +1011,7 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
                       <button
                         key={id.id}
                         type="button"
-                        onClick={() => setSelectedIdentityId(id.id)}
+                        onClick={() => selectIdentity(id)}
                         className={`w-full border rounded-lg p-3 text-left transition-colors ${
                           selectedIdentityId === id.id ? 'border-primary bg-primary/5' : 'hover:border-primary/50'
                         }`}
@@ -961,6 +1028,17 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
                             {id.has_certificate && <Badge className="bg-green-100 text-green-800">Cert OK</Badge>}
                           </div>
                         </div>
+                        {(id.stores?.length ?? 0) > 0 && (
+                          <p className="text-xs text-muted-foreground mt-2">
+                            En uso:{' '}
+                            {id.stores!
+                              .map(
+                                (s) =>
+                                  `${s.store_name ?? 'tienda'} (${s.establecimiento_codigo}/${s.punto_expedicion})`,
+                              )
+                              .join(', ')}
+                          </p>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -990,6 +1068,18 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
               </CardHeader>
               <CardContent>
                 <form onSubmit={submitLinkExisting} className="space-y-5">
+                  {selectedIdentity && (
+                    <div className="flex items-start gap-2.5 rounded-md border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-900/15 px-3 py-2.5">
+                      <Building2 size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      <p className="text-xs text-emerald-800 dark:text-emerald-300 leading-relaxed">
+                        Reusando <strong>{selectedIdentity.razon_social}</strong> (RUC{' '}
+                        {selectedIdentity.ruc}-{selectedIdentity.ruc_dv}).
+                        {selectedIdentity.has_certificate
+                          ? ' Certificado y CSC ya cargados, se reusan en esta tienda.'
+                          : ''}
+                      </p>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label>Código de establecimiento</Label>
@@ -998,6 +1088,13 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
                     <div>
                       <Label>Punto de expedicion</Label>
                       <Input placeholder="001" maxLength={3} {...establecimientoForm.register('punto_expedicion')} />
+                      {reusedPuntosEnUso.length > 0 && (
+                        <HintText>
+                          Puntos en uso para el establecimiento {watchedEstab}:{' '}
+                          {reusedPuntosEnUso.join(', ')}. Usa uno distinto (sugerido:{' '}
+                          {suggestNextPunto(selectedIdentity, watchedEstab)}).
+                        </HintText>
+                      )}
                     </div>
                   </div>
                   <div>

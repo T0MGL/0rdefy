@@ -28,6 +28,7 @@ import {
 import { Loader2, CheckCircle2, XCircle, Eye, EyeOff, Users, Building2, AlertTriangle, LogOut, Truck, Package } from 'lucide-react';
 import { config } from '@/config';
 import { setTourPending } from '@/components/demo-tour';
+import { getActiveStoreId, setActiveStoreId, clearActiveStore } from '@/lib/activeStore';
 
 interface InvitationData {
   name: string;
@@ -92,7 +93,7 @@ export default function AcceptInvitation() {
     if (authToken && savedUser) {
       try {
         const userData = JSON.parse(savedUser);
-        const currentStoreId = localStorage.getItem('current_store_id');
+        const currentStoreId = getActiveStoreId();
         const currentStore = userData.stores?.find((s: any) => s.id === currentStoreId) || userData.stores?.[0];
 
         setActiveSession({
@@ -114,7 +115,7 @@ export default function AcceptInvitation() {
   const clearActiveSession = () => {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user');
-    localStorage.removeItem('current_store_id');
+    clearActiveStore();
     localStorage.removeItem('onboarding_completed');
     setActiveSession(null);
     setShowSessionWarning(false);
@@ -190,7 +191,7 @@ export default function AcceptInvitation() {
 
       // Auto-login: Save token, store ID, and user data (same format as login)
       localStorage.setItem('auth_token', data.token);
-      localStorage.setItem('current_store_id', data.storeId);
+      setActiveStoreId(data.storeId);
 
       // Save user data for AuthContext (must include stores array)
       if (data.user) {

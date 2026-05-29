@@ -1,5 +1,6 @@
 import { Order, CreateOrderInput, UpdateOrderInput } from '@/types';
 import { logger } from '@/utils/logger';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 let cleanBaseURL = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
 cleanBaseURL = cleanBaseURL.trim();
@@ -9,7 +10,7 @@ const API_BASE_URL = `${cleanBaseURL}/api`;
 
 const getHeaders = (overrideStoreId?: string) => {
   const token = localStorage.getItem('auth_token');
-  const storeId = overrideStoreId || localStorage.getItem('current_store_id');
+  const storeId = overrideStoreId || getActiveStoreId();
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
   };

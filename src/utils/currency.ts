@@ -5,6 +5,7 @@
 // ================================================================
 
 import { logger } from '@/utils/logger';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 /**
  * Currency configuration mapping
@@ -68,7 +69,7 @@ const CURRENCY_CONFIG: Record<string, {
 export function getCurrentCurrency(): string {
   try {
     const user = localStorage.getItem('user');
-    const currentStoreId = localStorage.getItem('current_store_id');
+    const currentStoreId = getActiveStoreId();
 
     if (!user || !currentStoreId) {
       return 'PYG'; // Default to Paraguayan Guaraní

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { config } from '@/config';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 interface WebhookInfo {
   id: string;
@@ -68,7 +69,7 @@ export function ShopifyDiagnostics() {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
       const apiUrl = config.api.baseUrl;
 
       // Load integration info
@@ -138,7 +139,7 @@ export function ShopifyDiagnostics() {
     setIsSettingUpWebhooks(true);
     try {
       const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
       const apiUrl = config.api.baseUrl;
 
       const response = await fetch(`${apiUrl}/api/shopify/webhooks/setup`, {
@@ -176,7 +177,7 @@ export function ShopifyDiagnostics() {
 
     try {
       const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
+      const storeId = getActiveStoreId();
       const apiUrl = config.api.baseUrl;
 
       const response = await fetch(`${apiUrl}/api/shopify/webhooks/verify`, {

@@ -5,6 +5,7 @@
  */
 
 import { logger } from '@/utils/logger';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 let cleanBaseURL = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
 cleanBaseURL = cleanBaseURL.trim();
@@ -15,7 +16,7 @@ const API_FISCAL_URL = `${cleanBaseURL}/api/fiscal`;
 
 const getAuthHeaders = (): HeadersInit => {
   const token = localStorage.getItem('auth_token');
-  const storeId = localStorage.getItem('current_store_id');
+  const storeId = getActiveStoreId();
   return {
     'Content-Type': 'application/json',
     ...(token && { Authorization: `Bearer ${token}` }),
@@ -25,7 +26,7 @@ const getAuthHeaders = (): HeadersInit => {
 
 const getAuthHeadersNoContentType = (): HeadersInit => {
   const token = localStorage.getItem('auth_token');
-  const storeId = localStorage.getItem('current_store_id');
+  const storeId = getActiveStoreId();
   return {
     ...(token && { Authorization: `Bearer ${token}` }),
     ...(storeId && { 'X-Store-ID': storeId }),
@@ -387,6 +388,21 @@ export interface FiscalIdentity {
   created_at: string;
   updated_at: string;
   activities: FiscalActivity[];
+  /**
+   * Stores already linked to this identity (with their emission point).
+   * Lets the setup wizard show which establecimiento/punto are taken and
+   * auto-suggest the next free punto_expedicion when reusing the identity
+   * on a second store. Optional for back-compat.
+   */
+  stores?: FiscalIdentityStoreSummary[];
+}
+
+export interface FiscalIdentityStoreSummary {
+  store_id: string;
+  store_name: string | null;
+  establecimiento_codigo: string;
+  punto_expedicion: string;
+  timbrado: string | null;
 }
 
 export interface FiscalStoreLink {
@@ -457,6 +473,11 @@ export interface FiscalStoreLinkInput {
   establecimiento_ciudad?: number | null;
   establecimiento_telefono?: string | null;
   establecimiento_email?: string | null;
+  /** Migration 163: per-store generic description fallback for invoices. */
+  default_generic_description?: string;
+  use_generic_description?: boolean;
+  /** Migration 163 + 193: opt-in auto-emit on delivery. */
+  auto_emit_invoice_on_delivery?: boolean;
 }
 
 async function fiscalFetch<T>(path: string, init?: RequestInit): Promise<T> {

@@ -44,6 +44,7 @@ import { Badge } from '@/components/ui/badge';
 import { DeliveryPreferencesAccordion, type DeliveryPreferences } from '@/components/DeliveryPreferencesAccordion';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 // Types for city coverage system
 interface CityLocation {
@@ -200,7 +201,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
     if (currentStore?.country !== 'PY') { setShowRucField(false); return; }
     const controller = new AbortController();
     const token = localStorage.getItem('auth_token');
-    const storeId = localStorage.getItem('current_store_id');
+    const storeId = getActiveStoreId();
     if (!token || !storeId) return;
 
     fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/invoicing/config`, {
@@ -328,7 +329,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
       try {
         if (isMounted) setLoadingCities(true);
         const token = localStorage.getItem('auth_token');
-        const storeId = localStorage.getItem('current_store_id');
+        const storeId = getActiveStoreId();
 
         const response = await fetch(
           `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/carriers/locations/search?q=${encodeURIComponent(citySearch)}&limit=10`,
@@ -383,7 +384,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
       try {
         if (isMounted) setLoadingCoverage(true);
         const token = localStorage.getItem('auth_token');
-        const storeId = localStorage.getItem('current_store_id');
+        const storeId = getActiveStoreId();
 
         const response = await fetch(
           `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/carriers/coverage/city?city=${encodeURIComponent(selectedCity.city)}&department=${encodeURIComponent(selectedCity.department || '')}&zone_code=${encodeURIComponent(selectedCity.zone_code || '')}`,

@@ -1,15 +1,16 @@
-import { useEffect, lazy, Suspense } from "react";
+import { useEffect, lazy, Suspense, Fragment } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { ConfirmHost } from "@/components/ui/confirm";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { getQueryClientForStore, defaultQueryClient, NO_STORE_KEY } from "@/lib/queryClients";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { OnboardingGuard } from "@/components/OnboardingGuard";
-import { AuthProvider, Module } from "@/contexts/AuthContext";
+import { AuthProvider, useAuth, Module } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { DateRangeProvider } from "@/contexts/DateRangeContext";
 import { SubscriptionProvider } from "@/contexts/SubscriptionContext";
@@ -86,18 +87,24 @@ const PortalHistory = lazy(() => import("./pages/portal/PortalHistory"));
 const PortalOrderDetail = lazy(() => import("./pages/portal/PortalOrderDetail"));
 const PortalProfile = lazy(() => import("./pages/portal/PortalProfile"));
 
-// Optimized QueryClient configuration for production cost control
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 5, // 5 minutes - Longer cache reduces API calls
-      gcTime: 1000 * 60 * 10, // 10 minutes - Keeps recently accessed data in memory
-      refetchOnWindowFocus: false, // ✅ DISABLED: Prevents extra API calls on tab switch (was causing 2x requests)
-      refetchOnReconnect: true, // Keep enabled - important for network recovery
-      retry: 1,
-    },
-  },
-});
+// Swaps the active QueryClient to match the current store. Must live inside
+// AuthProvider (reads useAuth) and wrap every provider that fetches store data.
+// The per-store client registry lives in @/lib/queryClients so AuthContext can
+// purge it on logout without an import cycle.
+const StoreScopedQueryProvider = ({ children }: { children: React.ReactNode }) => {
+  const { currentStore } = useAuth();
+  const storeId = currentStore?.id ?? NO_STORE_KEY;
+  const client = getQueryClientForStore(storeId);
+  // key={storeId} remounts the subtree on store switch so component-local state
+  // that is not reactive to currentStore cannot carry over between stores. The
+  // per-store client still serves cached queries instantly on remount (no full
+  // page reload, no network when the store's cache is still fresh).
+  return (
+    <QueryClientProvider client={client}>
+      <Fragment key={storeId}>{children}</Fragment>
+    </QueryClientProvider>
+  );
+};
 
 // Skip link component for accessibility
 const SkipLink = () => (
@@ -167,7 +174,7 @@ const App = () => {
 
   return (
     <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
+      <QueryClientProvider client={defaultQueryClient}>
         <TooltipProvider>
           <ThemeProvider>
             <ShopifyAppBridgeProvider>
@@ -176,6 +183,7 @@ const App = () => {
               <ConfirmHost />
               <BrowserRouter>
                 <AuthProvider>
+                  <StoreScopedQueryProvider>
                   <SubscriptionProvider>
                     <PlanLimitHandler />
                     <DateRangeProvider>
@@ -293,6 +301,7 @@ const App = () => {
                       </GlobalViewProvider>
                     </DateRangeProvider>
                   </SubscriptionProvider>
+                  </StoreScopedQueryProvider>
                 </AuthProvider>
               </BrowserRouter>
             </ShopifyAppBridgeProvider>

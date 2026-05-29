@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 export interface CarrierWithCoverage {
   carrier_id: string;
@@ -22,7 +23,7 @@ async function fetchCarriersForCity(
   signal: AbortSignal,
 ): Promise<CarrierWithCoverage[]> {
   const token = localStorage.getItem('auth_token');
-  const storeId = localStorage.getItem('current_store_id');
+  const storeId = getActiveStoreId();
 
   const url = `${API_BASE_URL}/carriers/coverage/city?city=${encodeURIComponent(city)}`;
 

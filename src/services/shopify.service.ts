@@ -5,6 +5,7 @@
 // ================================================================
 
 import { ShopifyIntegration } from '@/types';
+import { getActiveStoreId } from '@/lib/activeStore';
 
 let cleanBaseURL = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
 cleanBaseURL = cleanBaseURL.replace(/\/+$/, '');
@@ -16,7 +17,7 @@ const API_BASE = cleanBaseURL;
 
 const getAuthHeaders = (): HeadersInit => {
   const token = localStorage.getItem('auth_token');
-  const storeId = localStorage.getItem('current_store_id');
+  const storeId = getActiveStoreId();
   return {
     'Content-Type': 'application/json',
     ...(token && { 'Authorization': `Bearer ${token}` }),
