@@ -171,8 +171,13 @@ export interface OrderForPacking {
     variant_id?: string | null;  // NEW: variant support (Migration 108)
     product_name: string;
     product_image: string;
-    quantity_needed: number;
+    quantity_needed: number;     // pack count (what the customer bought)
     quantity_packed: number;
+    units_per_pack: number;      // 181: physical lenses per pack (1 for variations)
+    physical_units: number;      // 181: quantity_needed * units_per_pack, what to physically pack
+    // 181: color makeup for the label. Single entry for mono-color, multiple
+    // for mixed packs (e.g. Pack Oficina: 1 Rojo, 1 Naranja, 1 Amarillo).
+    color_breakdown?: Array<{ color: string; quantity: number }>;
   }>;
   is_complete: boolean;
 }
@@ -1340,7 +1345,9 @@ export async function getPackingList(
     // Instead, fetch products separately with UUID validation.
     const orderLineItems = await batchedSelectWithRange(
       'order_line_items',
-      `order_id, product_id, variant_id, product_name, variant_title, quantity`,
+      // 181: units_per_pack + bundle_selections needed to compute physical units
+      // and the per-color label breakdown.
+      `order_id, product_id, variant_id, product_name, variant_title, quantity, units_per_pack, bundle_selections`,
       'order_id',
       orderIds
     );
@@ -1396,6 +1403,36 @@ export async function getPackingList(
       });
     }
 
+    // 181: Build a variant map for units_per_pack and color resolution.
+    // Covers both line-item variant_ids and the variant_ids referenced inside
+    // bundle_selections (so mixed-pack colors resolve on the label).
+    const allVariantIds = new Set<string>();
+    orderLineItems?.forEach((li: any) => {
+      if (li.variant_id && uuidRegex.test(li.variant_id)) allVariantIds.add(li.variant_id);
+      if (Array.isArray(li.bundle_selections)) {
+        li.bundle_selections.forEach((s: any) => {
+          if (s?.variant_id && uuidRegex.test(s.variant_id)) allVariantIds.add(s.variant_id);
+        });
+      }
+    });
+    const variantInfoMap = new Map<string, { units_per_pack: number; color: string | null; variant_title: string | null }>();
+    if (allVariantIds.size > 0) {
+      const variants = await batchedSelect(
+        'product_variants',
+        'id, units_per_pack, option1_name, option1_value, variant_title',
+        'id',
+        Array.from(allVariantIds)
+      );
+      variants?.forEach((v: any) => {
+        const isColor = typeof v.option1_name === 'string' && v.option1_name.toLowerCase() === 'color';
+        variantInfoMap.set(v.id, {
+          units_per_pack: v.units_per_pack || 1,
+          color: isColor ? (v.option1_value || null) : null,
+          variant_title: v.variant_title || null,
+        });
+      });
+    }
+
     // Create a map of packing progress for quick lookup
     // VARIANT SUPPORT: Key includes variant_id for correct matching
     const packingProgressMap = new Map<string, { quantity_needed: number; quantity_packed: number; variant_id: string | null }>();
@@ -1444,6 +1481,8 @@ export async function getPackingList(
         product_image: string;
         quantity_needed: number;
         quantity_packed: number;
+        units_per_pack: number;                       // 181
+        color_counts: Map<string, number>;            // 181: color -> physical units
       }>();
 
       orderItems.forEach((lineItem: any) => {
@@ -1467,6 +1506,32 @@ export async function getPackingList(
         const productImage = product?.image_url || lineItem.image_url || '';
         const itemQuantity = parseInt(lineItem.quantity, 10) || 0;
 
+        // 181: resolve units_per_pack. The line item column wins (it is frozen
+        // at order time); fall back to the live variant value, default 1.
+        const variantInfo = variantId ? variantInfoMap.get(variantId) : undefined;
+        const unitsPerPack = (Number(lineItem.units_per_pack) > 0
+          ? Number(lineItem.units_per_pack)
+          : variantInfo?.units_per_pack) || 1;
+
+        // 181: per-color physical-unit breakdown for the label.
+        //   - composed bundle (bundle_selections present): use the selections,
+        //     each scaled by the line item pack quantity.
+        //   - mono-color variation/bundle: the variant's own color x physical units.
+        const lineColorCounts = new Map<string, number>();
+        const selections = Array.isArray(lineItem.bundle_selections) ? lineItem.bundle_selections : [];
+        if (selections.length > 0) {
+          selections.forEach((sel: any) => {
+            const selInfo = sel?.variant_id ? variantInfoMap.get(sel.variant_id) : undefined;
+            const color = selInfo?.color || sel?.variant_name || selInfo?.variant_title || null;
+            const selQty = (Number(sel?.quantity) || 0) * itemQuantity;
+            if (color && selQty > 0) {
+              lineColorCounts.set(color, (lineColorCounts.get(color) || 0) + selQty);
+            }
+          });
+        } else if (variantInfo?.color) {
+          lineColorCounts.set(variantInfo.color, itemQuantity * unitsPerPack);
+        }
+
         // Composite key for aggregation includes variant_id
         const aggregationKey = variantId ? `${productId}-${variantId}` : productId;
         const existing = aggregatedItemsMap.get(aggregationKey);
@@ -1474,6 +1539,9 @@ export async function getPackingList(
           // Same product+variant exists - add quantities
           existing.quantity_needed += progress?.quantity_needed || itemQuantity;
           existing.quantity_packed += progress?.quantity_packed || 0;
+          lineColorCounts.forEach((qty, color) => {
+            existing.color_counts.set(color, (existing.color_counts.get(color) || 0) + qty);
+          });
         } else {
           aggregatedItemsMap.set(aggregationKey, {
             product_id: productId,
@@ -1481,7 +1549,9 @@ export async function getPackingList(
             product_name: productName,
             product_image: productImage,
             quantity_needed: progress?.quantity_needed || itemQuantity,
-            quantity_packed: progress?.quantity_packed || 0
+            quantity_packed: progress?.quantity_packed || 0,
+            units_per_pack: unitsPerPack,
+            color_counts: lineColorCounts
           });
         }
       });
@@ -1497,20 +1567,43 @@ export async function getPackingList(
         if (!existing) {
           // This is an orphaned packing_progress record - include it so UI shows correct state
           const orphanProduct = productsMap.get(p.product_id);
+          const orphanVariant = p.variant_id ? variantInfoMap.get(p.variant_id) : undefined;
+          const orphanUnitsPerPack = orphanVariant?.units_per_pack || 1;
+          const orphanColors = new Map<string, number>();
+          if (orphanVariant?.color) {
+            orphanColors.set(orphanVariant.color, (p.quantity_needed || 0) * orphanUnitsPerPack);
+          }
           aggregatedItemsMap.set(aggregationKey, {
             product_id: p.product_id,
             variant_id: p.variant_id || null,
             product_name: orphanProduct?.name || p.products?.name || 'Producto (huérfano)',
             product_image: orphanProduct?.image_url || '',
             quantity_needed: p.quantity_needed,
-            quantity_packed: p.quantity_packed
+            quantity_packed: p.quantity_packed,
+            units_per_pack: orphanUnitsPerPack,
+            color_counts: orphanColors
           });
         }
         // Note: If the product already exists in aggregatedItemsMap (from orderItems),
         // it was already processed with its packing_progress data, so no need to update
       });
 
-      const items = Array.from(aggregatedItemsMap.values());
+      const items = Array.from(aggregatedItemsMap.values()).map((agg) => {
+        const color_breakdown = Array.from(agg.color_counts.entries())
+          .filter(([, qty]) => qty > 0)
+          .map(([color, quantity]) => ({ color, quantity }));
+        return {
+          product_id: agg.product_id,
+          variant_id: agg.variant_id,
+          product_name: agg.product_name,
+          product_image: agg.product_image,
+          quantity_needed: agg.quantity_needed,
+          quantity_packed: agg.quantity_packed,
+          units_per_pack: agg.units_per_pack,
+          physical_units: agg.quantity_needed * agg.units_per_pack, // 181: what to physically pack
+          ...(color_breakdown.length > 0 ? { color_breakdown } : {})
+        };
+      });
 
       const is_complete = items.length > 0 && items.every(item => item.quantity_packed >= item.quantity_needed);
 
@@ -1979,7 +2072,7 @@ export async function getConfirmedOrders(storeId: string) {
     // Collect all order IDs to batch-fetch normalized line items (Shopify orders)
     const orderIds = orders.map((o: any) => o.id);
 
-    // Single batch query for image_url across all confirmed orders — no N+1
+    // Single batch query for image_url across all confirmed orders, no N+1
     const lineItemsWithImages = orderIds.length > 0
       ? await batchedSelect<{ order_id: string; image_url: string | null }>(
           'order_line_items',

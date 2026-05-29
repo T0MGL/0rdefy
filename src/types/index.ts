@@ -206,6 +206,7 @@ export interface Order {
     unit_price: number;
     total_price: number;
     units_per_pack?: number; // Snapshot for audit (Migration 097)
+    bundle_selections?: Array<{ variant_id?: string; variant_name?: string; quantity: number }> | null; // 146/181: color makeup
     shopify_product_id?: string;
     shopify_variant_id?: string;
     is_upsell?: boolean;

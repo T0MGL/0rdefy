@@ -80,9 +80,12 @@ export interface PackingProgressItem {
   product_name: string;
   product_image: string;
   variant_title?: string | null;
-  quantity_needed: number;
+  quantity_needed: number;     // pack count (what the customer bought)
   quantity_packed: number;
   unit_price?: number;
+  units_per_pack?: number;     // 181: physical lenses per pack
+  physical_units?: number;     // 181: quantity_needed * units_per_pack
+  color_breakdown?: Array<{ color: string; quantity: number }>; // 181: per-color physical units
 }
 
 export interface OrderForPacking {

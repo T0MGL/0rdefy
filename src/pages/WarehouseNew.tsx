@@ -478,6 +478,8 @@ export default function WarehouseNew() {
           name: item.product_name,
           quantity: item.quantity_needed,
           price: 0,
+          physicalUnits: item.physical_units,
+          colorBreakdown: item.color_breakdown,
         })),
       });
 
@@ -533,6 +535,8 @@ export default function WarehouseNew() {
           name: item.product_name,
           quantity: item.quantity_needed,
           price: 0,
+          physicalUnits: item.physical_units,
+          colorBreakdown: item.color_breakdown,
         })),
       }));
 
