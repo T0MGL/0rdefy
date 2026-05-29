@@ -3132,19 +3132,24 @@ export async function downloadXML(storeId: string, invoiceId: string) {
 //
 // Fire-and-forget helper called from the delivery-confirm flows. Gated by:
 //   1. Store country must be PY (SIFEN is Paraguay-only)
-//   2. Order must have a customer_ruc
+//   2. Order must have a customer_ruc. SIN RUC = el cliente no pidio factura:
+//      skip TOTALMENTE silencioso (sin log ruidoso, sin alerta).
 //   3. Fiscal context must exist (store linked to an identity)
 //   4. Link must have setup_completed = true (cert uploaded, timbrado set)
 //   5. Link must have auto_emit_invoice_on_delivery = true (owner opt-in)
-//   6. Every product referenced by the order's line_items must have a
+//   6. Order must have a customer email. Solo se evalua aca (ya con RUC y
+//      auto-emit on): tiene RUC pero no email => NO emitimos y alertamos al
+//      owner, porque seria un documento fiscal que no podemos entregar.
+//   7. Every product referenced by the order's line_items must have a
 //      non-empty `products.fiscal_description` (migration 193). This is a
 //      quality gate: facturas son legales, no se auto-emiten con
 //      descripciones genericas / faltantes. Si algun item falla el
 //      check, emit owner_alert para que el owner complete los datos
 //      y vuelva a confirmar delivery manualmente.
 //
-// Any gate that fails short-circuits silently (logged at INFO) excepto
-// el gate 6 que es ruidoso (owner_alert). Real errors (SIFEN reject,
+// Gates 1-5 que fallan cortan en silencio (log INFO). Solo los gates 6
+// (sin email) y 7 (sin descripcion fiscal) emiten owner_alert, y ambos solo
+// despues de confirmar RUC + auto-emit on. Real errors (SIFEN reject,
 // network) flow through generateInvoice() which surfaces them via
 // owner_alerts.
 export async function tryAutoEmitOnDelivery(
@@ -3172,10 +3177,16 @@ export async function tryAutoEmitOnDelivery(
       return;
     }
 
-    // Gate email: una factura que no podemos entregar al cliente no se
-    // auto-emite. Tiene RUC (contribuyente) pero sin email no hay forma de
-    // mandarle el KUDE, asi que alertamos al owner para que cargue el email
-    // y reintente, en vez de emitir un documento fiscal sin entregar.
+    const ctx = await getFiscalContext(storeId);
+    if (!ctx) return;
+    if (!ctx.link.setup_completed) return;
+    if (!ctx.link.auto_emit_invoice_on_delivery) return;
+
+    // Gate email: solo relevante una vez que sabemos que la tienda usa
+    // auto-emision y el cliente tiene RUC (pidio factura). Sin email no hay
+    // forma de entregar el KUDE, asi que NO emitimos y alertamos al owner
+    // para que cargue el email y reintente. Sin RUC nunca llegamos aca: ese
+    // caso es consumidor final (no pidio factura) y se ignora en silencio.
     const customerEmail =
       (order.customer_email as string | null)?.trim() ||
       ((Array.isArray(order.customers) ? order.customers[0]?.email : (order.customers as any)?.email) as
@@ -3196,11 +3207,6 @@ export async function tryAutoEmitOnDelivery(
       });
       return;
     }
-
-    const ctx = await getFiscalContext(storeId);
-    if (!ctx) return;
-    if (!ctx.link.setup_completed) return;
-    if (!ctx.link.auto_emit_invoice_on_delivery) return;
 
     // Gate 6: validate every line_item's product has fiscal_description.
     // Items sin product_id (productos eliminados, lineas custom) tampoco
