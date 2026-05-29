@@ -50,6 +50,7 @@ import { ordersExportColumns, createPlanillaTransportadoraColumns } from '@/util
 import { formatCurrency } from '@/utils/currency';
 import { showErrorToast } from '@/utils/errorMessages';
 import { logger } from '@/utils/logger';
+import { getRenderableColors, formatColorFragment } from '@/utils/lineItemColors';
 import { startOfDayInTimezone, endOfDayInTimezone, formatLocalDate } from '@/utils/timeUtils';
 import {
   Select,
@@ -230,7 +231,29 @@ const ProductThumbnails = memo(({ order }: { order: Order }) => {
                 {item.variant_title && (
                   <p className="text-xs text-muted-foreground">{item.variant_title}</p>
                 )}
-                <p className="text-xs">Cantidad: {quantity}</p>
+                {(() => {
+                  const colors = getRenderableColors(item);
+                  if (colors.length === 0) {
+                    return <p className="text-xs">Cantidad: {quantity}</p>;
+                  }
+                  if (colors.length === 1) {
+                    return (
+                      <p className="text-xs">
+                        Cantidad: {quantity} ({colors[0].color})
+                      </p>
+                    );
+                  }
+                  return (
+                    <div className="text-xs">
+                      <p className="font-medium">Composición:</p>
+                      {colors.map((c, ci) => (
+                        <p key={ci}>
+                          • {c.quantity} {c.color}
+                        </p>
+                      ))}
+                    </div>
+                  );
+                })()}
               </TooltipContent>
             </Tooltip>
           );
@@ -244,11 +267,14 @@ const ProductThumbnails = memo(({ order }: { order: Order }) => {
             </TooltipTrigger>
             <TooltipContent>
               <p className="font-medium">{remainingCount} producto{remainingCount > 1 ? 's' : ''} más</p>
-              {lineItems.slice(3).map((item, idx) => (
-                <p key={idx} className="text-xs">
-                  • {item.product_name} ({item.quantity})
-                </p>
-              ))}
+              {lineItems.slice(3).map((item, idx) => {
+                const frag = formatColorFragment(item);
+                return (
+                  <p key={idx} className="text-xs">
+                    • {item.product_name} ({item.quantity}){frag ? ` ${frag}` : ''}
+                  </p>
+                );
+              })}
             </TooltipContent>
           </Tooltip>
         )}
@@ -1060,7 +1086,10 @@ export default function Orders() {
         const displayName = item.variant_title && item.variant_title !== 'Upsell'
           ? `${baseName} (${item.variant_title})`
           : baseName;
-        return `${displayName}${item.quantity > 1 ? ` x ${item.quantity} unidades` : ''}`;
+        // 181: surface bundle color makeup so the customer confirms the right colors.
+        const frag = formatColorFragment(item);
+        const withColors = frag ? `${displayName} ${frag}` : displayName;
+        return `${withColors}${item.quantity > 1 ? ` x ${item.quantity} unidades` : ''}`;
       }).join('\n');
     } else if (order.product) {
       productList = `${order.product}${order.quantity > 1 ? ` x ${order.quantity} unidades` : ''}`;
@@ -1116,7 +1145,9 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
         const displayName = item.variant_title && item.variant_title !== 'Upsell'
           ? `${baseName} (${item.variant_title})`
           : baseName;
-        return `${displayName}${item.quantity > 1 ? ` (x${item.quantity})` : ''}`;
+        const frag = formatColorFragment(item);
+        const withColors = frag ? `${displayName} ${frag}` : displayName;
+        return `${withColors}${item.quantity > 1 ? ` (x${item.quantity})` : ''}`;
       }).join(', ');
     } else if (order.product) {
       productSummary = `${order.product}${order.quantity > 1 ? ` (x${order.quantity})` : ''}`;
@@ -1863,13 +1894,17 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             name: item.product_name,
             quantity: item.quantity,
             price: item.unit_price,
-            // 181: physical units the picker packs, plus per-color makeup.
+            // 181: physical units the picker packs, plus per color makeup.
+            // Prefer the server resolved color_breakdown (option1_value); fall
+            // back to bundle_selections.variant_name when not yet enriched.
             physicalUnits: item.quantity * (item.units_per_pack || 1),
-            colorBreakdown: Array.isArray(item.bundle_selections) && item.bundle_selections.length > 0
-              ? item.bundle_selections
-                  .filter((s) => s.variant_name && s.quantity > 0)
-                  .map((s) => ({ color: s.variant_name as string, quantity: s.quantity * item.quantity }))
-              : undefined,
+            colorBreakdown: Array.isArray(item.color_breakdown) && item.color_breakdown.length > 0
+              ? item.color_breakdown
+              : Array.isArray(item.bundle_selections) && item.bundle_selections.length > 0
+                ? item.bundle_selections
+                    .filter((s) => s.variant_name && s.quantity > 0)
+                    .map((s) => ({ color: s.variant_name as string, quantity: s.quantity * item.quantity }))
+                : undefined,
           }))
           : [{
               name: order.product,
@@ -1981,13 +2016,17 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             name: item.product_name,
             quantity: item.quantity,
             price: item.unit_price,
-            // 181: physical units the picker packs, plus per-color makeup.
+            // 181: physical units the picker packs, plus per color makeup.
+            // Prefer the server resolved color_breakdown (option1_value); fall
+            // back to bundle_selections.variant_name when not yet enriched.
             physicalUnits: item.quantity * (item.units_per_pack || 1),
-            colorBreakdown: Array.isArray(item.bundle_selections) && item.bundle_selections.length > 0
-              ? item.bundle_selections
-                  .filter((s) => s.variant_name && s.quantity > 0)
-                  .map((s) => ({ color: s.variant_name as string, quantity: s.quantity * item.quantity }))
-              : undefined,
+            colorBreakdown: Array.isArray(item.color_breakdown) && item.color_breakdown.length > 0
+              ? item.color_breakdown
+              : Array.isArray(item.bundle_selections) && item.bundle_selections.length > 0
+                ? item.bundle_selections
+                    .filter((s) => s.variant_name && s.quantity > 0)
+                    .map((s) => ({ color: s.variant_name as string, quantity: s.quantity * item.quantity }))
+                : undefined,
           }))
           : [{
               name: order.product,

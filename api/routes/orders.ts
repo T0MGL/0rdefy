@@ -21,6 +21,7 @@ import { isValidUUID, validateUUIDParam, sanitizeSearchInput, normalizeSearch, t
 import { isCodPayment as isCodPaymentUtil } from '../utils/payment';
 import { endOfDayIso, getStoreTimezone, getTodayInTimezone, startOfDayIso } from '../utils/dateUtils';
 import { validate } from '../utils/validate';
+import { enrichLineItemsWithColors } from '../utils/line-item-colors';
 
 // ================================================================
 // Zod Schemas
@@ -1077,7 +1078,9 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                     unit_price,
                     total_price,
                     image_url,
-                    is_upsell
+                    is_upsell,
+                    units_per_pack,
+                    bundle_selections
                 ),
                 carriers!orders_courier_id_fkey (
                     id,
@@ -1293,10 +1296,26 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             throw error;
         }
 
+        // Bundle color makeup (migration 181): enrich every normalized line item
+        // across all orders in one batched pass so the Orders table tooltip and
+        // the thumbnails can surface the per color composition. Line items
+        // without bundle_selections are returned untouched (clean degradation).
+        const allNormalizedItems = (data || []).flatMap(
+            (order: Record<string, any>) => order.order_line_items || []
+        );
+        const enrichedById = new Map<string, Record<string, unknown>>();
+        const enrichedItems = await enrichLineItemsWithColors(allNormalizedItems);
+        enrichedItems.forEach((item: Record<string, unknown>) => {
+            if (item.id) enrichedById.set(item.id as string, item);
+        });
+
         // Transform data to match frontend Order interface
         const transformedData = data?.map(order => {
             // Use normalized line items if available, fallback to JSONB
-            const normalizedItems = order.order_line_items || [];
+            const normalizedItems: Array<Record<string, unknown>> = (order.order_line_items || []).map(
+                (item: Record<string, unknown>) =>
+                    (item.id ? enrichedById.get(item.id as string) : undefined) || item
+            );
             const jsonbItems = order.line_items || [];
 
             let lineItems: Array<Record<string, unknown>> = normalizedItems;
@@ -1442,6 +1461,8 @@ ordersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: 
                     properties,
                     image_url,
                     is_upsell,
+                    units_per_pack,
+                    bundle_selections,
                     products:product_id (
                         id,
                         name,
@@ -1464,8 +1485,12 @@ ordersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: 
         }
 
         // Transform data to match frontend Order interface
-        // Use normalized line items if available, fallback to JSONB
-        const normalizedItems = data.order_line_items || [];
+        // Use normalized line items if available, fallback to JSONB.
+        // Enrich with bundle color makeup (migration 181) so the detail view,
+        // confirmation dialog and edit form surface per color composition.
+        const normalizedItems = await enrichLineItemsWithColors(
+            data.order_line_items || []
+        );
         const jsonbItems = data.line_items || [];
 
         let lineItems = normalizedItems;
@@ -2922,6 +2947,8 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
                     properties,
                     image_url,
                     is_upsell,
+                    units_per_pack,
+                    bundle_selections,
                     products:product_id (
                         id,
                         name,
@@ -2990,8 +3017,15 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
         }
 
         // Apply status mapping before returning (shipped -> in_transit for frontend consistency)
+        // Enrich line items with bundle color makeup (migration 181) so the
+        // optimistic merge on the frontend keeps the per color composition in
+        // the Orders table tooltip after a status change.
+        const enrichedLineItems = await enrichLineItemsWithColors(
+            data.order_line_items || []
+        );
         const responseData = {
             ...data,
+            order_line_items: enrichedLineItems,
             sleeves_status: mapStatus(data.sleeves_status),
             has_internal_notes: !!data.internal_notes
         };

@@ -24,7 +24,8 @@ import {
   MapPin,
   Truck,
   XCircle,
-  MoreHorizontal
+  MoreHorizontal,
+  Palette
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -627,9 +628,39 @@ export function PackingOneByOne({
                         )}>
                           {item.product_name}
                         </h4>
-                        <p className="text-sm text-muted-foreground">
-                          {item.quantity_needed} unidad{item.quantity_needed !== 1 ? 'es' : ''}
-                        </p>
+                        {(() => {
+                          // 181: show physical units and per color makeup so the
+                          // packer knows exactly what to put in the box. Degrades
+                          // to the pack count for color-less items.
+                          const colors = (item.color_breakdown || []).filter(
+                            (c) => c && c.color && c.quantity > 0,
+                          );
+                          const physical =
+                            typeof item.physical_units === 'number' && item.physical_units > 0
+                              ? item.physical_units
+                              : item.quantity_needed;
+                          return (
+                            <>
+                              <p className="text-sm text-muted-foreground">
+                                {physical} unidad{physical !== 1 ? 'es' : ''}
+                              </p>
+                              {colors.length > 0 && (
+                                <div className="flex flex-wrap items-center gap-1 mt-1">
+                                  <Palette className="h-3 w-3 text-muted-foreground shrink-0" />
+                                  {colors.map((c, i) => (
+                                    <Badge
+                                      key={i}
+                                      variant="secondary"
+                                      className="h-5 px-1.5 text-[11px] font-medium"
+                                    >
+                                      {c.quantity} {c.color}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
 
                       {/* Action Button / Status */}
