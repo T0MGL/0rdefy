@@ -796,21 +796,20 @@ export default function Orders() {
     refetchRef.current = refetch;
   }, [refetch]);
 
-  // Refetch when date range or server filters change - reset pagination
-  // CRITICAL FIX: Call fetch directly with current values instead of relying on refs
-  // to avoid race condition where serverFiltersRef.current might not be updated yet.
-  // AbortController cancels in-flight requests when filters change again (rapid filter clicks),
-  // preventing a slow stale request from overwriting the correct filtered data.
-  // Also aborts any pending load-more: its stale paginated data must not be appended to new results.
-  // Refetch when date range or server filters change - reset pagination
+  // Refetch when date range or server filters change - reset pagination.
+  // Calls fetch directly with current values instead of relying on refs to
+  // avoid a race where serverFiltersRef.current might not be updated yet.
+  // AbortController cancels in-flight requests when filters change again
+  // (rapid filter clicks), preventing a slow stale request from overwriting
+  // the correct filtered data. Also aborts any pending load-more so its
+  // stale paginated data is not appended on top of new filter results.
   //
-  // UX: we deliberately do NOT call setIsLoading(true) on every filter/search
-  // change. Doing so replaces the entire table with the skeleton on every
-  // keystroke (after debounce), which Gaston flagged as "carga el pedido cada
-  // vez que cambiamos una letra". Instead we keep the existing rows visible
-  // and rely on isRefreshing for a subtle "Actualizando..." indicator. The
-  // full-page skeleton only fires on the very first load (handled by the
-  // initial isLoading state being true on mount).
+  // UX: we deliberately do NOT call setIsLoading(true) on filter/search
+  // changes. Doing so replaces the entire table with the skeleton on every
+  // keystroke (after debounce), the "carga el pedido cada vez que cambiamos
+  // una letra" symptom. Existing rows stay visible and isRefreshing drives
+  // a subtle "Actualizando..." indicator instead. The full-page skeleton
+  // only fires on the very first load (initial isLoading state on mount).
   useEffect(() => {
     // Kill any in-flight load-more so it doesn't append stale pages on top of new filter results
     loadMoreAbortRef.current?.abort();

@@ -525,7 +525,12 @@ portalRouter.get('/orders', async (req: CourierRequest, res: Response) => {
         for (const token of tokens) {
           q = q.ilike('search_text', `%${escapeWildcards(token)}%`);
         }
-      } else if (normalized.length > 0) {
+      } else if (normalized.length >= 2) {
+        // Min length 2 prevents a single-char query (e.g. "a") from
+        // matching nearly every row via a wide `%a%` scan. Tokens already
+        // drop <2 char non-numeric inputs; this gate is defense in depth
+        // for the fallback branch (whitespace-only tokens collapsing to a
+        // normalized string that still fits the original input).
         q = q.ilike('search_text', `%${escapeWildcards(normalized)}%`);
       }
     }

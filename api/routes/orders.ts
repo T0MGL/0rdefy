@@ -1215,10 +1215,11 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                             for (const token of tokens) {
                                 query = query.ilike('search_text', `%${token}%`);
                             }
-                        } else if (normalized.length > 0) {
-                            // Short single-char input that survived sanitization
-                            // (rare). Fall back to a single ILIKE so we never
-                            // silently return all rows on a short query.
+                        } else if (normalized.length >= 2) {
+                            // Min length 2 prevents a single-char query (e.g. "a")
+                            // from matching nearly every row via a wide `%a%`
+                            // scan. The tokenizer already drops <2 char non-numeric
+                            // tokens; this gate covers the rare fallback case.
                             query = query.ilike('search_text', `%${normalized}%`);
                         }
                     }
