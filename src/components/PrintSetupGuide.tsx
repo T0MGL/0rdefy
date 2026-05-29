@@ -56,32 +56,32 @@ export function PrintSetupGuide({ open: controlledOpen, onOpenChange }: PrintSet
               </h3>
 
               <div className="space-y-2">
-                <div className="flex items-start gap-3 p-3 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
-                  <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div className="flex items-start gap-3 p-3 bg-primary/5 dark:bg-primary/20 rounded-lg border border-primary/30 dark:border-primary">
+                  <CheckCircle className="h-5 w-5 text-primary dark:text-primary flex-shrink-0 mt-0.5" />
                   <div className="flex-1">
                     <p className="font-medium text-sm">Tamaño de Papel</p>
                     <p className="text-sm text-muted-foreground">4 x 6 inches (101.6 x 152.4 mm)</p>
                   </div>
                 </div>
 
-                <div className="flex items-start gap-3 p-3 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
-                  <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div className="flex items-start gap-3 p-3 bg-primary/5 dark:bg-primary/20 rounded-lg border border-primary/30 dark:border-primary">
+                  <CheckCircle className="h-5 w-5 text-primary dark:text-primary flex-shrink-0 mt-0.5" />
                   <div className="flex-1">
                     <p className="font-medium text-sm">Escala</p>
                     <p className="text-sm text-muted-foreground">100% (sin ajustar a página)</p>
                   </div>
                 </div>
 
-                <div className="flex items-start gap-3 p-3 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
-                  <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div className="flex items-start gap-3 p-3 bg-primary/5 dark:bg-primary/20 rounded-lg border border-primary/30 dark:border-primary">
+                  <CheckCircle className="h-5 w-5 text-primary dark:text-primary flex-shrink-0 mt-0.5" />
                   <div className="flex-1">
                     <p className="font-medium text-sm">Márgenes</p>
                     <p className="text-sm text-muted-foreground">0mm en todos los lados</p>
                   </div>
                 </div>
 
-                <div className="flex items-start gap-3 p-3 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
-                  <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div className="flex items-start gap-3 p-3 bg-primary/5 dark:bg-primary/20 rounded-lg border border-primary/30 dark:border-primary">
+                  <CheckCircle className="h-5 w-5 text-primary dark:text-primary flex-shrink-0 mt-0.5" />
                   <div className="flex-1">
                     <p className="font-medium text-sm">Gráficos de Fondo</p>
                     <p className="text-sm text-muted-foreground">Activado (para imprimir QR y bordes)</p>
@@ -161,19 +161,19 @@ export function PrintSetupGuide({ open: controlledOpen, onOpenChange }: PrintSet
               <h3 className="font-semibold text-lg">Impresoras Compatibles</h3>
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  <CheckCircle className="h-4 w-4 text-primary dark:text-primary" />
                   <span>Zebra ZD420/ZD620</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  <CheckCircle className="h-4 w-4 text-primary dark:text-primary" />
                   <span>Dymo LabelWriter 4XL</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  <CheckCircle className="h-4 w-4 text-primary dark:text-primary" />
                   <span>Brother QL-1110NWB</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  <CheckCircle className="h-4 w-4 text-primary dark:text-primary" />
                   <span>Primera LX500</span>
                 </div>
               </div>

@@ -392,7 +392,7 @@ export function Header() {
                   <Badge
                     className={cn(
                       'absolute -top-1 -right-1 h-5 min-w-[1.25rem] flex items-center justify-center px-1 text-[10px] border-2 border-card tabular-nums',
-                      onboardingProgress.percentage >= 80 ? 'bg-emerald-600' : 'bg-primary'
+                      onboardingProgress.percentage >= 80 ? 'bg-primary' : 'bg-primary'
                     )}
                   >
                     {onboardingProgress.completedCount}/{onboardingProgress.totalCount}

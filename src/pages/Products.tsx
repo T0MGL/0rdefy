@@ -645,7 +645,7 @@ export default function Products() {
                         </Badge>
                       )}
                       {product.shopify_product_id && (
-                        <Badge variant="outline" className="bg-green-500/20 text-green-700 border-green-500/30 gap-1">
+                        <Badge variant="outline" className="bg-primary/20 text-primary border-primary/30 gap-1">
                           <ShoppingBag size={12} />
                           Shopify
                         </Badge>
@@ -715,7 +715,7 @@ export default function Products() {
                             <DropdownMenuItem
                               onClick={() => handlePublishToShopifyClick(product)}
                               disabled={isPublishing === product.id}
-                              className="gap-2 cursor-pointer text-green-700 dark:text-green-400"
+                              className="gap-2 cursor-pointer text-primary dark:text-primary"
                             >
                               <Upload size={16} />
                               {isPublishing === product.id ? 'Publicando...' : 'Publicar a Shopify'}
@@ -1023,16 +1023,16 @@ export default function Products() {
             <DialogTitle>Publicar en Shopify</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="bg-green-500/10 dark:bg-green-500/20 border border-green-500/20 dark:border-green-500/30 rounded-lg p-4">
+            <div className="bg-primary/10 dark:bg-primary/20 border border-primary/20 dark:border-primary/30 rounded-lg p-4">
               <div className="flex gap-3">
                 <div className="flex-shrink-0 mt-0.5">
-                  <ShoppingBag className="h-5 w-5 text-green-600 dark:text-green-500" />
+                  <ShoppingBag className="h-5 w-5 text-primary dark:text-primary" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-green-800 dark:text-green-500">
+                  <p className="text-sm font-medium text-primary dark:text-primary">
                     Confirmar publicación
                   </p>
-                  <p className="text-sm text-green-700 dark:text-green-600 mt-1">
+                  <p className="text-sm text-primary dark:text-primary mt-1">
                     El producto será publicado en tu tienda de Shopify y estará disponible para venta.
                   </p>
                 </div>
@@ -1064,7 +1064,7 @@ export default function Products() {
               </Button>
               <Button
                 onClick={handlePublishToShopify}
-                className="flex-1 bg-green-600 hover:bg-green-700"
+                className="flex-1 bg-primary hover:bg-primary/90"
               >
                 Publicar
               </Button>

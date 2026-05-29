@@ -220,8 +220,8 @@ export function PlanUpgradeBlocker({ feature, title, description }: PlanUpgradeB
           <ul className="space-y-2.5">
             {highlights.map((item, index) => (
               <li key={index} className="flex items-center gap-2.5 text-sm">
-                <div className="w-5 h-5 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0">
-                  <Check className="h-3 w-3 text-green-600 dark:text-green-400" />
+                <div className="w-5 h-5 rounded-full bg-primary/10 dark:bg-primary/30 flex items-center justify-center flex-shrink-0">
+                  <Check className="h-3 w-3 text-primary dark:text-primary" />
                 </div>
                 <span className="text-foreground">{item}</span>
               </li>
@@ -341,8 +341,8 @@ export function LimitReachedBlocker({ limitType, current, limit }: LimitReachedB
         {/* Reassurance */}
         <div className="bg-card border border-border rounded-xl p-4 shadow-sm max-w-sm mx-auto">
           <div className="flex items-start gap-3">
-            <div className="w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
-              <ShieldCheck className="w-4 h-4 text-green-600 dark:text-green-400" />
+            <div className="w-8 h-8 bg-primary/10 dark:bg-primary/30 rounded-lg flex items-center justify-center flex-shrink-0">
+              <ShieldCheck className="w-4 h-4 text-primary dark:text-primary" />
             </div>
             <div className="text-left">
               <p className="text-foreground text-sm font-medium">Tus datos están seguros</p>

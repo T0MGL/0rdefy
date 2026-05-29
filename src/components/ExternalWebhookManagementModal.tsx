@@ -179,7 +179,7 @@ console.log(result.status, result.awaiting_carrier);`;
 function CopyButton({ text, id, copied, onCopy }: { text: string; id: string; copied: string | null; onCopy: (text: string, id: string) => void }) {
   return (
     <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => onCopy(text, id)}>
-      {copied === id ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+      {copied === id ? <CheckCircle2 className="h-3.5 w-3.5 text-primary" /> : <Copy className="h-3.5 w-3.5" />}
       <span className="ml-1 text-xs">Copiar</span>
     </Button>
   );
@@ -215,9 +215,9 @@ function CodeBlock({ code, lang }: { code: string; lang?: string }) {
 type ApiAction = 'crear' | 'buscar' | 'confirmar';
 
 const ACTION_CONFIG: Record<ApiAction, { label: string; icon: typeof Plus; method: string; color: string; methodBg: string }> = {
-  crear: { label: 'Crear Pedido', icon: Plus, method: 'POST', color: 'text-green-600', methodBg: 'bg-green-500/10 text-green-600 border-green-500/30' },
+  crear: { label: 'Crear Pedido', icon: Plus, method: 'POST', color: 'text-primary', methodBg: 'bg-primary/10 text-primary border-primary/30' },
   buscar: { label: 'Buscar Ordenes', icon: Search, method: 'GET', color: 'text-blue-600', methodBg: 'bg-blue-500/10 text-blue-600 border-blue-500/30' },
-  confirmar: { label: 'Confirmar Orden', icon: CheckCheck, method: 'POST', color: 'text-emerald-600', methodBg: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30' },
+  confirmar: { label: 'Confirmar Orden', icon: CheckCheck, method: 'POST', color: 'text-primary', methodBg: 'bg-primary/10 text-primary border-primary/30' },
 };
 
 function ActionPills({ selected, onChange }: { selected: ApiAction; onChange: (a: ApiAction) => void }) {
@@ -380,7 +380,7 @@ export function ExternalWebhookManagementModal({
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'success':
-        return <Badge variant="outline" className="border-green-500 text-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Exitoso</Badge>;
+        return <Badge variant="outline" className="border-primary text-primary"><CheckCircle2 className="w-3 h-3 mr-1" /> Exitoso</Badge>;
       case 'failed':
         return <Badge variant="outline" className="border-red-500 text-red-600"><XCircle className="w-3 h-3 mr-1" /> Error</Badge>;
       case 'duplicate':
@@ -469,13 +469,13 @@ export function ExternalWebhookManagementModal({
               {/* Crear */}
               <div className="p-3 rounded-lg border bg-muted/20 space-y-1.5">
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-500/10 text-green-600 border-green-500/30">POST</Badge>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-primary/10 text-primary border-primary/30">POST</Badge>
                   <span className="text-xs font-medium">Crear Pedido</span>
                 </div>
                 <div className="flex gap-2">
                   <Input value={webhookUrl} readOnly className="font-mono text-[10px] h-8" />
                   <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(webhookUrl, 'url-create')}>
-                    {copied === 'url-create' ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                    {copied === 'url-create' ? <CheckCircle2 className="h-3.5 w-3.5 text-primary" /> : <Copy className="h-3.5 w-3.5" />}
                   </Button>
                 </div>
               </div>
@@ -489,7 +489,7 @@ export function ExternalWebhookManagementModal({
                 <div className="flex gap-2">
                   <Input value={`${webhookUrl}/lookup`} readOnly className="font-mono text-[10px] h-8" />
                   <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(`${webhookUrl}/lookup`, 'url-lookup')}>
-                    {copied === 'url-lookup' ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                    {copied === 'url-lookup' ? <CheckCircle2 className="h-3.5 w-3.5 text-primary" /> : <Copy className="h-3.5 w-3.5" />}
                   </Button>
                 </div>
                 <p className="text-[10px] text-muted-foreground">?phone=0981... o ?order_number=1315</p>
@@ -498,13 +498,13 @@ export function ExternalWebhookManagementModal({
               {/* Confirmar */}
               <div className="p-3 rounded-lg border bg-muted/20 space-y-1.5">
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-500/10 text-emerald-600 border-emerald-500/30">POST</Badge>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-primary/10 text-primary border-primary/30">POST</Badge>
                   <span className="text-xs font-medium">Confirmar Orden</span>
                 </div>
                 <div className="flex gap-2">
                   <Input value={`${webhookUrl}/confirm`} readOnly className="font-mono text-[10px] h-8" />
                   <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => copyToClipboard(`${webhookUrl}/confirm`, 'url-confirm')}>
-                    {copied === 'url-confirm' ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                    {copied === 'url-confirm' ? <CheckCircle2 className="h-3.5 w-3.5 text-primary" /> : <Copy className="h-3.5 w-3.5" />}
                   </Button>
                 </div>
                 <p className="text-[10px] text-muted-foreground">Sin courier_id = pendiente de asignacion en el dashboard</p>
@@ -515,14 +515,14 @@ export function ExternalWebhookManagementModal({
             <div className="space-y-2">
               <Label>API Key</Label>
               {newApiKey ? (
-                <Alert className="border-green-500/50 bg-green-500/10">
-                  <CheckCircle2 className="h-4 w-4 text-green-500" />
+                <Alert className="border-primary/50 bg-primary/10">
+                  <CheckCircle2 className="h-4 w-4 text-primary" />
                   <AlertDescription>
                     <p className="text-sm font-medium mb-2">Nueva API Key:</p>
                     <div className="flex gap-2">
                       <Input value={newApiKey} readOnly className="font-mono text-xs" />
                       <Button variant="outline" size="icon" onClick={() => copyToClipboard(newApiKey, 'newKey')}>
-                        {copied === 'newKey' ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                        {copied === 'newKey' ? <CheckCircle2 className="h-4 w-4 text-primary" /> : <Copy className="h-4 w-4" />}
                       </Button>
                     </div>
                     <p className="text-xs text-muted-foreground mt-2">Guardala, no se mostrara de nuevo.</p>
@@ -570,12 +570,12 @@ export function ExternalWebhookManagementModal({
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-medium flex items-center gap-1.5">
-                      <FileJson className="h-3.5 w-3.5 text-green-500" />
+                      <FileJson className="h-3.5 w-3.5 text-primary" />
                       Payload minimo
                     </Label>
                     <CopyButton text={JSON.stringify(PAYLOAD_CREAR_MINIMO, null, 2)} id="p-crear-min" copied={copied} onCopy={copyToClipboard} />
                   </div>
-                  <pre className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-[11px] overflow-x-auto max-h-[200px] font-mono">
+                  <pre className="p-3 rounded-lg bg-primary/10 border border-primary/30 text-[11px] overflow-x-auto max-h-[200px] font-mono">
                     {JSON.stringify(PAYLOAD_CREAR_MINIMO, null, 2)}
                   </pre>
                 </div>
@@ -596,23 +596,23 @@ export function ExternalWebhookManagementModal({
                 <div className="p-3 rounded-lg border bg-muted/30 space-y-2">
                   <Label className="text-xs font-medium">Campos requeridos</Label>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px]">
-                    <code className="text-green-600">customer.name</code>
+                    <code className="text-primary">customer.name</code>
                     <span className="text-muted-foreground">Nombre del cliente</span>
-                    <code className="text-green-600">customer.phone</code>
+                    <code className="text-primary">customer.phone</code>
                     <span className="text-muted-foreground">Teléfono</span>
-                    <code className="text-green-600">shipping_address.address</code>
+                    <code className="text-primary">shipping_address.address</code>
                     <span className="text-muted-foreground">Dirección</span>
-                    <code className="text-green-600">shipping_address.city</code>
+                    <code className="text-primary">shipping_address.city</code>
                     <span className="text-muted-foreground">Ciudad</span>
-                    <code className="text-green-600">items[].name</code>
+                    <code className="text-primary">items[].name</code>
                     <span className="text-muted-foreground">Nombre del producto</span>
-                    <code className="text-green-600">items[].quantity</code>
+                    <code className="text-primary">items[].quantity</code>
                     <span className="text-muted-foreground">Cantidad</span>
-                    <code className="text-green-600">items[].price</code>
+                    <code className="text-primary">items[].price</code>
                     <span className="text-muted-foreground">Precio unitario</span>
-                    <code className="text-green-600">totals.total</code>
+                    <code className="text-primary">totals.total</code>
                     <span className="text-muted-foreground">Total del pedido</span>
-                    <code className="text-green-600">payment_method</code>
+                    <code className="text-primary">payment_method</code>
                     <span className="text-muted-foreground">cash_on_delivery | online | pending</span>
                   </div>
                 </div>
@@ -643,7 +643,7 @@ export function ExternalWebhookManagementModal({
 
                 {/* Respuesta (collapsible) */}
                 <CollapsibleResponse title="Ver respuesta exitosa (201)">
-                  <pre className="p-3 rounded-lg border bg-muted/20 text-[11px] font-mono text-green-600 ml-4">
+                  <pre className="p-3 rounded-lg border bg-muted/20 text-[11px] font-mono text-primary ml-4">
 {`{
   "success": true,
   "order_id": "uuid",
@@ -733,12 +733,12 @@ export function ExternalWebhookManagementModal({
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-medium flex items-center gap-1.5">
-                      <FileJson className="h-3.5 w-3.5 text-emerald-500" />
+                      <FileJson className="h-3.5 w-3.5 text-primary" />
                       Confirmar orden (minimo)
                     </Label>
                     <CopyButton text={JSON.stringify(PAYLOAD_CONFIRMAR, null, 2)} id="p-confirm-min" copied={copied} onCopy={copyToClipboard} />
                   </div>
-                  <pre className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-[11px] overflow-x-auto font-mono">
+                  <pre className="p-3 rounded-lg bg-primary/10 border border-primary/30 text-[11px] overflow-x-auto font-mono">
                     {JSON.stringify(PAYLOAD_CONFIRMAR, null, 2)}
                   </pre>
                   <p className="text-[10px] text-muted-foreground">
@@ -762,7 +762,7 @@ export function ExternalWebhookManagementModal({
                 <div className="p-3 rounded-lg border bg-muted/30 space-y-2">
                   <Label className="text-xs font-medium">Campos</Label>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px]">
-                    <code className="text-emerald-600 font-semibold">order_number *</code>
+                    <code className="text-primary font-semibold">order_number *</code>
                     <span className="text-muted-foreground">Número de orden (ej: 1315, #1315)</span>
                     <code className="text-muted-foreground">courier_id</code>
                     <span className="text-muted-foreground">UUID transportista (opcional)</span>
@@ -779,7 +779,7 @@ export function ExternalWebhookManagementModal({
 
                 {/* Respuesta (collapsible) */}
                 <CollapsibleResponse title="Ver respuesta exitosa">
-                  <pre className="p-3 rounded-lg border bg-muted/20 text-[11px] font-mono text-emerald-600 ml-4">
+                  <pre className="p-3 rounded-lg border bg-muted/20 text-[11px] font-mono text-primary ml-4">
 {`{
   "success": true,
   "order_number": "#1315",
@@ -795,7 +795,7 @@ export function ExternalWebhookManagementModal({
                 {/* Estados validos */}
                 <CollapsibleResponse title="Que ordenes se pueden confirmar?">
                   <div className="p-3 rounded-lg border bg-muted/20 text-[11px] ml-4 space-y-1">
-                    <p>Solo ordenes con estado <code className="text-emerald-600">pending</code> o <code className="text-emerald-600">contacted</code>.</p>
+                    <p>Solo ordenes con estado <code className="text-primary">pending</code> o <code className="text-primary">contacted</code>.</p>
                     <p className="text-muted-foreground">Si la orden ya esta confirmada, enviada o entregada, devuelve error.</p>
                   </div>
                 </CollapsibleResponse>
@@ -830,7 +830,7 @@ export function ExternalWebhookManagementModal({
                 </CollapsibleResponse>
 
                 <CollapsibleResponse title="Ver respuesta exitosa (201)">
-                  <pre className="p-3 rounded-lg border bg-muted/20 text-[11px] font-mono text-green-600 ml-4">
+                  <pre className="p-3 rounded-lg border bg-muted/20 text-[11px] font-mono text-primary ml-4">
 {`{
   "success": true,
   "order_id": "uuid",
@@ -885,7 +885,7 @@ export function ExternalWebhookManagementModal({
                 </CollapsibleResponse>
 
                 <CollapsibleResponse title="Ver respuesta exitosa">
-                  <pre className="p-3 rounded-lg border bg-muted/20 text-[11px] font-mono text-emerald-600 ml-4">
+                  <pre className="p-3 rounded-lg border bg-muted/20 text-[11px] font-mono text-primary ml-4">
 {`{
   "success": true,
   "order_number": "#1315",

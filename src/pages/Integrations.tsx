@@ -333,8 +333,8 @@ export default function Integrations() {
                   <CardTitle className="text-xl">{integration.name}</CardTitle>
                   {status === 'connected' && (
                     <div className="flex items-center gap-1 mt-1">
-                      <CheckCircle2 size={14} className="text-green-600 dark:text-green-400" />
-                      <span className="text-xs text-green-600 dark:text-green-400 font-medium">Conectado</span>
+                      <CheckCircle2 size={14} className="text-primary dark:text-primary" />
+                      <span className="text-xs text-primary dark:text-primary font-medium">Conectado</span>
                     </div>
                   )}
                 </div>

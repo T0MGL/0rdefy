@@ -939,13 +939,13 @@ export function OrderConfirmationDialog({
           {isConfirmed && confirmedOrder ? (
             // Success state - Show shipping label with upsell toggle
             <>
-              <div className="mb-6 p-4 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800 flex items-center gap-3">
-                <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400 flex-shrink-0" />
+              <div className="mb-6 p-4 bg-primary/5 dark:bg-primary/20 rounded-lg border border-primary/30 dark:border-primary flex items-center gap-3">
+                <CheckCircle2 className="h-8 w-8 text-primary dark:text-primary flex-shrink-0" />
                 <div>
-                  <p className="font-semibold text-green-900 dark:text-green-100">
+                  <p className="font-semibold text-primary dark:text-primary">
                     Pedido confirmado exitosamente
                   </p>
-                  <p className="text-sm text-green-700 dark:text-green-300">
+                  <p className="text-sm text-primary dark:text-primary">
                     {showPrintAfterConfirm
                       ? 'El repartidor ha sido asignado. Imprime la etiqueta y pégala en el paquete.'
                       : 'El pedido pasará a preparación en el módulo de Almacén.'}
@@ -1339,18 +1339,18 @@ export function OrderConfirmationDialog({
                   <div className={cn(
                     "flex items-center justify-between space-x-2 p-4 rounded-lg border-2 transition-all",
                     isPickup
-                      ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
+                      ? "border-primary bg-primary/5 dark:bg-primary/30"
                       : "border-muted bg-muted/30 hover:border-muted-foreground/20"
                   )}>
                     <Label htmlFor="pickup" className="flex items-start gap-3 cursor-pointer flex-1">
                       <Store className={cn(
                         "h-5 w-5 mt-0.5 flex-shrink-0",
-                        isPickup ? "text-emerald-600" : "text-muted-foreground"
+                        isPickup ? "text-primary" : "text-muted-foreground"
                       )} />
                       <div className="space-y-1">
                         <span className={cn(
                           "font-medium",
-                          isPickup && "text-emerald-700 dark:text-emerald-300"
+                          isPickup && "text-primary dark:text-primary"
                         )}>
                           Retiro en local
                         </span>
@@ -1376,12 +1376,12 @@ export function OrderConfirmationDialog({
                   </div>
 
                   {isPickup && (
-                    <div className="p-3 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800">
-                      <p className="text-sm text-emerald-800 dark:text-emerald-200 font-medium flex items-center gap-2">
+                    <div className="p-3 rounded-lg bg-primary/10 dark:bg-primary/30 border border-primary/30 dark:border-primary">
+                      <p className="text-sm text-primary dark:text-primary font-medium flex items-center gap-2">
                         <Check className="h-4 w-4" />
                         Sin costo de envío - {formatCurrency(0)}
                       </p>
-                      <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-1">
+                      <p className="text-xs text-primary dark:text-primary mt-1">
                         El pedido no aparecerá en despachos ni liquidaciones de repartidores.
                       </p>
                     </div>
@@ -1394,12 +1394,12 @@ export function OrderConfirmationDialog({
                 <>
                   {/* Show pre-filled shipping data indicator */}
                   {hasPrefilledShippingData && selectedCity && courierId && (
-                    <div className="p-3 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800">
-                      <p className="text-sm text-green-800 dark:text-green-200 font-medium flex items-center gap-2">
+                    <div className="p-3 rounded-lg bg-primary/5 dark:bg-primary/20 border border-primary/30 dark:border-primary">
+                      <p className="text-sm text-primary dark:text-primary font-medium flex items-center gap-2">
                         <Check className="h-4 w-4" />
                         Datos de envío ya configurados
                       </p>
-                      <p className="text-xs text-green-700 dark:text-green-300 mt-1">
+                      <p className="text-xs text-primary dark:text-primary mt-1">
                         Ciudad y repartidor seleccionados al crear el pedido. Puedes modificarlos si es necesario.
                       </p>
                     </div>
@@ -1785,7 +1785,7 @@ export function OrderConfirmationDialog({
                   ))}
                   className={cn(
                     'touch-target',
-                    isPickup && "bg-emerald-600 hover:bg-emerald-700",
+                    isPickup && "bg-primary hover:bg-primary/90",
                     useSeparateConfirmationFlow && "bg-blue-600 hover:bg-blue-700"
                   )}
                 >

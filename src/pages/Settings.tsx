@@ -702,7 +702,7 @@ export default function Settings() {
 
         {/* Profile Tab */}
         <TabsContent value="profile" className="space-y-6">
-          <Card className="p-6 bg-gradient-to-br from-green-50/50 to-transparent dark:from-green-950/20 dark:to-transparent">
+          <Card className="p-6 bg-gradient-to-br from-primary/50 to-transparent dark:from-primary/20 dark:to-transparent">
             <h2 className="text-xl font-semibold mb-6">Información del Perfil</h2>
 
             <div className="flex items-center gap-6 mb-8">
@@ -815,7 +815,7 @@ export default function Settings() {
           </Card>
 
           {/* Store Management */}
-          <Card className="p-6 bg-gradient-to-br from-green-50/50 to-transparent dark:from-green-950/20 dark:to-transparent">
+          <Card className="p-6 bg-gradient-to-br from-primary/50 to-transparent dark:from-primary/20 dark:to-transparent">
             <h2 className="text-xl font-semibold mb-6">Mis Tiendas</h2>
 
             <div className="space-y-4">
@@ -832,7 +832,7 @@ export default function Settings() {
                       <div className="flex items-center gap-2">
                         <h3 className="font-semibold">{store.name}</h3>
                         {currentStore?.id === store.id && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 dark:bg-green-950/50 dark:text-green-400">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-primary/5 text-primary dark:bg-primary/50 dark:text-primary">
                             <CheckCircle size={12} />
                             Activa
                           </span>
@@ -899,7 +899,7 @@ export default function Settings() {
 
         {/* Preferences Tab */}
         <TabsContent value="preferences" className="space-y-6">
-          <Card className="p-6 bg-gradient-to-br from-green-50/50 to-transparent dark:from-green-950/20 dark:to-transparent">
+          <Card className="p-6 bg-gradient-to-br from-primary/50 to-transparent dark:from-primary/20 dark:to-transparent">
             <h2 className="text-xl font-semibold mb-6">Preferencias de Notificaciones</h2>
 
             <div className="space-y-6">
@@ -1159,7 +1159,7 @@ export default function Settings() {
         {/* Security Tab */}
 
         <TabsContent value="security" className="space-y-6">
-          <Card className="p-6 bg-gradient-to-br from-green-50/50 to-transparent dark:from-green-950/20 dark:to-transparent">
+          <Card className="p-6 bg-gradient-to-br from-primary/50 to-transparent dark:from-primary/20 dark:to-transparent">
             <h2 className="text-xl font-semibold mb-6">Seguridad</h2>
 
             <div className="space-y-6">

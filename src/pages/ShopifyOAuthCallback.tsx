@@ -61,8 +61,8 @@ export default function ShopifyOAuthCallback() {
           {status === 'success' ? (
             <div className="text-center space-y-4">
               <div className="flex justify-center">
-                <div className="h-16 w-16 rounded-full bg-green-100 dark:bg-green-900/20 flex items-center justify-center">
-                  <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400" />
+                <div className="h-16 w-16 rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center">
+                  <CheckCircle2 className="h-8 w-8 text-primary dark:text-primary" />
                 </div>
               </div>
               <div>

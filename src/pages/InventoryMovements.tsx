@@ -35,7 +35,7 @@ const MOVEMENT_TYPES = {
   order_cancelled: { label: 'Pedido Cancelado', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400', icon: TrendingUp },
   order_reverted: { label: 'Pedido Revertido', color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400', icon: TrendingUp },
   manual_adjustment: { label: 'Ajuste Manual', color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400', icon: Package },
-  return_accepted: { label: 'Devolución Aceptada', color: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400', icon: TrendingUp },
+  return_accepted: { label: 'Devolución Aceptada', color: 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary', icon: TrendingUp },
   return_rejected: { label: 'Devolución Rechazada', color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400', icon: Package },
   inbound_received: { label: 'Recepción de Proveedor', color: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/20 dark:text-cyan-400', icon: TrendingUp },
 };
@@ -161,7 +161,7 @@ export function InventoryMovements() {
   const renderQuantityChange = (change: number) => {
     const isPositive = change > 0;
     return (
-      <span className={`font-semibold ${isPositive ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+      <span className={`font-semibold ${isPositive ? 'text-primary dark:text-primary' : 'text-red-600 dark:text-red-400'}`}>
         {isPositive ? '+' : ''}{change}
       </span>
     );
@@ -241,7 +241,7 @@ export function InventoryMovements() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+              <div className="text-2xl font-bold text-primary dark:text-primary">
                 +{summary.total_increments}
               </div>
             </CardContent>
@@ -254,7 +254,7 @@ export function InventoryMovements() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className={`text-2xl font-bold ${summary.net_change >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+              <div className={`text-2xl font-bold ${summary.net_change >= 0 ? 'text-primary dark:text-primary' : 'text-red-600 dark:text-red-400'}`}>
                 {summary.net_change >= 0 ? '+' : ''}{summary.net_change}
               </div>
             </CardContent>
@@ -390,7 +390,7 @@ export function InventoryMovements() {
               </p>
               <button
                 onClick={() => refetch()}
-                className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
               >
                 Reintentar
               </button>

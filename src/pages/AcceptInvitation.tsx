@@ -330,11 +330,11 @@ export default function AcceptInvitation() {
         <CardHeader className="text-center space-y-4">
           <div className={`mx-auto w-16 h-16 rounded-full flex items-center justify-center ${
             invitation?.isCourierInvite
-              ? 'bg-emerald-500/10'
+              ? 'bg-primary/10'
               : 'bg-primary/10'
           }`}>
             {invitation?.isCourierInvite ? (
-              <Truck className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
+              <Truck className="h-8 w-8 text-primary dark:text-primary" />
             ) : (
               <Users className="h-8 w-8 text-primary" />
             )}
@@ -369,9 +369,9 @@ export default function AcceptInvitation() {
           <form onSubmit={handleAccept} className="space-y-4">
             {/* Session cleared confirmation */}
             {sessionAcknowledged && (
-              <Alert className="border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20">
-                <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
-                <AlertDescription className="text-green-700 dark:text-green-300">
+              <Alert className="border-primary/30 bg-primary/5 dark:border-primary dark:bg-primary/20">
+                <CheckCircle2 className="w-4 h-4 text-primary dark:text-primary" />
+                <AlertDescription className="text-primary dark:text-primary">
                   Sesión anterior cerrada correctamente. Puedes continuar con la invitación.
                 </AlertDescription>
               </Alert>
@@ -379,12 +379,12 @@ export default function AcceptInvitation() {
 
             {/* Courier-specific intro (Phase 2: Courier Portal) */}
             {invitation?.isCourierInvite && (
-              <div className="rounded-lg border border-emerald-500/20 bg-emerald-50 dark:bg-emerald-950/20 p-4 space-y-2">
-                <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300 font-medium text-sm">
+              <div className="rounded-lg border border-primary/20 bg-primary/5 dark:bg-primary/20 p-4 space-y-2">
+                <div className="flex items-center gap-2 text-primary dark:text-primary font-medium text-sm">
                   <Package className="w-4 h-4" />
                   ¿Qué vas a poder hacer?
                 </div>
-                <ul className="text-sm text-emerald-900/80 dark:text-emerald-100/80 space-y-1 ml-6 list-disc">
+                <ul className="text-sm text-primary/80 dark:text-primary/80 space-y-1 ml-6 list-disc">
                   <li>Ver los pedidos asignados a {invitation?.carrierName ?? 'tu courier'}.</li>
                   <li>Marcar entregas, no entregas y devoluciones desde el celular.</li>
                   <li>Reportar incidencias en segundos, sin WhatsApp.</li>

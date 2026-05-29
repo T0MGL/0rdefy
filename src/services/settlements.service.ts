@@ -676,7 +676,7 @@ export const getStatusColor = (status: DispatchStatus): string => {
     open: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
     dispatched: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
     reconciled: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
-    settled: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+    settled: 'bg-primary/10 text-primary dark:bg-primary/30 dark:text-primary',
   };
   return colors[status] || 'bg-gray-100 text-gray-800';
 };
@@ -684,7 +684,7 @@ export const getStatusColor = (status: DispatchStatus): string => {
 export const getDeliveryResultColor = (result: DeliveryResult): string => {
   const colors: Record<DeliveryResult, string> = {
     pending: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400',
-    delivered: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+    delivered: 'bg-primary/10 text-primary dark:bg-primary/30 dark:text-primary',
     failed: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
     rejected: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
     rescheduled: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',

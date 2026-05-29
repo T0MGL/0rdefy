@@ -462,7 +462,7 @@ export default function Customers() {
             <MetricCard
               title={metricLabels.returningCustomers.title}
               value={stats?.overview.repeat_customers ?? 0}
-              icon={<Users className="text-green-600" size={24} />}
+              icon={<Users className="text-primary" size={24} />}
               subtitle={`${repeatPct}% del total`}
             />
             <MetricCard
@@ -474,7 +474,7 @@ export default function Customers() {
             <MetricCard
               title={metricLabels.customerLifetimeValue.title}
               value={formatCurrency(stats?.overview.avg_lifetime_value ?? 0)}
-              icon={<DollarSign className="text-emerald-600" size={24} />}
+              icon={<DollarSign className="text-primary" size={24} />}
               subtitle="valor de vida"
             />
           </>
@@ -728,7 +728,7 @@ export default function Customers() {
                           </Badge>
                         )}
                         {customer.total_orders > 0 && (
-                          <Badge variant="outline" className="bg-green-500/20 text-green-700 border-green-500/30">
+                          <Badge variant="outline" className="bg-primary/20 text-primary border-primary/30">
                             {customer.total_orders} pedido{customer.total_orders !== 1 ? 's' : ''}
                           </Badge>
                         )}

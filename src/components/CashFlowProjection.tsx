@@ -195,12 +195,12 @@ export function CashFlowProjection() {
 
         <div className={`p-4 rounded-lg border ${
           totalNetCashFlow >= 0
-            ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800'
+            ? 'bg-primary/5 dark:bg-primary/20 border-primary/30 dark:border-primary'
             : 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800'
         }`}>
           <div className={`flex items-center gap-2 mb-2 ${
             totalNetCashFlow >= 0
-              ? 'text-green-600 dark:text-green-400'
+              ? 'text-primary dark:text-primary'
               : 'text-red-600 dark:text-red-400'
           }`}>
             <DollarSign className="w-4 h-4" />
@@ -208,7 +208,7 @@ export function CashFlowProjection() {
           </div>
           <p className={`text-xl font-bold ${
             totalNetCashFlow >= 0
-              ? 'text-green-900 dark:text-green-300'
+              ? 'text-primary dark:text-primary'
               : 'text-red-900 dark:text-red-300'
           }`}>
             {formatCurrency(totalNetCashFlow)}
@@ -259,7 +259,7 @@ export function CashFlowProjection() {
             <Line
               type="monotone"
               dataKey="flujoNeto"
-              stroke="#10b981"
+              stroke="#C1E94E"
               strokeWidth={2}
               name="Flujo Neto"
               dot={{ r: 4 }}
@@ -322,7 +322,7 @@ export function CashFlowProjection() {
                 </td>
                 <td className={`py-2 px-3 text-right font-medium ${
                   period.netCashFlow[scenario] >= 0
-                    ? 'text-green-600 dark:text-green-400'
+                    ? 'text-primary dark:text-primary'
                     : 'text-red-600 dark:text-red-400'
                 }`}>
                   {formatCurrency(period.netCashFlow[scenario])}

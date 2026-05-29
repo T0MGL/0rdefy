@@ -104,8 +104,8 @@ export function MerchandiseStep({ onComplete }: MerchandiseStepProps) {
                 </div>
 
                 <div className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
-                  <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
-                    <Boxes className="w-4 h-4 text-green-500" />
+                  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
+                    <Boxes className="w-4 h-4 text-primary" />
                   </div>
                   <div>
                     <p className="font-medium text-sm">3. Recibir</p>
@@ -160,18 +160,18 @@ export function MerchandiseStep({ onComplete }: MerchandiseStepProps) {
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-                className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4"
+                className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4"
               >
-                <Check className="w-8 h-8 text-green-500" />
+                <Check className="w-8 h-8 text-primary" />
               </motion.div>
               <h3 className="text-lg font-bold mb-2">¡Mercadería Recibida!</h3>
               <p className="text-sm text-muted-foreground mb-4">
                 Stock actualizado automáticamente
               </p>
 
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-500/10 rounded-full">
-                <Plus className="w-4 h-4 text-green-500" />
-                <span className="text-sm font-medium text-green-600 dark:text-green-400">
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full">
+                <Plus className="w-4 h-4 text-primary" />
+                <span className="text-sm font-medium text-primary dark:text-primary">
                   +20 {demoData.product?.name?.split(' ')[0] || 'Camiseta'}
                 </span>
               </div>
@@ -197,7 +197,7 @@ export function MerchandiseStep({ onComplete }: MerchandiseStepProps) {
                 onComplete?.();
                 nextStep();
               }}
-              className="w-full gap-2 h-11 bg-green-600 hover:bg-green-700"
+              className="w-full gap-2 h-11 bg-primary hover:bg-primary/90"
             >
               <Check className="w-4 h-4" />
               Continuar al Final

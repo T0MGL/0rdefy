@@ -378,10 +378,10 @@ export function OutboundWebhookManager({ open, onOpenChange }: OutboundWebhookMa
   };
 
   const eventBadgeColor = (event: string) => {
-    if (event.includes('delivered')) return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
+    if (event.includes('delivered')) return 'bg-primary/10 text-primary dark:bg-primary/30 dark:text-primary';
     if (event.includes('cancelled')) return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400';
     if (event.includes('shipped')) return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400';
-    if (event.includes('confirmed')) return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400';
+    if (event.includes('confirmed')) return 'bg-primary/10 text-primary dark:bg-primary/30 dark:text-primary';
     return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300';
   };
 
@@ -636,7 +636,7 @@ export function OutboundWebhookManager({ open, onOpenChange }: OutboundWebhookMa
                                 {/* Stats */}
                                 <div className="flex gap-4 text-xs text-muted-foreground">
                                   <span className="flex items-center gap-1">
-                                    <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                    <CheckCircle2 className="h-3 w-3 text-primary" />
                                     {config.total_deliveries} enviados
                                   </span>
                                   <span className="flex items-center gap-1">
@@ -739,7 +739,7 @@ export function OutboundWebhookManager({ open, onOpenChange }: OutboundWebhookMa
                           className="flex items-center gap-3 p-3 border rounded-lg text-sm"
                         >
                           {delivery.status === 'success' ? (
-                            <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                            <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
                           ) : delivery.status === 'failed' ? (
                             <XCircle className="h-4 w-4 text-red-500 shrink-0" />
                           ) : (

@@ -142,9 +142,9 @@ export function InlineValidation({
       ))}
 
       {allValid && showSuccess && (
-        <Alert className="py-2 border-green-500 bg-green-50 dark:bg-green-950/20">
-          <CheckCircle2 className="h-4 w-4 text-green-600" />
-          <AlertDescription className="text-sm text-green-700 dark:text-green-400">
+        <Alert className="py-2 border-primary bg-primary/5 dark:bg-primary/20">
+          <CheckCircle2 className="h-4 w-4 text-primary" />
+          <AlertDescription className="text-sm text-primary dark:text-primary">
             Todo listo para continuar
           </AlertDescription>
         </Alert>
@@ -206,7 +206,7 @@ export function StockValidator({
       )}
 
       {!isCritical && !isLow && (
-        <Badge variant="outline" className="gap-1 border-green-500 text-green-700">
+        <Badge variant="outline" className="gap-1 border-primary text-primary">
           <CheckCircle2 className="w-3 h-3" />
           Stock disponible
         </Badge>
@@ -292,7 +292,7 @@ export function FormProgress({ steps, currentStep }: FormProgressProps) {
             }`}
           >
             {step.completed ? (
-              <CheckCircle2 className="w-4 h-4 text-green-500" />
+              <CheckCircle2 className="w-4 h-4 text-primary" />
             ) : currentStep === step.id ? (
               <div className="w-4 h-4 rounded-full border-2 border-blue-500" />
             ) : (

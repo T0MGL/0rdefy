@@ -91,8 +91,8 @@ export default function PollingTest() {
             <div className="flex items-center gap-2">
               {isPolling ? (
                 <>
-                  <Badge className="bg-green-500">Active</Badge>
-                  <span className="animate-pulse text-green-500">●</span>
+                  <Badge className="bg-primary">Active</Badge>
+                  <span className="animate-pulse text-primary">●</span>
                 </>
               ) : (
                 <Badge variant="secondary">Inactive</Badge>
@@ -202,7 +202,7 @@ export default function PollingTest() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="bg-black text-green-400 p-4 rounded-lg font-mono text-xs h-96 overflow-y-auto space-y-1">
+          <div className="bg-black text-primary p-4 rounded-lg font-mono text-xs h-96 overflow-y-auto space-y-1">
             {logs.length === 0 ? (
               <div className="text-gray-500">No logs yet...</div>
             ) : (

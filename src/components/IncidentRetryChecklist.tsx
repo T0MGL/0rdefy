@@ -45,7 +45,7 @@ interface IncidentRetryChecklistProps {
 const retryStatusColors = {
   scheduled: 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400',
   in_progress: 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-700 dark:text-yellow-400',
-  delivered: 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400',
+  delivered: 'bg-primary/5 dark:bg-primary/20 text-primary dark:text-primary',
   failed: 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400',
 };
 

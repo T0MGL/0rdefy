@@ -219,7 +219,7 @@ export function ShopifySyncStatus() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'completed':
-        return <Badge className="bg-green-500"><CheckCircle2 size={12} className="mr-1" /> Completado</Badge>;
+        return <Badge className="bg-primary"><CheckCircle2 size={12} className="mr-1" /> Completado</Badge>;
       case 'running':
         return <Badge className="bg-blue-500"><RefreshCw size={12} className="mr-1 animate-spin" /> Sincronizando</Badge>;
       case 'failed':

@@ -106,8 +106,8 @@ export function ShopifyOAuthConnect({ open, onOpenChange }: ShopifyOAuthConnectP
       <DialogContent className="max-w-md">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-green-100 dark:bg-green-950 flex items-center justify-center">
-              <Store className="h-5 w-5 text-green-600 dark:text-green-400" />
+            <div className="h-10 w-10 rounded-lg bg-primary/10 dark:bg-primary flex items-center justify-center">
+              <Store className="h-5 w-5 text-primary dark:text-primary" />
             </div>
             <div>
               <DialogTitle className="text-xl">Conectar Shopify</DialogTitle>

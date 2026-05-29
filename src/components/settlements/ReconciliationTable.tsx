@@ -149,7 +149,7 @@ export function ReconciliationTable({
                 className={cn(
                   'transition-colors',
                   delivered
-                    ? 'bg-green-50/50 dark:bg-green-950/10 hover:bg-green-50 dark:hover:bg-green-950/20'
+                    ? 'bg-primary/50 dark:bg-primary/10 hover:bg-primary/5 dark:hover:bg-primary/20'
                     : 'bg-red-50/50 dark:bg-red-950/10 hover:bg-red-50 dark:hover:bg-red-950/20'
                 )}
               >
@@ -181,7 +181,7 @@ export function ReconciliationTable({
                 </TableCell>
                 <TableCell className="text-right">
                   {order.is_cod ? (
-                    <span className="font-medium text-green-600">
+                    <span className="font-medium text-primary">
                       {formatCurrency(order.cod_amount)}
                     </span>
                   ) : (
@@ -195,7 +195,7 @@ export function ReconciliationTable({
                     variant={delivered ? 'default' : 'destructive'}
                     className={cn(
                       'gap-1',
-                      delivered && 'bg-green-600 hover:bg-green-700'
+                      delivered && 'bg-primary hover:bg-primary/90'
                     )}
                   >
                     {delivered ? (

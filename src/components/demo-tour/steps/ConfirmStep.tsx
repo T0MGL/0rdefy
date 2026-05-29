@@ -28,7 +28,7 @@ const orderStatuses = [
   { id: 'in_preparation', label: 'En Preparación', icon: Package, color: 'text-orange-500' },
   { id: 'ready_to_ship', label: 'Listo para Enviar', icon: Package, color: 'text-purple-500' },
   { id: 'shipped', label: 'Despachado', icon: Truck, color: 'text-indigo-500' },
-  { id: 'delivered', label: 'Entregado', icon: CheckCircle, color: 'text-green-500' },
+  { id: 'delivered', label: 'Entregado', icon: CheckCircle, color: 'text-primary' },
 ];
 
 export function ConfirmStep({ onComplete }: ConfirmStepProps) {
@@ -136,7 +136,7 @@ export function ConfirmStep({ onComplete }: ConfirmStepProps) {
                       <div
                         className={cn(
                           'w-10 h-10 rounded-full flex items-center justify-center',
-                          isPast && 'bg-green-500/20',
+                          isPast && 'bg-primary/20',
                           isActive && 'bg-primary/20 ring-2 ring-primary ring-offset-2 ring-offset-card',
                           isFuture && 'bg-muted'
                         )}
@@ -144,7 +144,7 @@ export function ConfirmStep({ onComplete }: ConfirmStepProps) {
                         <Icon
                           className={cn(
                             'w-5 h-5',
-                            isPast && 'text-green-500',
+                            isPast && 'text-primary',
                             isActive && 'text-primary',
                             isFuture && 'text-muted-foreground'
                           )}
@@ -164,7 +164,7 @@ export function ConfirmStep({ onComplete }: ConfirmStepProps) {
                       <div
                         className={cn(
                           'w-8 h-0.5 mx-1',
-                          isPast ? 'bg-green-500' : 'bg-muted'
+                          isPast ? 'bg-primary' : 'bg-muted'
                         )}
                       />
                     )}
@@ -186,8 +186,8 @@ export function ConfirmStep({ onComplete }: ConfirmStepProps) {
                 transition={{ delay: 0.1 }}
                 className="flex items-center gap-3 p-2 rounded-lg"
               >
-                <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center">
-                  <Check className="w-3 h-3 text-green-500" />
+                <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center">
+                  <Check className="w-3 h-3 text-primary" />
                 </div>
                 <span className="text-sm">El pedido pasa a estado "Confirmado"</span>
               </motion.div>
@@ -197,8 +197,8 @@ export function ConfirmStep({ onComplete }: ConfirmStepProps) {
                 transition={{ delay: 0.2 }}
                 className="flex items-center gap-3 p-2 rounded-lg"
               >
-                <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center">
-                  <Check className="w-3 h-3 text-green-500" />
+                <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center">
+                  <Check className="w-3 h-3 text-primary" />
                 </div>
                 <span className="text-sm">Disponible para sesiones de picking</span>
               </motion.div>
@@ -208,8 +208,8 @@ export function ConfirmStep({ onComplete }: ConfirmStepProps) {
                 transition={{ delay: 0.3 }}
                 className="flex items-center gap-3 p-2 rounded-lg"
               >
-                <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center">
-                  <Check className="w-3 h-3 text-green-500" />
+                <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center">
+                  <Check className="w-3 h-3 text-primary" />
                 </div>
                 <span className="text-sm">Se puede enviar confirmación por WhatsApp</span>
               </motion.div>
@@ -232,7 +232,7 @@ export function ConfirmStep({ onComplete }: ConfirmStepProps) {
             disabled={isConfirming}
             className={cn(
               'w-full gap-2 h-11',
-              isConfirmed && 'bg-green-600 hover:bg-green-700'
+              isConfirmed && 'bg-primary hover:bg-primary/90'
             )}
           >
             {isConfirming ? (

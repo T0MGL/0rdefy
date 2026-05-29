@@ -121,7 +121,7 @@ export function DeliveryMap({
     const colors: Record<string, string> = {
       preparing: 'bg-blue-500',
       out_for_delivery: 'bg-purple-500',
-      delivered: 'bg-green-500',
+      delivered: 'bg-primary',
       delivery_failed: 'bg-red-500',
       incident: 'bg-red-500',
       confirmed: 'bg-yellow-500',

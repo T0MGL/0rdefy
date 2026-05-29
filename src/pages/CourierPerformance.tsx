@@ -105,7 +105,7 @@ export default function CourierPerformance() {
   };
 
   const getPerformanceBadge = (rate: number) => {
-    if (rate >= 95) return <Badge className="bg-green-500">Excelente</Badge>;
+    if (rate >= 95) return <Badge className="bg-primary">Excelente</Badge>;
     if (rate >= 85) return <Badge className="bg-blue-500">Bueno</Badge>;
     if (rate >= 75) return <Badge className="bg-yellow-500">Regular</Badge>;
     return <Badge variant="destructive">Bajo</Badge>;
@@ -200,7 +200,7 @@ export default function CourierPerformance() {
                         </p>
                       </div>
                     </div>
-                    <span className="font-bold text-green-600">
+                    <span className="font-bold text-primary">
                       {courier.delivery_rate.toFixed(1)}%
                     </span>
                   </div>
@@ -318,7 +318,7 @@ export default function CourierPerformance() {
                         </Badge>
                       </td>
                       <td className="text-center py-3 px-4">
-                        <span className="text-green-600 font-semibold">
+                        <span className="text-primary font-semibold">
                           {courier.successful_deliveries}
                         </span>
                       </td>

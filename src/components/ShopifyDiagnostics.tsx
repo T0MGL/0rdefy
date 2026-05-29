@@ -294,9 +294,9 @@ export function ShopifyDiagnostics() {
           <div className="space-y-3">
             <h3 className="font-semibold text-sm">Último Intento de Registro de Webhooks</h3>
             <div className="grid grid-cols-2 gap-3">
-              <div className="p-3 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
-                <p className="text-xs text-green-700 dark:text-green-300 mb-1">Exitosos</p>
-                <p className="text-2xl font-bold text-green-700 dark:text-green-300">
+              <div className="p-3 bg-primary/5 dark:bg-primary/20 rounded-lg border border-primary/30 dark:border-primary">
+                <p className="text-xs text-primary dark:text-primary mb-1">Exitosos</p>
+                <p className="text-2xl font-bold text-primary dark:text-primary">
                   {integration.webhook_registration_success || 0}
                 </p>
               </div>
@@ -348,7 +348,7 @@ export function ShopifyDiagnostics() {
                   className="flex items-center justify-between p-3 bg-muted/30 rounded-lg"
                 >
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    <CheckCircle2 className="h-4 w-4 text-primary" />
                     <div>
                       <p className="font-medium text-sm">{webhook.topic}</p>
                       <p className="text-xs text-muted-foreground truncate max-w-md">

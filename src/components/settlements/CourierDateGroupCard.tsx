@@ -66,12 +66,12 @@ export function CourierDateGroupCard({ group, onSelect }: CourierDateGroupCardPr
 
       <CardContent className="pt-0">
         <div className="grid grid-cols-2 gap-3 mb-4">
-          <div className="p-3 bg-green-50 dark:bg-green-950/30 rounded-lg text-center">
+          <div className="p-3 bg-primary/5 dark:bg-primary/30 rounded-lg text-center">
             <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground mb-1">
-              <DollarSign className="h-3.5 w-3.5 text-green-600" />
+              <DollarSign className="h-3.5 w-3.5 text-primary" />
               COD Esperado
             </div>
-            <p className="text-lg font-bold text-green-600">
+            <p className="text-lg font-bold text-primary">
               {formatCurrency(group.total_cod_expected)}
             </p>
           </div>

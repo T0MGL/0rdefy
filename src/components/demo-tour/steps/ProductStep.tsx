@@ -159,13 +159,13 @@ export function ProductStep({ onComplete }: ProductStepProps) {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3 }}
-                className="p-3 bg-green-500/10 rounded-lg border border-green-500/20"
+                className="p-3 bg-primary/10 rounded-lg border border-primary/20"
               >
                 <span className="text-xs text-muted-foreground block mb-1 flex items-center gap-1">
                   <TrendingUp className="w-3 h-3" />
                   Margen
                 </span>
-                <span className="font-semibold text-green-600 dark:text-green-400">
+                <span className="font-semibold text-primary dark:text-primary">
                   {marginPercent}%
                 </span>
               </motion.div>
@@ -198,7 +198,7 @@ export function ProductStep({ onComplete }: ProductStepProps) {
             disabled={isCreating}
             className={cn(
               'w-full gap-2 h-11',
-              isCreated && 'bg-green-600 hover:bg-green-700'
+              isCreated && 'bg-primary hover:bg-primary/90'
             )}
           >
             {isCreating ? (

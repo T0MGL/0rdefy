@@ -228,7 +228,7 @@ export default function Merchandise() {
           Parcial
         </Badge>;
       case 'received':
-        return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-950/20 dark:text-green-400 dark:border-green-900">
+        return <Badge variant="outline" className="bg-primary/5 text-primary border-primary/30 dark:bg-primary/20 dark:text-primary dark:border-primary">
           <CheckCircle2 className="h-3 w-3 mr-1" />
           Recibida
         </Badge>;
@@ -354,7 +354,7 @@ export default function Merchandise() {
                       </div>
                       <div>
                         <span className="text-muted-foreground">Recibido: </span>
-                        <span className="font-medium text-green-600 dark:text-green-400">
+                        <span className="font-medium text-primary dark:text-primary">
                           {shipment.total_qty_received || 0}
                         </span>
                       </div>

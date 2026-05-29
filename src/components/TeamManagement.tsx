@@ -100,7 +100,7 @@ const ROLE_COLORS: Record<string, string> = {
   owner: 'text-yellow-600 bg-yellow-100 dark:text-yellow-400 dark:bg-yellow-900/20',
   admin: 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/20',
   logistics: 'text-purple-600 bg-purple-100 dark:text-purple-400 dark:bg-purple-900/20',
-  confirmador: 'text-green-600 bg-green-100 dark:text-green-400 dark:bg-green-900/20',
+  confirmador: 'text-primary bg-primary/10 dark:text-primary dark:bg-primary/20',
   contador: 'text-orange-600 bg-orange-100 dark:text-orange-400 dark:bg-orange-900/20',
   inventario: 'text-pink-600 bg-pink-100 dark:text-pink-400 dark:bg-pink-900/20'
 };
@@ -269,7 +269,7 @@ El link expira en 7 dias.`;
   return (
     <div className="space-y-6">
       {/* Header with Stats */}
-      <Card className="bg-gradient-to-br from-green-50/50 to-transparent dark:from-green-950/20 dark:to-transparent">
+      <Card className="bg-gradient-to-br from-primary/50 to-transparent dark:from-primary/20 dark:to-transparent">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <div>
             <CardTitle>Equipo</CardTitle>
@@ -385,14 +385,14 @@ El link expira en 7 dias.`;
               ) : (
                 <div className="space-y-5">
                   {/* Success Banner */}
-                  <div className="bg-green-50 dark:bg-green-950/30 rounded-lg p-4 text-center space-y-2">
-                    <div className="mx-auto w-12 h-12 bg-green-100 dark:bg-green-900/50 rounded-full flex items-center justify-center">
-                      <CheckCircle2 className="w-6 h-6 text-green-600 dark:text-green-400" />
+                  <div className="bg-primary/5 dark:bg-primary/30 rounded-lg p-4 text-center space-y-2">
+                    <div className="mx-auto w-12 h-12 bg-primary/10 dark:bg-primary/50 rounded-full flex items-center justify-center">
+                      <CheckCircle2 className="w-6 h-6 text-primary dark:text-primary" />
                     </div>
-                    <p className="font-medium text-green-800 dark:text-green-200">
+                    <p className="font-medium text-primary dark:text-primary">
                       ¡Invitación creada!
                     </p>
-                    <p className="text-sm text-green-600 dark:text-green-400">
+                    <p className="text-sm text-primary dark:text-primary">
                       Comparte el link con <strong>{inviteFormValues.name}</strong>
                     </p>
                   </div>
@@ -413,14 +413,14 @@ El link expira en 7 dias.`;
                         onClick={copyInviteUrl}
                         variant={copiedUrl ? "default" : "outline"}
                         size="icon"
-                        className={copiedUrl ? "bg-green-600 hover:bg-green-700" : ""}
+                        className={copiedUrl ? "bg-primary hover:bg-primary/90" : ""}
                         aria-label={copiedUrl ? 'Link copiado' : 'Copiar link de invitacion'}
                       >
                         {copiedUrl ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                       </Button>
                     </div>
                     {copiedUrl && (
-                      <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                      <p className="text-xs text-primary dark:text-primary flex items-center gap-1">
                         <Sparkles className="w-3 h-3" />
                         ¡Link copiado al portapapeles!
                       </p>
@@ -434,8 +434,8 @@ El link expira en 7 dias.`;
                       <Button
                         variant="outline"
                         className={`w-full ${copiedWhatsApp
-                          ? 'bg-green-600 hover:bg-green-700 text-white border-green-600'
-                          : 'bg-green-50 hover:bg-green-100 border-green-200 text-green-700 dark:bg-green-950/30 dark:hover:bg-green-950/50 dark:border-green-800 dark:text-green-400'}`}
+                          ? 'bg-primary hover:bg-primary/90 text-primary-foreground border-primary'
+                          : 'bg-primary/5 hover:bg-primary/10 border-primary/30 text-primary dark:bg-primary/30 dark:hover:bg-primary/50 dark:border-primary dark:text-primary'}`}
                         onClick={copyWhatsAppMessage}
                       >
                         {copiedWhatsApp ? (
@@ -453,7 +453,7 @@ El link expira en 7 dias.`;
                       <Button
                         variant="outline"
                         className={`w-full ${copiedEmail
-                          ? 'bg-primary hover:bg-primary/90 text-white border-primary'
+                          ? 'bg-primary hover:bg-primary/90 text-primary-foreground border-primary'
                           : ''}`}
                         onClick={copyEmailMessage}
                       >
@@ -495,7 +495,7 @@ El link expira en 7 dias.`;
       </Card>
 
       {/* Members List */}
-      <Card className="bg-gradient-to-br from-green-50/50 to-transparent dark:from-green-950/20 dark:to-transparent">
+      <Card className="bg-gradient-to-br from-primary/50 to-transparent dark:from-primary/20 dark:to-transparent">
         <CardHeader>
           <CardTitle>Miembros Activos ({membersData?.members?.length || 0})</CardTitle>
         </CardHeader>
@@ -569,7 +569,7 @@ El link expira en 7 dias.`;
 
       {/* Pending Invitations Only - Only visible to owners */}
       {isOwner && invitationsData?.invitations && invitationsData.invitations.filter(inv => inv.status === 'pending').length > 0 && (
-        <Card className="bg-gradient-to-br from-green-50/50 to-transparent dark:from-green-950/20 dark:to-transparent">
+        <Card className="bg-gradient-to-br from-primary/50 to-transparent dark:from-primary/20 dark:to-transparent">
           <CardHeader>
             <CardTitle>Invitaciones Pendientes ({invitationsData.invitations.filter(inv => inv.status === 'pending').length})</CardTitle>
             <CardDescription>

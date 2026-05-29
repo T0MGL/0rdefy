@@ -43,7 +43,7 @@ export function MetricCard({
             className={cn(
               'flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full',
               trend === 'up'
-                ? 'text-green-700 bg-green-50 dark:text-green-400 dark:bg-green-950/20'
+                ? 'text-primary bg-primary/5 dark:text-primary dark:bg-primary/20'
                 : 'text-red-700 bg-red-50 dark:text-red-400 dark:bg-red-950/20'
             )}
           >

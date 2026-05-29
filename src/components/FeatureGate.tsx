@@ -294,8 +294,8 @@ export function FeatureBlockedPage({ feature }: { feature: PlanFeature }) {
           <ul className="space-y-2.5">
             {highlights.map((item, index) => (
               <li key={index} className="flex items-center gap-2.5 text-sm">
-                <div className="w-5 h-5 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0">
-                  <Check className="h-3 w-3 text-green-600 dark:text-green-400" />
+                <div className="w-5 h-5 rounded-full bg-primary/10 dark:bg-primary/30 flex items-center justify-center flex-shrink-0">
+                  <Check className="h-3 w-3 text-primary dark:text-primary" />
                 </div>
                 <span className="text-foreground">{item}</span>
               </li>

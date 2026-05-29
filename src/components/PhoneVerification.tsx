@@ -211,8 +211,8 @@ export function PhoneVerification({ onVerified, onSkip, allowSkip = false }: Pho
   return (
     <div className="w-full max-w-md mx-auto p-6 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800">
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/20 flex items-center justify-center">
-          <Smartphone className="w-6 h-6 text-green-600 dark:text-green-400" />
+        <div className="w-12 h-12 rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center">
+          <Smartphone className="w-6 h-6 text-primary dark:text-primary" />
         </div>
         <div>
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
@@ -357,9 +357,9 @@ export function PhoneVerification({ onVerified, onSkip, allowSkip = false }: Pho
 
       {/* Success Alert */}
       {success && (
-        <Alert className="mt-4 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
-          <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
-          <AlertDescription className="text-green-800 dark:text-green-200">
+        <Alert className="mt-4 bg-primary/5 dark:bg-primary/20 border-primary/30 dark:border-primary">
+          <CheckCircle2 className="h-4 w-4 text-primary dark:text-primary" />
+          <AlertDescription className="text-primary dark:text-primary">
             {success}
           </AlertDescription>
         </Alert>

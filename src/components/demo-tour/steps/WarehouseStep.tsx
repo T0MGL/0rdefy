@@ -224,11 +224,11 @@ export function WarehouseStep({ onComplete }: WarehouseStepProps) {
                     <div className="flex items-center gap-2">
                       <span className={cn(
                         'font-bold',
-                        pickingComplete ? 'text-green-500' : 'text-foreground'
+                        pickingComplete ? 'text-primary' : 'text-foreground'
                       )}>
                         {pickingComplete ? '2/2' : '0/2'}
                       </span>
-                      {pickingComplete && <Check className="w-4 h-4 text-green-500" />}
+                      {pickingComplete && <Check className="w-4 h-4 text-primary" />}
                     </div>
                   </div>
                 </div>
@@ -272,12 +272,12 @@ export function WarehouseStep({ onComplete }: WarehouseStepProps) {
                     </div>
                     <div className={cn(
                       'p-3 bg-card rounded border transition-all min-h-[60px] flex items-center justify-center',
-                      packingComplete ? 'border-green-500 bg-green-500/10' : 'border-dashed'
+                      packingComplete ? 'border-primary bg-primary/10' : 'border-dashed'
                     )}>
                       {packingComplete ? (
                         <div className="text-center">
-                          <CheckCircle2 className="w-6 h-6 text-green-500 mx-auto mb-1" />
-                          <p className="text-xs text-green-600">Empacado</p>
+                          <CheckCircle2 className="w-6 h-6 text-primary mx-auto mb-1" />
+                          <p className="text-xs text-primary">Empacado</p>
                         </div>
                       ) : (
                         <p className="text-xs text-muted-foreground">Arrastra aquí</p>
@@ -306,9 +306,9 @@ export function WarehouseStep({ onComplete }: WarehouseStepProps) {
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
                   transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-                  className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4"
+                  className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4"
                 >
-                  <CheckCircle2 className="w-8 h-8 text-green-500" />
+                  <CheckCircle2 className="w-8 h-8 text-primary" />
                 </motion.div>
                 <h3 className="text-lg font-bold mb-2">¡Pedido Preparado!</h3>
                 <p className="text-sm text-muted-foreground">
@@ -347,7 +347,7 @@ export function WarehouseStep({ onComplete }: WarehouseStepProps) {
               disabled={isProcessing}
               className={cn(
                 'w-full gap-2 h-11',
-                pickingComplete && 'bg-green-600 hover:bg-green-700'
+                pickingComplete && 'bg-primary hover:bg-primary/90'
               )}
             >
               {isProcessing ? (
@@ -375,7 +375,7 @@ export function WarehouseStep({ onComplete }: WarehouseStepProps) {
               disabled={isProcessing}
               className={cn(
                 'w-full gap-2 h-11',
-                packingComplete && 'bg-green-600 hover:bg-green-700'
+                packingComplete && 'bg-primary hover:bg-primary/90'
               )}
             >
               {isProcessing ? (
@@ -403,7 +403,7 @@ export function WarehouseStep({ onComplete }: WarehouseStepProps) {
                 onComplete?.();
                 nextStep();
               }}
-              className="w-full gap-2 h-11 bg-green-600 hover:bg-green-700"
+              className="w-full gap-2 h-11 bg-primary hover:bg-primary/90"
             >
               <Check className="w-4 h-4" />
               Continuar

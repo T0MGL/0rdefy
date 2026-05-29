@@ -56,10 +56,10 @@ export function CashProjectionCard({ projection }: CashProjectionCardProps) {
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-white dark:bg-gray-900/50 rounded-lg p-4 border border-blue-100 dark:border-blue-900">
             <div className="flex items-center gap-2 mb-2">
-              <Wallet className="w-4 h-4 text-green-600 dark:text-green-400" />
+              <Wallet className="w-4 h-4 text-primary dark:text-primary" />
               <span className="text-xs font-medium text-gray-600 dark:text-gray-400">En Caja</span>
             </div>
-            <p className="text-2xl font-bold text-green-600 dark:text-green-400">
+            <p className="text-2xl font-bold text-primary dark:text-primary">
               {formatCurrency(projection.cashInHand)}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Pedidos entregados</p>
@@ -85,11 +85,11 @@ export function CashProjectionCard({ projection }: CashProjectionCardProps) {
 
           <div className="flex items-center justify-between bg-white dark:bg-gray-900/50 rounded-lg p-3 border border-blue-100 dark:border-blue-900">
             <div className="flex items-center gap-2">
-              <Package className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <Package className="w-4 h-4 text-primary dark:text-primary" />
               <span className="text-sm text-gray-700 dark:text-gray-300">Listos para envío</span>
             </div>
             <div className="text-right">
-              <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+              <p className="text-sm font-bold text-primary dark:text-primary">
                 {formatCurrency(projection.pipeline.readyToShip.expected)}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">

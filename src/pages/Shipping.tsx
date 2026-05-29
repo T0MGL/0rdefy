@@ -874,7 +874,7 @@ interface StatPillProps {
 function StatPill({ icon, label, value, tone }: StatPillProps) {
   const tones: Record<StatPillProps['tone'], string> = {
     blue: 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300',
-    green: 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300',
+    green: 'bg-primary/5 dark:bg-primary/30 text-primary dark:text-primary',
     purple: 'bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300',
     red: 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300',
   };
@@ -946,8 +946,8 @@ function OrderCardRow({ order, selected, onToggle, onSingleDispatch }: OrderCard
             </div>
             {order.cod_amount > 0 && (
               <div className="flex items-center gap-2">
-                <DollarSign className="h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0" />
-                <span className="font-semibold text-green-700 dark:text-green-300">
+                <DollarSign className="h-4 w-4 text-primary dark:text-primary flex-shrink-0" />
+                <span className="font-semibold text-primary dark:text-primary">
                   {formatCurrency(order.cod_amount)} COD
                 </span>
               </div>

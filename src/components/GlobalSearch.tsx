@@ -338,13 +338,13 @@ export function GlobalSearch() {
         return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400';
       case 'confirmed':
       case 'in_preparation':
-        return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
+        return 'bg-primary/10 text-primary dark:bg-primary/30 dark:text-primary';
       case 'ready_to_ship':
       case 'shipped':
       case 'in_transit':
         return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400';
       case 'delivered':
-        return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400';
+        return 'bg-primary/10 text-primary dark:bg-primary/30 dark:text-primary';
       case 'cancelled':
       case 'rejected':
       case 'returned':
@@ -513,7 +513,7 @@ export function GlobalSearch() {
                       className="flex items-center justify-between"
                     >
                       <div className="flex items-center gap-2">
-                        {item.type === 'product' && <Package className="h-4 w-4 text-green-500" />}
+                        {item.type === 'product' && <Package className="h-4 w-4 text-primary" />}
                         {item.type === 'order' && <ShoppingBag className="h-4 w-4 text-blue-500" />}
                         {item.type === 'customer' && <Users className="h-4 w-4 text-purple-500" />}
                         {item.type === 'ad' && <Megaphone className="h-4 w-4 text-orange-500" />}
@@ -619,7 +619,7 @@ export function GlobalSearch() {
                         className="flex items-center justify-between group"
                       >
                         <div className="flex items-center gap-2 flex-1 min-w-0">
-                          <Package className="h-4 w-4 shrink-0 text-green-500" />
+                          <Package className="h-4 w-4 shrink-0 text-primary" />
                           <div className="flex flex-col gap-0.5 flex-1 min-w-0">
                             <span className="text-sm font-medium truncate">
                               {query ? highlightText(product.name || '', query) : (product.name || '')}
@@ -720,7 +720,7 @@ export function GlobalSearch() {
                         </div>
                         <Badge variant="secondary" className={cn(
                           "text-xs shrink-0 ml-2",
-                          ad.status === 'active' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
+                          ad.status === 'active' ? 'bg-primary/10 text-primary dark:bg-primary/30 dark:text-primary' : 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
                         )}>
                           {ad.status === 'active' ? 'Activa' : 'Pausada'}
                         </Badge>
@@ -765,7 +765,7 @@ export function GlobalSearch() {
                         </div>
                         <Badge variant="secondary" className={cn(
                           "text-xs shrink-0 ml-2",
-                          carrier.is_active ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
+                          carrier.is_active ? 'bg-primary/10 text-primary dark:bg-primary/30 dark:text-primary' : 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
                         )}>
                           {carrier.is_active ? 'Activa' : 'Inactiva'}
                         </Badge>

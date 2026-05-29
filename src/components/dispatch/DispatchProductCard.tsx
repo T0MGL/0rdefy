@@ -195,7 +195,7 @@ function Stat({ icon, label, value, tone = 'default' }: StatProps) {
       <span
         className={cn(
           'text-sm font-semibold tabular-nums truncate',
-          tone === 'success' && 'text-green-700 dark:text-green-400',
+          tone === 'success' && 'text-primary dark:text-primary',
           tone === 'danger' && 'text-red-700 dark:text-red-300',
           tone === 'muted' && 'text-muted-foreground'
         )}

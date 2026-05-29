@@ -55,19 +55,19 @@ export function ShopifyConnectionMethodDialog({
             <CardContent className="space-y-4">
               <ul className="space-y-2 text-sm">
                 <li className="flex items-start gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                  <CheckCircle2 className="h-4 w-4 text-primary dark:text-primary mt-0.5 flex-shrink-0" />
                   <span>Conexión en <strong>1 click</strong> (30 segundos)</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                  <CheckCircle2 className="h-4 w-4 text-primary dark:text-primary mt-0.5 flex-shrink-0" />
                   <span>Webhooks configurados automáticamente</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                  <CheckCircle2 className="h-4 w-4 text-primary dark:text-primary mt-0.5 flex-shrink-0" />
                   <span>Sincronización instantánea</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                  <CheckCircle2 className="h-4 w-4 text-primary dark:text-primary mt-0.5 flex-shrink-0" />
                   <span>Sin necesidad de copiar credenciales</span>
                 </li>
               </ul>
@@ -97,11 +97,11 @@ export function ShopifyConnectionMethodDialog({
             <CardContent className="space-y-4">
               <ul className="space-y-2 text-sm">
                 <li className="flex items-start gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                  <CheckCircle2 className="h-4 w-4 text-primary dark:text-primary mt-0.5 flex-shrink-0" />
                   <span>Funciona sin aprobación de Shopify</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                  <CheckCircle2 className="h-4 w-4 text-primary dark:text-primary mt-0.5 flex-shrink-0" />
                   <span>Funcionalidad completa e idéntica</span>
                 </li>
                 <li className="flex items-start gap-2">

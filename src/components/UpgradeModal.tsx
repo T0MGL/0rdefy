@@ -97,7 +97,7 @@ export function UpgradeModal({ open, onClose, feature, featureName }: UpgradeMod
           <ul className="space-y-2">
             {highlights.map((item, index) => (
               <li key={index} className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Check className="h-4 w-4 text-green-500 flex-shrink-0" />
+                <Check className="h-4 w-4 text-primary flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}

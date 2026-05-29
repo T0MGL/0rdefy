@@ -187,7 +187,7 @@ export function ExtraChargesEditor({
                     onChange={e => handleEditAmount(c.id, e.target.value)}
                     onWheel={e => (e.target as HTMLInputElement).blur()}
                     className={`h-8 text-sm text-right font-mono pr-8 ${
-                      c.amount < 0 ? 'text-emerald-600 dark:text-emerald-400' : ''
+                      c.amount < 0 ? 'text-primary dark:text-primary' : ''
                     }`}
                     placeholder="0"
                     step="1"
@@ -265,7 +265,7 @@ export function ExtraChargesEditor({
                   placeholder="25000 ó -25000"
                   step="1"
                   className={`h-9 mt-1 text-right font-mono ${
-                    Number(draftAmount) < 0 ? 'text-emerald-600 dark:text-emerald-400' : ''
+                    Number(draftAmount) < 0 ? 'text-primary dark:text-primary' : ''
                   }`}
                   disabled={disabled}
                 />
@@ -323,7 +323,7 @@ export function ExtraChargesEditor({
             <span
               className={`font-mono font-semibold ${
                 total < 0
-                  ? 'text-emerald-600 dark:text-emerald-400'
+                  ? 'text-primary dark:text-primary'
                   : 'text-amber-600 dark:text-amber-400'
               }`}
             >

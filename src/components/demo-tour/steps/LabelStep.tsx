@@ -160,7 +160,7 @@ export function LabelStep({ onComplete }: LabelStepProps) {
             onClick={handlePrint}
             className={cn(
               'w-full gap-2 h-11',
-              isPrinted && 'bg-green-600 hover:bg-green-700'
+              isPrinted && 'bg-primary hover:bg-primary/90'
             )}
           >
             {isPrinted ? (

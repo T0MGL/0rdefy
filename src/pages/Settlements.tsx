@@ -899,7 +899,7 @@ export default function Settlements() {
   // Get movement type color
   const getMovementTypeColor = (type: string): string => {
     if (type.includes('cod') || type.includes('credit') || type === 'payment_received') {
-      return 'text-green-600 dark:text-green-400';
+      return 'text-primary dark:text-primary';
     }
     if (type.includes('fee') || type.includes('debit') || type === 'payment_sent') {
       return 'text-red-600 dark:text-red-400';
@@ -1243,10 +1243,10 @@ export default function Settlements() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">COD Pendiente</CardTitle>
-              <DollarSign className="h-4 w-4 text-green-600" />
+              <DollarSign className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">
+              <div className="text-2xl font-bold text-primary">
                 {formatCurrency(totalCod)}
               </div>
               <p className="text-xs text-muted-foreground">
@@ -1334,7 +1334,7 @@ export default function Settlements() {
                       </Card>
                       <Card className="p-3">
                         <p className="text-xs text-muted-foreground">Entregados</p>
-                        <p className="text-xl font-bold text-green-600">
+                        <p className="text-xl font-bold text-primary">
                           {csvImportData.rows.filter(r => r.delivery_status === 'delivered').length}
                         </p>
                       </Card>
@@ -1457,7 +1457,7 @@ export default function Settlements() {
                     key={order.id}
                     className={`flex items-center justify-between p-3 border rounded-lg transition-colors ${
                       order.delivered
-                        ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800'
+                        ? 'bg-primary/5 dark:bg-primary/20 border-primary/30 dark:border-primary'
                         : 'bg-muted/30 border-border'
                     }`}
                   >
@@ -1558,10 +1558,10 @@ export default function Settlements() {
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Te Deben</CardTitle>
-                    <ArrowDownRight className="h-4 w-4 text-green-600" />
+                    <ArrowDownRight className="h-4 w-4 text-primary" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold text-green-600">
+                    <div className="text-2xl font-bold text-primary">
                       {formatCurrency(accountSummary.totalOwedByCarriers)}
                     </div>
                     <p className="text-xs text-muted-foreground">COD por cobrar</p>
@@ -1584,10 +1584,10 @@ export default function Settlements() {
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Posicion Neta</CardTitle>
-                    <DollarSign className={`h-4 w-4 ${accountSummary.netPosition >= 0 ? 'text-green-600' : 'text-red-600'}`} />
+                    <DollarSign className={`h-4 w-4 ${accountSummary.netPosition >= 0 ? 'text-primary' : 'text-red-600'}`} />
                   </CardHeader>
                   <CardContent>
-                    <div className={`text-2xl font-bold ${accountSummary.netPosition >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <div className={`text-2xl font-bold ${accountSummary.netPosition >= 0 ? 'text-primary' : 'text-red-600'}`}>
                       {formatCurrency(Math.abs(accountSummary.netPosition))}
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -1641,14 +1641,14 @@ export default function Settlements() {
                               {carrier.settlement_type === 'net' ? 'Neto' : carrier.settlement_type === 'gross' ? 'Bruto' : 'Salario'}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-right text-green-600 font-medium">
+                          <TableCell className="text-right text-primary font-medium">
                             +{formatCurrency(carrier.total_cod_collected)}
                           </TableCell>
                           <TableCell className="text-right text-red-600 font-medium">
                             -{formatCurrency(carrier.total_delivery_fees + carrier.total_failed_fees)}
                           </TableCell>
                           <TableCell className="text-right">
-                            <span className={`font-bold ${carrier.net_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            <span className={`font-bold ${carrier.net_balance >= 0 ? 'text-primary' : 'text-red-600'}`}>
                               {carrier.net_balance >= 0 ? '+' : ''}{formatCurrency(carrier.net_balance)}
                             </span>
                           </TableCell>
@@ -1733,7 +1733,7 @@ export default function Settlements() {
                               )}
                             </TableCell>
                             <TableCell className="text-right font-medium">
-                              <span className={movement.amount >= 0 ? 'text-green-600' : 'text-red-600'}>
+                              <span className={movement.amount >= 0 ? 'text-primary' : 'text-red-600'}>
                                 {movement.amount >= 0 ? '+' : ''}{formatCurrency(movement.amount)}
                               </span>
                             </TableCell>
@@ -1843,7 +1843,7 @@ export default function Settlements() {
                                     payment.payment_method === 'deduction' ? 'Deduccion' : payment.payment_method}
                           </TableCell>
                           <TableCell className="text-right font-bold">
-                            <span className={payment.direction === 'from_carrier' ? 'text-green-600' : 'text-red-600'}>
+                            <span className={payment.direction === 'from_carrier' ? 'text-primary' : 'text-red-600'}>
                               {payment.direction === 'from_carrier' ? '+' : '-'}{formatCurrency(payment.amount)}
                             </span>
                           </TableCell>
@@ -2082,7 +2082,7 @@ export default function Settlements() {
               {/* Stats */}
               <div className="flex items-center gap-4 text-sm">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  <CheckCircle2 className="h-4 w-4 text-primary" />
                   <span>{stats?.delivered || 0} entregados</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -2168,8 +2168,8 @@ export default function Settlements() {
   if (currentStep === 'complete') {
     return (
       <div className="p-6 max-w-md mx-auto space-y-6 text-center">
-        <div className="w-20 h-20 bg-green-100 dark:bg-green-950/30 rounded-full flex items-center justify-center mx-auto">
-          <CheckCircle2 className="h-10 w-10 text-green-600" />
+        <div className="w-20 h-20 bg-primary/10 dark:bg-primary/30 rounded-full flex items-center justify-center mx-auto">
+          <CheckCircle2 className="h-10 w-10 text-primary" />
         </div>
 
         <div>

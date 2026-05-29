@@ -285,8 +285,8 @@ export default function Dashboard() {
     return (
       <div className="space-y-6">
         {hasHeavyGlobalLoad && (
-          <Card className="p-4 border-emerald-300/60 bg-emerald-50/70 dark:bg-emerald-950/20">
-            <div className="flex items-center gap-3 text-emerald-700 dark:text-emerald-300">
+          <Card className="p-4 border-primary/60 bg-primary/70 dark:bg-primary/20">
+            <div className="flex items-center gap-3 text-primary dark:text-primary">
               <Loader2 size={16} className="animate-spin" />
               <p className="text-sm font-medium">
                 Consolidando métricas globales de múltiples tiendas...
@@ -355,8 +355,8 @@ export default function Dashboard() {
       )}
 
       {isRefreshing && (
-        <Card className="p-3 border-emerald-300/60 bg-emerald-50/60 dark:bg-emerald-950/20">
-          <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
+        <Card className="p-3 border-primary/60 bg-primary/60 dark:bg-primary/20">
+          <div className="flex items-center gap-2 text-primary dark:text-primary">
             <Loader2 size={14} className="animate-spin" />
             <p className="text-sm">
               {hasHeavyGlobalLoad
@@ -441,7 +441,7 @@ export default function Dashboard() {
             value={formatCurrency(dashboardOverview.realNetProfit ?? dashboardOverview.netProfit)}
             change={getChange('realNetProfit')}
             trend={getTrend('realNetProfit')}
-            icon={<TrendingUp className="text-green-600" size={24} />}
+            icon={<TrendingUp className="text-primary" size={24} />}
             variant="accent"
             subtitle={`Solo pedidos entregados · ${periodSubtitle}`}
           />
@@ -509,7 +509,7 @@ export default function Dashboard() {
               )}
               change={getChange('projectedNetProfit')}
               trend={getTrend('projectedNetProfit')}
-              icon={<TrendingUp className="text-emerald-600" size={24} />}
+              icon={<TrendingUp className="text-primary" size={24} />}
               variant="secondary"
               subtitle={`Entregados + en tránsito · ${periodSubtitle}`}
               dense
@@ -574,7 +574,7 @@ export default function Dashboard() {
                           ? getTrend('realRoas')
                           : undefined
                       }
-                      icon={<Target className="text-green-600" size={20} />}
+                      icon={<Target className="text-primary" size={20} />}
                       subtitle={
                         dashboardOverview.gasto_publicitario === 0
                           ? 'Sin campañas activas'
@@ -635,7 +635,7 @@ export default function Dashboard() {
                           ? getTrend('realGrossMargin')
                           : undefined
                       }
-                      icon={<Percent className="text-emerald-600" size={20} />}
+                      icon={<Percent className="text-primary" size={20} />}
                       subtitle={
                         (dashboardOverview.realRevenue ?? 0) === 0 ? 'Sin pedidos entregados' : undefined
                       }

@@ -414,7 +414,7 @@ const OrderMobileCard = memo(function OrderMobileCard({
             ) : (
               <Badge
                 variant="outline"
-                className="text-[10px] py-0 px-1.5 border bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-300/60 dark:border-emerald-800"
+                className="text-[10px] py-0 px-1.5 border bg-primary/5 dark:bg-primary/30 text-primary dark:text-primary border-primary/60 dark:border-primary"
               >
                 Pagado
               </Badge>
@@ -422,7 +422,7 @@ const OrderMobileCard = memo(function OrderMobileCard({
 
             {/* Carrier pill: same popover as desktop, with stopPropagation wrapper */}
             {order.is_pickup ? (
-              <span className="inline-flex items-center gap-1 px-2 h-7 rounded-md text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border border-emerald-300/60 dark:border-emerald-800">
+              <span className="inline-flex items-center gap-1 px-2 h-7 rounded-md text-[11px] font-medium bg-primary/5 dark:bg-primary/30 text-primary dark:text-primary border border-primary/60 dark:border-primary">
                 <Store size={11} aria-hidden="true" />
                 Retiro
               </span>
@@ -537,7 +537,7 @@ function NextStepRow({
           <Button
             size="sm"
             variant="outline"
-            className="h-9 flex-1 text-xs font-medium bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/30"
+            className="h-9 flex-1 text-xs font-medium bg-primary/5 dark:bg-primary/20 text-primary dark:text-primary border-primary/40 dark:border-primary hover:bg-primary/10 dark:hover:bg-primary/30"
             onClick={(e) => {
               e.stopPropagation();
               onContact(order.id, generateWhatsAppConfirmationLink(order));

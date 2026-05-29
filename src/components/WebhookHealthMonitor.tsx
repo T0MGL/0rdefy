@@ -207,7 +207,7 @@ export const WebhookHealthMonitor: React.FC<WebhookHealthMonitorProps> = ({
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'healthy':
-        return <CheckCircle2 className="h-5 w-5 text-green-500" />;
+        return <CheckCircle2 className="h-5 w-5 text-primary" />;
       case 'degraded':
         return <AlertCircle className="h-5 w-5 text-yellow-500" />;
       case 'unhealthy':
@@ -342,7 +342,7 @@ export const WebhookHealthMonitor: React.FC<WebhookHealthMonitorProps> = ({
               <TrendingUp
                 className={`h-5 w-5 ${
                   metrics.success_rate >= 95
-                    ? 'text-green-500'
+                    ? 'text-primary'
                     : metrics.success_rate >= 80
                     ? 'text-yellow-500'
                     : 'text-red-500'

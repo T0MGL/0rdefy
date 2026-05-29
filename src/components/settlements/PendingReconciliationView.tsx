@@ -921,7 +921,7 @@ export function PendingReconciliationView() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Pedidos Entregados</CardTitle>
-            <Package className="h-4 w-4 text-green-600" />
+            <Package className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{summaryTotals.totalOrders}</div>
@@ -949,7 +949,7 @@ export function PendingReconciliationView() {
       ) : groups.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <CheckCircle2 className="h-12 w-12 text-green-500 mb-4" />
+            <CheckCircle2 className="h-12 w-12 text-primary mb-4" />
             <h3 className="text-lg font-medium">Todo conciliado</h3>
             <p className="text-muted-foreground text-center mt-2">
               No hay couriers con entregas pendientes de conciliar
@@ -1089,7 +1089,7 @@ export function PendingReconciliationView() {
         {/* Stats Bar */}
         <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg flex-wrap">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-green-600" />
+            <CheckCircle2 className="h-4 w-4 text-primary" />
             <span className="text-sm font-medium">{stats.delivered} entregados</span>
           </div>
           <Separator orientation="vertical" className="h-4" />
@@ -1250,7 +1250,7 @@ export function PendingReconciliationView() {
                                 className={`font-semibold ${
                                   state?.override_prepaid
                                     ? 'line-through text-muted-foreground'
-                                    : 'text-green-600'
+                                    : 'text-primary'
                                 }`}
                               >
                                 {formatCurrency(order.cod_amount)}
@@ -1520,7 +1520,7 @@ export function PendingReconciliationView() {
                       className={`font-mono ${
                         financialSummary.extraChargesTotal > 0
                           ? 'text-amber-700 dark:text-amber-400'
-                          : 'text-emerald-700 dark:text-emerald-400'
+                          : 'text-primary dark:text-primary'
                       }`}
                     >
                       {financialSummary.extraChargesTotal > 0 ? '−' : '+'}
@@ -1549,7 +1549,7 @@ export function PendingReconciliationView() {
               <div
                 className={`rounded-lg p-3 border ${
                   financialSummary.isClosed
-                    ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-900'
+                    ? 'bg-primary/5 dark:bg-primary/20 border-primary/30 dark:border-primary'
                     : financialSummary.gap < 0
                     ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900'
                     : 'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900'
@@ -1563,7 +1563,7 @@ export function PendingReconciliationView() {
                 </div>
                 <Separator className="my-2" />
                 {financialSummary.isClosed ? (
-                  <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                  <div className="flex items-center gap-2 text-primary dark:text-primary">
                     <CheckCircle2 className="h-4 w-4" />
                     <span className="text-sm font-medium">
                       Cuadra exacto. El cierre está saldado.
@@ -1676,7 +1676,7 @@ export function PendingReconciliationView() {
               </p>
               <p
                 className={`text-4xl font-bold ${
-                  isPositive ? 'text-green-600' : 'text-red-600'
+                  isPositive ? 'text-primary' : 'text-red-600'
                 }`}
               >
                 {formatCurrency(Math.abs(netReceivable))}
@@ -1797,8 +1797,8 @@ export function PendingReconciliationView() {
       : '';
     return (
       <div className="flex flex-col items-center justify-center py-12">
-        <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-4">
-          <CheckCircle2 className="h-8 w-8 text-green-600" />
+        <div className="w-16 h-16 rounded-full bg-primary/10 dark:bg-primary/30 flex items-center justify-center mb-4">
+          <CheckCircle2 className="h-8 w-8 text-primary" />
         </div>
         <h2 className="text-xl font-semibold mb-2">Conciliacion Completada</h2>
         <p className="text-muted-foreground text-center max-w-md mb-6">

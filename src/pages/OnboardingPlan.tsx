@@ -239,14 +239,14 @@ export default function OnboardingPlan() {
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="mb-6 p-4 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg max-w-xl mx-auto"
+            className="mb-6 p-4 bg-primary/5 dark:bg-primary/30 border border-primary/30 dark:border-primary rounded-lg max-w-xl mx-auto"
           >
             <div className="flex items-center gap-2 justify-center">
-              <Gift className="w-5 h-5 text-green-600" />
-              <span className="font-semibold text-green-700 dark:text-green-400">
+              <Gift className="w-5 h-5 text-primary" />
+              <span className="font-semibold text-primary dark:text-primary">
                 20% de descuento aplicado en tu primer mes
               </span>
-              <Badge variant="secondary" className="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">
+              <Badge variant="secondary" className="bg-primary/10 dark:bg-primary text-primary dark:text-primary">
                 {referralCode}
               </Badge>
             </div>
@@ -276,7 +276,7 @@ export default function OnboardingPlan() {
             className={`cursor-pointer flex items-center gap-2 ${billingCycle === 'annual' ? 'text-foreground font-medium' : 'text-muted-foreground'}`}
           >
             Anual
-            <Badge variant="secondary" className="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">
+            <Badge variant="secondary" className="bg-primary/10 dark:bg-primary text-primary dark:text-primary">
               15% OFF
             </Badge>
           </Label>
@@ -354,7 +354,7 @@ export default function OnboardingPlan() {
                     <ul className="space-y-2">
                       {planHighlights[planName]?.map((feature, idx) => (
                         <li key={idx} className="flex items-start gap-2 text-sm">
-                          <Check className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                          <Check className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
                           <span>{feature}</span>
                         </li>
                       ))}

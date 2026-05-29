@@ -225,7 +225,7 @@ export function CarrierQuickChangePopover({
                         <Truck size={14} className="text-muted-foreground flex-shrink-0" />
                         <span className="truncate">{c.carrier_name}</span>
                         {isCurrent && (
-                          <Check size={14} className="text-emerald-600 flex-shrink-0" />
+                          <Check size={14} className="text-primary flex-shrink-0" />
                         )}
                       </div>
                       {c.rate != null && (

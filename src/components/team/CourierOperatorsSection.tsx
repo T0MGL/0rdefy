@@ -95,8 +95,8 @@ function activityTone(daysSinceActive: number | null) {
   if (daysSinceActive <= 1) {
     return {
       label: 'activo',
-      dotClass: 'bg-emerald-500',
-      textClass: 'text-emerald-600 dark:text-emerald-400',
+      dotClass: 'bg-primary',
+      textClass: 'text-primary dark:text-primary',
     };
   }
   if (daysSinceActive <= 7) {

@@ -363,7 +363,7 @@ ${link}`;
                             : 'N/A'}
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1 text-green-600">
+                        <span className="flex items-center gap-1 text-primary">
                           <CheckCircle2 className="h-4 w-4" />
                           Activo - Proxima facturacion:{' '}
                           {subscription.currentPeriodEnd
@@ -483,7 +483,7 @@ ${link}`;
                 Anual
               </button>
               {isAnnual && maxSavings > 0 && (
-                <span className="ml-2 mr-3 px-3 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-green-500 to-emerald-500 text-white">
+                <span className="ml-2 mr-3 px-3 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-primary to-primary text-white">
                   {`Ahorra hasta ${maxSavings}%`}
                 </span>
               )}
@@ -538,7 +538,7 @@ ${link}`;
                     isGrowth
                       ? 'bg-card/95 border-primary/30'
                       : isCurrentPlan
-                        ? 'bg-card/80 border-green-500/50'
+                        ? 'bg-card/80 border-primary/50'
                         : 'bg-card/60 border-white/10 hover:border-white/20 hover:bg-card/70'
                   }`}>
 
@@ -552,7 +552,7 @@ ${link}`;
                     )}
                     {isCurrentPlan && (
                       <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                        <span className="px-4 py-1.5 rounded-full text-xs font-semibold bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-lg shadow-green-500/30">
+                        <span className="px-4 py-1.5 rounded-full text-xs font-semibold bg-gradient-to-r from-primary to-primary text-white shadow-lg shadow-primary/30">
                           Plan Actual
                         </span>
                       </div>
@@ -588,7 +588,7 @@ ${link}`;
                           <p className="text-xs text-muted-foreground mt-2">
                             ${plan.priceAnnual.toFixed(0)} facturado por año
                             {plan.annualSavings ? (
-                              <span className="ml-1 text-green-500 font-medium">
+                              <span className="ml-1 text-primary font-medium">
                                 ({plan.annualSavings}% de ahorro)
                               </span>
                             ) : null}
@@ -599,7 +599,7 @@ ${link}`;
                       {/* Trial Badge */}
                       {plan.has_trial && plan.trial_days > 0 && plan.plan !== 'free' && (
                         <div className="mb-6">
-                          <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium bg-gradient-to-r from-green-500/10 to-emerald-500/10 text-green-500 border border-green-500/20">
+                          <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium bg-gradient-to-r from-primary/10 to-primary/10 text-primary border border-primary/20">
                             <Gift className="h-4 w-4" />
                             {plan.trial_days} dias de prueba gratis
                           </span>
@@ -867,8 +867,8 @@ ${link}`;
                   </div>
                   <div className="text-sm text-muted-foreground">Total Ganado</div>
                 </div>
-                <div className="text-center p-4 bg-green-50 dark:bg-green-950 rounded-lg">
-                  <div className="text-2xl font-bold text-green-600">
+                <div className="text-center p-4 bg-primary/5 dark:bg-primary rounded-lg">
+                  <div className="text-2xl font-bold text-primary">
                     ${referralStats?.availableCredits?.toFixed(2) || '0.00'}
                   </div>
                   <div className="text-sm text-muted-foreground">Credito Disponible</div>
@@ -895,7 +895,7 @@ ${link}`;
                           </div>
                           <div className="text-right">
                             {ref.first_payment_at ? (
-                              <Badge variant="default" className="bg-green-500">
+                              <Badge variant="default" className="bg-primary">
                                 <Check className="h-3 w-3 mr-1" />
                                 +$10
                               </Badge>
@@ -1066,7 +1066,7 @@ function renderFeature(name: string, enabled: boolean) {
   return (
     <div className="flex items-center gap-3 text-sm">
       {enabled ? (
-        <Check className="h-4 w-4 text-green-500" />
+        <Check className="h-4 w-4 text-primary" />
       ) : (
         <X className="h-4 w-4 text-muted-foreground/40" />
       )}

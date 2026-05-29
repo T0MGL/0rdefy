@@ -303,12 +303,12 @@ export default function Support() {
         {/* Tips & Troubleshooting Row */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
           {/* Print Tips */}
-          <div className="border rounded-lg p-4 bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-900">
-            <h4 className="font-semibold mb-3 flex items-center gap-2 text-green-800 dark:text-green-300">
+          <div className="border rounded-lg p-4 bg-primary/5 border-primary/30 dark:bg-primary/20 dark:border-primary">
+            <h4 className="font-semibold mb-3 flex items-center gap-2 text-primary dark:text-primary">
               <CheckCircle size={18} />
               Consejos de Impresión
             </h4>
-            <ul className="space-y-2 text-sm text-green-700 dark:text-green-400">
+            <ul className="space-y-2 text-sm text-primary dark:text-primary">
               <li className="flex items-start gap-2">
                 <span className="mt-1">•</span>
                 <span>Usa etiquetas de 4x6 pulgadas (101.6 x 152.4 mm)</span>

@@ -157,7 +157,7 @@ export function DeliveryAttemptsPanel({ orderId, orderNumber }: DeliveryAttempts
       case 'in_progress':
         return <Package className="h-5 w-5 text-yellow-500" />;
       case 'delivered':
-        return <CheckCircle2 className="h-5 w-5 text-green-500" />;
+        return <CheckCircle2 className="h-5 w-5 text-primary" />;
       case 'failed':
         return <XCircle className="h-5 w-5 text-red-500" />;
       default:

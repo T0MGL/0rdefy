@@ -94,12 +94,12 @@ export function ReconciliationSummary({
           <p className="text-xs text-muted-foreground">Total</p>
           <p className="text-2xl font-bold">{totalDispatched}</p>
         </div>
-        <div className="p-3 bg-green-50 dark:bg-green-950/30 rounded-lg text-center">
+        <div className="p-3 bg-primary/5 dark:bg-primary/30 rounded-lg text-center">
           <div className="flex items-center justify-center gap-1">
-            <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+            <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
             <p className="text-xs text-muted-foreground">Entregados</p>
           </div>
-          <p className="text-2xl font-bold text-green-600">{totalDelivered}</p>
+          <p className="text-2xl font-bold text-primary">{totalDelivered}</p>
         </div>
         <div className="p-3 bg-red-50 dark:bg-red-950/30 rounded-lg text-center">
           <div className="flex items-center justify-center gap-1">
@@ -133,7 +133,7 @@ export function ReconciliationSummary({
         {hasDiscrepancy && (
           <div className={cn(
             "flex items-center justify-between py-1",
-            totalCodCollected - totalCodExpected < 0 ? 'text-red-600' : 'text-green-600'
+            totalCodCollected - totalCodExpected < 0 ? 'text-red-600' : 'text-primary'
           )}>
             <span>Diferencia</span>
             <span>{totalCodCollected - totalCodExpected > 0 ? '+' : ''}{formatCurrency(totalCodCollected - totalCodExpected)}</span>
@@ -186,7 +186,7 @@ export function ReconciliationSummary({
               </div>
               <span className={cn(
                 'text-2xl font-bold',
-                netReceivable >= 0 ? 'text-green-600' : 'text-red-600'
+                netReceivable >= 0 ? 'text-primary' : 'text-red-600'
               )}>
                 {formatCurrency(netReceivable)}
               </span>

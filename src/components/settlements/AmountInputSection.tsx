@@ -42,7 +42,7 @@ export function AmountInputSection({
         {/* Expected */}
         <div className="p-4 bg-muted rounded-lg text-center">
           <p className="text-sm text-muted-foreground mb-1">COD Esperado</p>
-          <p className="text-2xl font-bold text-green-600">
+          <p className="text-2xl font-bold text-primary">
             {formatCurrency(totalCodExpected)}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
@@ -69,15 +69,15 @@ export function AmountInputSection({
         <div className={cn(
           'p-4 rounded-lg text-center',
           !hasEnteredAmount && 'bg-muted',
-          hasEnteredAmount && !hasDiscrepancy && 'bg-green-100 dark:bg-green-950/30',
-          hasEnteredAmount && hasDiscrepancy && discrepancy > 0 && 'bg-green-100 dark:bg-green-950/30',
+          hasEnteredAmount && !hasDiscrepancy && 'bg-primary/10 dark:bg-primary/30',
+          hasEnteredAmount && hasDiscrepancy && discrepancy > 0 && 'bg-primary/10 dark:bg-primary/30',
           hasEnteredAmount && hasDiscrepancy && discrepancy < 0 && 'bg-red-100 dark:bg-red-950/30'
         )}>
           <p className="text-sm text-muted-foreground mb-1">Diferencia</p>
           <div className="flex items-center justify-center gap-2">
             {hasEnteredAmount && hasDiscrepancy && (
               discrepancy > 0
-                ? <TrendingUp className="h-5 w-5 text-green-600" />
+                ? <TrendingUp className="h-5 w-5 text-primary" />
                 : <TrendingDown className="h-5 w-5 text-red-600" />
             )}
             {hasEnteredAmount && !hasDiscrepancy && (
@@ -86,8 +86,8 @@ export function AmountInputSection({
             <p className={cn(
               'text-2xl font-bold',
               !hasEnteredAmount && 'text-muted-foreground',
-              hasEnteredAmount && !hasDiscrepancy && 'text-green-600',
-              hasEnteredAmount && hasDiscrepancy && discrepancy > 0 && 'text-green-600',
+              hasEnteredAmount && !hasDiscrepancy && 'text-primary',
+              hasEnteredAmount && hasDiscrepancy && discrepancy > 0 && 'text-primary',
               hasEnteredAmount && hasDiscrepancy && discrepancy < 0 && 'text-red-600'
             )}>
               {!hasEnteredAmount ? '-' : (discrepancy > 0 ? '+' : '') + formatCurrency(discrepancy)}

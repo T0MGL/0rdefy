@@ -633,32 +633,32 @@ export function ProductVariantsManager({
             {/* VARIATIONS TAB */}
             <TabsContent value="variations" className="space-y-4 mt-4">
               {/* Variation Info Card */}
-              <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 rounded-lg p-4 border border-emerald-200 dark:border-emerald-800">
+              <div className="bg-gradient-to-r from-primary to-primary dark:from-primary/30 dark:to-primary/30 rounded-lg p-4 border border-primary/30 dark:border-primary">
                 <div className="flex items-start gap-4">
-                  <div className="p-3 bg-emerald-100 dark:bg-emerald-900/50 rounded-lg">
-                    <Tag className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+                  <div className="p-3 bg-primary/10 dark:bg-primary/50 rounded-lg">
+                    <Tag className="h-6 w-6 text-primary dark:text-primary" />
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-emerald-900 dark:text-emerald-100">Stock Independiente</h3>
+                      <h3 className="font-semibold text-primary dark:text-primary">Stock Independiente</h3>
                       <Tooltip>
                         <TooltipTrigger>
-                          <HelpCircle className="h-4 w-4 text-emerald-500" />
+                          <HelpCircle className="h-4 w-4 text-primary" />
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs">
                           <p>Cada variante tiene su propio inventario. Ideal para tallas, colores, o materiales diferentes.</p>
                         </TooltipContent>
                       </Tooltip>
                     </div>
-                    <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">
+                    <p className="text-sm text-primary dark:text-primary mt-1">
                       Las variantes son versiones diferentes del producto con stock separado.
                     </p>
                     {variations.length > 0 && (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {variations.map(v => (
-                          <div key={v.id} className="text-sm bg-white dark:bg-gray-800 px-3 py-1 rounded-full border border-emerald-200 dark:border-emerald-700">
+                          <div key={v.id} className="text-sm bg-white dark:bg-gray-800 px-3 py-1 rounded-full border border-primary/30 dark:border-primary">
                             <span className="font-medium">{v.variant_title}:</span>{' '}
-                            <span className="text-emerald-600 dark:text-emerald-400">{v.stock} uds</span>
+                            <span className="text-primary dark:text-primary">{v.stock} uds</span>
                           </div>
                         ))}
                       </div>
@@ -669,9 +669,9 @@ export function ProductVariantsManager({
 
               {/* Variation Add/Edit Form */}
               {showAddForm && activeTab === 'variations' && (
-                <div className="border rounded-lg p-4 space-y-4 bg-emerald-50/50 dark:bg-emerald-950/20">
+                <div className="border rounded-lg p-4 space-y-4 bg-primary/50 dark:bg-primary/20">
                   <h4 className="font-medium flex items-center gap-2">
-                    <Tag className="h-4 w-4 text-emerald-600" />
+                    <Tag className="h-4 w-4 text-primary" />
                     {editingVariant ? 'Editar variante' : 'Nueva variante'}
                   </h4>
 
@@ -759,7 +759,7 @@ export function ProductVariantsManager({
 
                   <div className="flex gap-2 justify-end pt-2 border-t">
                     <Button variant="outline" onClick={resetVariationForm}>Cancelar</Button>
-                    <Button onClick={handleSaveVariation} disabled={saving} className="bg-emerald-600 hover:bg-emerald-700">
+                    <Button onClick={handleSaveVariation} disabled={saving} className="bg-primary hover:bg-primary/90">
                       {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                       {editingVariant ? 'Guardar cambios' : 'Crear variante'}
                     </Button>
@@ -774,12 +774,12 @@ export function ProductVariantsManager({
                 </div>
               ) : variations.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-lg">
-                  <Tag className="h-12 w-12 mx-auto mb-4 opacity-50 text-emerald-400" />
+                  <Tag className="h-12 w-12 mx-auto mb-4 opacity-50 text-primary" />
                   <p className="text-lg font-medium">No hay variantes configuradas</p>
                   <p className="text-sm mt-1 max-w-md mx-auto">
                     Las variantes son versiones del producto con stock independiente: tallas, colores, materiales, etc.
                   </p>
-                  <Button onClick={() => setShowAddForm(true)} className="mt-4 bg-emerald-600 hover:bg-emerald-700">
+                  <Button onClick={() => setShowAddForm(true)} className="mt-4 bg-primary hover:bg-primary/90">
                     <Plus className="mr-2 h-4 w-4" />
                     Crear primera variante
                   </Button>
@@ -788,7 +788,7 @@ export function ProductVariantsManager({
                 <div className="border rounded-lg overflow-hidden">
                   <Table>
                     <TableHeader>
-                      <TableRow className="bg-emerald-50 dark:bg-emerald-950/30">
+                      <TableRow className="bg-primary/5 dark:bg-primary/30">
                         <TableHead>Variante</TableHead>
                         <TableHead>SKU</TableHead>
                         <TableHead>Atributo</TableHead>
@@ -802,7 +802,7 @@ export function ProductVariantsManager({
                         <TableRow key={variation.id}>
                           <TableCell>
                             <div className="flex items-center gap-2">
-                              <Badge variant="outline" className="bg-emerald-100 text-emerald-700 border-emerald-300">
+                              <Badge variant="outline" className="bg-primary/10 text-primary border-primary/40">
                                 <Tag className="h-3 w-3 mr-1" />
                                 VAR
                               </Badge>
@@ -850,7 +850,7 @@ export function ProductVariantsManager({
 
               {variations.length > 0 && !showAddForm && (
                 <div className="flex justify-end">
-                  <Button onClick={() => setShowAddForm(true)} className="bg-emerald-600 hover:bg-emerald-700">
+                  <Button onClick={() => setShowAddForm(true)} className="bg-primary hover:bg-primary/90">
                     <Plus className="mr-2 h-4 w-4" />
                     Agregar variante
                   </Button>

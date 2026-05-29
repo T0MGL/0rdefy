@@ -48,7 +48,7 @@ const statusColors: Record<string, string> = {
   ready_to_ship: 'bg-cyan-50 dark:bg-cyan-950/20 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-800',
   shipped: 'bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800',
   in_transit: 'bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800',
-  delivered: 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800',
+  delivered: 'bg-primary/5 dark:bg-primary/20 text-primary dark:text-primary border-primary/40 dark:border-primary',
   returned: 'bg-gray-50 dark:bg-gray-950/20 text-gray-700 dark:text-gray-400 border-gray-300 dark:border-gray-800',
   cancelled: 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-300 dark:border-red-800',
   incident: 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-800',
@@ -398,7 +398,7 @@ export default function CustomerDetail() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Card className="p-5 bg-card">
                 <div className="flex items-center gap-3 mb-2">
-                  <DollarSign className="text-green-600" size={20} />
+                  <DollarSign className="text-primary" size={20} />
                   <span className="text-sm text-muted-foreground">Total Gastado</span>
                 </div>
                 <p className="text-2xl font-bold text-card-foreground">
@@ -630,7 +630,7 @@ export default function CustomerDetail() {
                   )}
                   {saveStatus === 'saved' && (
                     <motion.span
-                      className="flex items-center gap-1 text-green-600 dark:text-green-400"
+                      className="flex items-center gap-1 text-primary dark:text-primary"
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                     >

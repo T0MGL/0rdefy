@@ -167,9 +167,9 @@ export function ExternalWebhookSetupDialog({ open, onOpenChange, onSuccess }: Ex
           </div>
         ) : (
           <div className="space-y-6 py-4">
-            <Alert className="border-green-500/50 bg-green-500/10">
-              <CheckCircle2 className="h-4 w-4 text-green-500" />
-              <AlertDescription className="text-green-700 dark:text-green-400">
+            <Alert className="border-primary/50 bg-primary/10">
+              <CheckCircle2 className="h-4 w-4 text-primary" />
+              <AlertDescription className="text-primary dark:text-primary">
                 Tu webhook ha sido configurado exitosamente. Guarda estos datos de forma segura,
                 el API Key solo se muestra una vez.
               </AlertDescription>
@@ -191,7 +191,7 @@ export function ExternalWebhookSetupDialog({ open, onOpenChange, onSuccess }: Ex
                     onClick={() => copyToClipboard(result.webhookUrl, 'url')}
                   >
                     {copied === 'url' ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      <CheckCircle2 className="h-4 w-4 text-primary" />
                     ) : (
                       <Copy className="h-4 w-4" />
                     )}
@@ -217,7 +217,7 @@ export function ExternalWebhookSetupDialog({ open, onOpenChange, onSuccess }: Ex
                     onClick={() => copyToClipboard(result.apiKey, 'key')}
                   >
                     {copied === 'key' ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      <CheckCircle2 className="h-4 w-4 text-primary" />
                     ) : (
                       <Copy className="h-4 w-4" />
                     )}

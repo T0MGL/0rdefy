@@ -877,14 +877,14 @@ export default function Delivery() {
           </Card>
         ) : (
           // PREPAID: No collection needed - show payment method if available
-          <Card className="border-green-500/30 bg-gradient-to-r from-green-500/10 to-emerald-500/10">
+          <Card className="border-primary/30 bg-gradient-to-r from-primary/10 to-primary/10">
             <CardContent className="p-5">
               <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center shadow-lg shadow-green-500/30">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-primary to-primary flex items-center justify-center shadow-lg shadow-primary/30">
                   <CheckCircle className="h-7 w-7 text-white" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-green-600 dark:text-green-400 font-semibold text-sm uppercase tracking-wide">
+                  <p className="text-primary dark:text-primary font-semibold text-sm uppercase tracking-wide">
                     {orderData.is_prepaid ? 'Pedido Pagado' : 'Sin Cobro'}
                   </p>
                   <p className="text-2xl font-bold text-foreground mt-1">NO COBRAR</p>

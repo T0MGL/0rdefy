@@ -1430,7 +1430,7 @@ function PickingView({
           onClick={onFinish}
           disabled={!allPicked || loading}
           size="lg"
-          className={allPicked ? 'bg-green-600 hover:bg-green-700 text-white' : ''}
+          className={allPicked ? 'bg-primary hover:bg-primary/90 text-primary-foreground' : ''}
         >
           <Check className="h-4 w-4 mr-2" />
           Finalizar Recolección

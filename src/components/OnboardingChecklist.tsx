@@ -215,7 +215,7 @@ export function OnboardingChecklist({
           className={cn(
             'flex items-center gap-2 sm:gap-3 p-2 sm:p-3 rounded-lg transition-all active:scale-[0.99]',
             step.completed
-              ? 'bg-green-50 dark:bg-green-950/20'
+              ? 'bg-primary/5 dark:bg-primary/20'
               : 'bg-white/50 dark:bg-gray-900/50 hover:bg-white dark:hover:bg-gray-900 cursor-pointer',
             !step.completed && 'border border-border/50'
           )}
@@ -225,7 +225,7 @@ export function OnboardingChecklist({
             className={cn(
               'flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center',
               step.completed
-                ? 'bg-green-500 text-white'
+                ? 'bg-primary text-primary-foreground'
                 : 'bg-gray-100 dark:bg-gray-800 text-muted-foreground'
             )}
           >
@@ -240,7 +240,7 @@ export function OnboardingChecklist({
             <p
               className={cn(
                 'font-medium text-xs sm:text-sm truncate',
-                step.completed && 'text-green-700 dark:text-green-400'
+                step.completed && 'text-primary dark:text-primary'
               )}
             >
               {step.title}

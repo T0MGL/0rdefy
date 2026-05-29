@@ -293,7 +293,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
                 <p className="text-sm text-muted-foreground">Tienda conectada</p>
               </div>
               <Badge variant="outline" className="gap-1">
-                <CheckCircle2 size={14} className="text-green-600" />
+                <CheckCircle2 size={14} className="text-primary" />
                 Activa
               </Badge>
             </div>

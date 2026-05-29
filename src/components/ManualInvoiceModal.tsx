@@ -107,8 +107,8 @@ function SuccessView({ result, tipoDocumento, onClose }: SuccessViewProps) {
       className="space-y-6 py-2"
     >
       <div className="flex flex-col items-center gap-3 text-center">
-        <div className="p-3 rounded-full bg-green-100 dark:bg-green-900/30">
-          <CheckCircle2 size={28} className="text-green-600 dark:text-green-400" />
+        <div className="p-3 rounded-full bg-primary/10 dark:bg-primary/30">
+          <CheckCircle2 size={28} className="text-primary dark:text-primary" />
         </div>
         <div>
           <p className="font-semibold text-lg">{docLabel} emitida</p>

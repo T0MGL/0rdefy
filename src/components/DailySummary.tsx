@@ -313,7 +313,7 @@ export function DailySummary() {
                   {shouldShowChange && (
                     <Badge
                       variant="outline"
-                      className={metric.trend === 'up' ? 'text-green-600' : 'text-red-600'}
+                      className={metric.trend === 'up' ? 'text-primary' : 'text-red-600'}
                     >
                       {metric.trend === 'up' ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                       {Math.abs(metric.change!)}%
@@ -339,7 +339,7 @@ export function DailySummary() {
                   </li>
                 )}
                 <li className="flex items-start gap-2">
-                  <CheckCircle size={16} className="text-green-600 mt-0.5" />
+                  <CheckCircle size={16} className="text-primary mt-0.5" />
                   <span>Tasa de entrega: {overview?.deliveryRate ?? 0}%</span>
                 </li>
               </ul>

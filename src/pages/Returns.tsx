@@ -435,7 +435,7 @@ export default function Returns() {
             title="Tasa de Aceptación"
             value={`${returnsMetrics.acceptanceRate}%`}
             subtitle={`${returnsMetrics.itemsAccepted} aceptados · ${returnsMetrics.itemsRejected} rechazados`}
-            icon={<Check className="text-green-600" size={20} />}
+            icon={<Check className="text-primary" size={20} />}
             variant="accent"
           />
           <MetricCard
@@ -488,7 +488,7 @@ export default function Returns() {
                     </div>
                     <div>
                       <span className="text-gray-600 dark:text-gray-400">Aceptados:</span>
-                      <span className="ml-1 font-medium text-green-600">{session.accepted_items}</span>
+                      <span className="ml-1 font-medium text-primary">{session.accepted_items}</span>
                     </div>
                     <div>
                       <span className="text-gray-600 dark:text-gray-400">Rechazados:</span>
@@ -699,7 +699,7 @@ export default function Returns() {
               </div>
               <div>
                 <span className="text-gray-600 dark:text-gray-400">Aceptados:</span>
-                <span className="ml-1 font-medium text-green-600">{acceptedItems.length}</span>
+                <span className="ml-1 font-medium text-primary">{acceptedItems.length}</span>
               </div>
               <div>
                 <span className="text-gray-600 dark:text-gray-400">Rechazados:</span>
@@ -725,7 +725,7 @@ export default function Returns() {
 
           {/* Processed Items */}
           <div className="space-y-4">
-            <h2 className="text-xl font-semibold text-green-600">Aceptados</h2>
+            <h2 className="text-xl font-semibold text-primary">Aceptados</h2>
             {acceptedItems.map((item) => (
               <ItemCard
                 key={item.id}
@@ -924,7 +924,7 @@ function ItemCard({ item, onUpdate, readOnly }: ItemCardProps) {
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-600 dark:text-gray-400">Aceptados:</span>
-              <span className="font-medium text-green-600">{item.quantity_accepted}</span>
+              <span className="font-medium text-primary">{item.quantity_accepted}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600 dark:text-gray-400">Rechazados:</span>

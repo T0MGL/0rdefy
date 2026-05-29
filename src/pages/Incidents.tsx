@@ -80,7 +80,7 @@ interface Incident {
 
 const statusColors = {
   active: 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-800',
-  resolved: 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800',
+  resolved: 'bg-primary/5 dark:bg-primary/20 text-primary dark:text-primary border-primary/40 dark:border-primary',
   expired: 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-300 dark:border-red-800',
 };
 
@@ -93,7 +93,7 @@ const statusLabels = {
 const retryStatusColors = {
   scheduled: 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400',
   in_progress: 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-700 dark:text-yellow-400',
-  delivered: 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400',
+  delivered: 'bg-primary/5 dark:bg-primary/20 text-primary dark:text-primary',
   failed: 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400',
   cancelled: 'bg-gray-50 dark:bg-gray-950/20 text-gray-700 dark:text-gray-400',
 };

@@ -72,7 +72,7 @@ export function ImprovedEmptyState({
                 className="flex items-center gap-3 text-sm"
               >
                 {item.done ? (
-                  <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" />
+                  <CheckCircle2 className="w-5 h-5 text-primary flex-shrink-0" />
                 ) : (
                   <Circle className="w-5 h-5 text-gray-400 dark:text-gray-600 flex-shrink-0" />
                 )}

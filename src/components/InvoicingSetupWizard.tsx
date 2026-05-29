@@ -940,16 +940,16 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex items-start gap-2.5 rounded-md border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-900/15 px-3 py-2.5">
-                  <Shield size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                  <p className="text-xs text-emerald-800 dark:text-emerald-300 leading-relaxed">
+                <div className="flex items-start gap-2.5 rounded-md border border-primary/30 dark:border-primary/60 bg-primary/5 dark:bg-primary/15 px-3 py-2.5">
+                  <Shield size={14} className="text-primary dark:text-primary shrink-0 mt-0.5" />
+                  <p className="text-xs text-primary dark:text-primary leading-relaxed">
                     Tu .p12 nunca se almacena. Extraemos solo la clave privada encriptada (AES-256-GCM) y el certificado publico.
                   </p>
                 </div>
 
                 {certFile ? (
-                  <div className="flex items-center gap-3 rounded-md border border-green-200 bg-green-50 px-3 py-2.5">
-                    <CheckCircle2 size={15} className="text-green-600" />
+                  <div className="flex items-center gap-3 rounded-md border border-primary/30 bg-primary/5 px-3 py-2.5">
+                    <CheckCircle2 size={15} className="text-primary" />
                     <span className="text-sm font-medium flex-1 truncate">{certFile.name}</span>
                     <button type="button" onClick={() => { setCertFile(null); setCertPassword(''); }}>
                       <X size={14} />
@@ -1025,7 +1025,7 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
                           </div>
                           <div className="flex items-center gap-1">
                             <Badge variant="outline">{id.sifen_environment}</Badge>
-                            {id.has_certificate && <Badge className="bg-green-100 text-green-800">Cert OK</Badge>}
+                            {id.has_certificate && <Badge className="bg-primary/10 text-primary">Cert OK</Badge>}
                           </div>
                         </div>
                         {(id.stores?.length ?? 0) > 0 && (
@@ -1069,9 +1069,9 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
               <CardContent>
                 <form onSubmit={submitLinkExisting} className="space-y-5">
                   {selectedIdentity && (
-                    <div className="flex items-start gap-2.5 rounded-md border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-900/15 px-3 py-2.5">
-                      <Building2 size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                      <p className="text-xs text-emerald-800 dark:text-emerald-300 leading-relaxed">
+                    <div className="flex items-start gap-2.5 rounded-md border border-primary/30 dark:border-primary/60 bg-primary/5 dark:bg-primary/15 px-3 py-2.5">
+                      <Building2 size={14} className="text-primary dark:text-primary shrink-0 mt-0.5" />
+                      <p className="text-xs text-primary dark:text-primary leading-relaxed">
                         Reusando <strong>{selectedIdentity.razon_social}</strong> (RUC{' '}
                         {selectedIdentity.ruc}-{selectedIdentity.ruc_dv}).
                         {selectedIdentity.has_certificate

@@ -320,7 +320,7 @@ export default function DashboardLogistics() {
             value={`${(confirmationMetrics?.confirmationRate || 0).toFixed(1)}%`}
             change={confirmationMetrics?.confirmationRateChange !== null && confirmationMetrics?.confirmationRateChange !== undefined ? Math.abs(confirmationMetrics.confirmationRateChange) : undefined}
             trend={confirmationMetrics?.confirmationRateChange !== null && confirmationMetrics?.confirmationRateChange !== undefined ? (confirmationMetrics.confirmationRateChange >= 0 ? 'up' : 'down') : undefined}
-            icon={<CheckCircle2 className="text-green-600" size={24} />}
+            icon={<CheckCircle2 className="text-primary" size={24} />}
           />
           <MetricCard
             title={
@@ -404,7 +404,7 @@ export default function DashboardLogistics() {
               }
               value={`${logisticsMetrics.cashCollectionRate}%`}
               subtitle={`Cobrado: ${formatCurrency(logisticsMetrics.collectedCash)} · Pendiente: ${formatCurrency(logisticsMetrics.pendingCashAmount)}`}
-              icon={<Banknote className="text-green-600" size={20} />}
+              icon={<Banknote className="text-primary" size={20} />}
               variant="accent"
             />
             {incidentsMetrics && (
@@ -432,7 +432,7 @@ export default function DashboardLogistics() {
             <MetricCard
               title={metricLabels.collectedCash.title}
               value={formatCurrency(codMetrics.collected_today || 0)}
-              icon={<CheckCircle2 className="text-green-600" size={20} />}
+              icon={<CheckCircle2 className="text-primary" size={20} />}
               variant="accent"
             />
             <MetricCard
@@ -449,7 +449,7 @@ export default function DashboardLogistics() {
             <MetricCard
               title="Tasa de Pago Exitoso"
               value={`${codMetrics.payment_success_rate || 0}%`}
-              icon={<Percent className="text-green-600" size={20} />}
+              icon={<Percent className="text-primary" size={20} />}
             />
             <MetricCard
               title="Intentos Promedio"
@@ -492,7 +492,7 @@ export default function DashboardLogistics() {
               <MetricCard
                 title="Pedidos Confirmados Hoy"
                 value={confirmationMetrics?.confirmationsToday || 0}
-                icon={<CheckCircle2 className="text-green-600" size={20} />}
+                icon={<CheckCircle2 className="text-primary" size={20} />}
               />
             </div>
           )}

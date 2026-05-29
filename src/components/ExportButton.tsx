@@ -141,7 +141,7 @@ export function ExportButton({
             </>
           )}
           <DropdownMenuItem onClick={() => handleExport('excel')} className="gap-2">
-            <FileSpreadsheet size={16} className="text-green-600 dark:text-green-400" />
+            <FileSpreadsheet size={16} className="text-primary dark:text-primary" />
             <div className="flex-1">
               <p className="font-medium">Excel (.xlsx)</p>
               <p className="text-xs text-muted-foreground">Hoja de cálculo</p>

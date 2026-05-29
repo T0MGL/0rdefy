@@ -276,7 +276,7 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
                         )}
                         <span className="flex-1">{product.title}</span>
                         {hasImportedVariants && (
-                          <Badge variant="outline" className="bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/30 text-xs gap-1">
+                          <Badge variant="outline" className="bg-primary/10 text-primary dark:text-primary border-primary/30 text-xs gap-1">
                             <CheckCircle2 className="h-3 w-3" />
                             Importado
                           </Badge>
@@ -306,7 +306,7 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
                         <div className="flex items-center gap-2">
                           <span className="font-medium">{variant.title}</span>
                           {variant.is_imported && (
-                            <Badge variant="outline" className="bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/30 text-xs gap-1 shrink-0">
+                            <Badge variant="outline" className="bg-primary/10 text-primary dark:text-primary border-primary/30 text-xs gap-1 shrink-0">
                               <CheckCircle2 className="h-3 w-3" />
                               Ya importado
                             </Badge>

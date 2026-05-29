@@ -116,12 +116,12 @@ export default function AuthIllustration({
               <rect x="145" y="160" width="50" height="35" rx="3" className="fill-slate-800" />
               <rect x="150" y="165" width="25" height="4" rx="1" className="fill-slate-600" />
               <rect x="150" y="175" width="35" height="8" rx="1" className="fill-primary/80" />
-              <rect x="150" y="187" width="20" height="3" rx="1" className="fill-emerald-500/60" />
+              <rect x="150" y="187" width="20" height="3" rx="1" className="fill-primary/60" />
 
               <rect x="200" y="160" width="50" height="35" rx="3" className="fill-slate-800" />
               <rect x="205" y="165" width="25" height="4" rx="1" className="fill-slate-600" />
               <rect x="205" y="175" width="35" height="8" rx="1" className="fill-blue-500/80" />
-              <rect x="205" y="187" width="20" height="3" rx="1" className="fill-emerald-500/60" />
+              <rect x="205" y="187" width="20" height="3" rx="1" className="fill-primary/60" />
 
               <rect x="255" y="160" width="50" height="35" rx="3" className="fill-slate-800" />
               <rect x="260" y="165" width="25" height="4" rx="1" className="fill-slate-600" />
@@ -131,7 +131,7 @@ export default function AuthIllustration({
               <rect x="310" y="160" width="50" height="35" rx="3" className="fill-slate-800" />
               <rect x="315" y="165" width="25" height="4" rx="1" className="fill-slate-600" />
               <rect x="315" y="175" width="35" height="8" rx="1" className="fill-violet-500/80" />
-              <rect x="315" y="187" width="20" height="3" rx="1" className="fill-emerald-500/60" />
+              <rect x="315" y="187" width="20" height="3" rx="1" className="fill-primary/60" />
 
               {/* Chart area */}
               <rect x="145" y="200" width="105" height="60" rx="3" className="fill-slate-800" />
@@ -150,7 +150,7 @@ export default function AuthIllustration({
               <rect x="260" y="205" width="35" height="4" rx="1" className="fill-slate-600" />
               {/* Order items */}
               <rect x="260" y="215" width="95" height="12" rx="2" className="fill-slate-700" />
-              <circle cx="268" cy="221" r="3" className="fill-emerald-500" />
+              <circle cx="268" cy="221" r="3" className="fill-primary" />
               <rect x="275" y="219" width="40" height="4" rx="1" className="fill-slate-500" />
               <rect x="335" y="218" width="15" height="6" rx="1" className="fill-primary/60" />
 
@@ -245,7 +245,7 @@ export default function AuthIllustration({
               transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
             >
               {/* Checkmark badge */}
-              <circle cx="85" cy="200" r="16" className="fill-emerald-500" />
+              <circle cx="85" cy="200" r="16" className="fill-primary" />
               <path
                 d="M78 200 L83 205 L93 195"
                 className="stroke-white fill-none"

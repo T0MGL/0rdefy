@@ -57,7 +57,7 @@ function pickIcon(state: ItemState) {
 function stateClasses(state: ItemState) {
   switch (state) {
     case 'ok':
-      return 'text-emerald-500 bg-emerald-500/10 ring-emerald-500/30';
+      return 'text-primary bg-primary/10 ring-primary/30';
     case 'warn':
       return 'text-amber-500 bg-amber-500/10 ring-amber-500/30';
     case 'missing':
@@ -275,21 +275,21 @@ export function SifenStatusCard({ ctx, loading }: Props) {
 
   const summaryClasses =
     summary.tone === 'good'
-      ? 'border-emerald-500/40 bg-gradient-to-br from-emerald-500/8 to-transparent'
+      ? 'border-primary/40 bg-gradient-to-br from-primary/8 to-transparent'
       : summary.tone === 'warn'
         ? 'border-amber-500/40 bg-gradient-to-br from-amber-500/8 to-transparent'
         : 'border-red-500/40 bg-gradient-to-br from-red-500/8 to-transparent';
 
   const summaryIconClasses =
     summary.tone === 'good'
-      ? 'text-emerald-500'
+      ? 'text-primary'
       : summary.tone === 'warn'
         ? 'text-amber-500'
         : 'text-red-500';
 
   const envBadgeClasses =
     env === 'prod'
-      ? 'border-emerald-500/40 text-emerald-600 bg-emerald-500/10'
+      ? 'border-primary/40 text-primary bg-primary/10'
       : env === 'test'
         ? 'border-amber-500/40 text-amber-600 bg-amber-500/10'
         : 'border-muted-foreground/30 text-muted-foreground bg-muted/30';
@@ -335,7 +335,7 @@ export function SifenStatusCard({ ctx, loading }: Props) {
           <span
             className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${envBadgeClasses}`}
           >
-            <span className={`h-1.5 w-1.5 rounded-full ${env === 'prod' ? 'bg-emerald-500 animate-pulse' : env === 'test' ? 'bg-amber-500' : 'bg-muted-foreground/60'}`} />
+            <span className={`h-1.5 w-1.5 rounded-full ${env === 'prod' ? 'bg-primary animate-pulse' : env === 'test' ? 'bg-amber-500' : 'bg-muted-foreground/60'}`} />
             {env}
           </span>
         </div>

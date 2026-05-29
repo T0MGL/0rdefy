@@ -534,7 +534,7 @@ export default function CarrierDetail() {
                         </td>
                         <td className="p-4 text-center">
                           {order.reconciled_at ? (
-                            <Badge className="bg-green-100 text-green-800 hover:bg-green-100 border-none">
+                            <Badge className="bg-primary/10 text-primary hover:bg-primary/10 border-none">
                               Pagado
                             </Badge>
                           ) : (
@@ -565,7 +565,7 @@ export default function CarrierDetail() {
             </Card>
             <Card className="p-6 bg-card">
               <div className="flex items-center gap-3 mb-2">
-                <CheckCircle2 className="text-green-600" size={20} />
+                <CheckCircle2 className="text-primary" size={20} />
                 <span className="text-sm text-muted-foreground">Entregados</span>
               </div>
               <p className="text-3xl font-bold text-card-foreground">{metrics.delivered}</p>
@@ -695,7 +695,7 @@ export default function CarrierDetail() {
               </Card>
               <Card className="p-5 bg-card">
                 <div className="flex items-center gap-2 mb-1">
-                  <Clock className="text-emerald-500" size={16} />
+                  <Clock className="text-primary" size={16} />
                   <span className="text-xs text-muted-foreground uppercase tracking-wide">Tiempo medio</span>
                 </div>
                 <p className="text-2xl font-bold text-card-foreground">
@@ -802,7 +802,7 @@ export default function CarrierDetail() {
                             }
                             className={
                               review.rating >= 4
-                                ? 'bg-green-100 text-green-800 hover:bg-green-100'
+                                ? 'bg-primary/10 text-primary hover:bg-primary/10'
                                 : review.rating >= 3
                                 ? ''
                                 : ''

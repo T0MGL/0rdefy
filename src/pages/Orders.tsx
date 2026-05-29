@@ -117,7 +117,7 @@ const statusColors = {
   ready_to_ship: 'bg-cyan-50 dark:bg-cyan-950/20 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-800',
   shipped: 'bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800',
   in_transit: 'bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800',
-  delivered: 'bg-primary/5 dark:bg-primary/20 text-primary dark:text-primary border-primary/40 dark:border-primary',
+  delivered: 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800',
   returned: 'bg-gray-50 dark:bg-gray-950/20 text-gray-700 dark:text-gray-400 border-gray-300 dark:border-gray-800',
   cancelled: 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-300 dark:border-red-800',
   incident: 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-800',
@@ -2862,7 +2862,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
 
                             const colorClass = isCOD && !isPaid
                               ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800'
-                              : 'bg-primary/5 dark:bg-primary/30 text-primary dark:text-primary border-primary/40 dark:border-primary';
+                              : 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800';
 
                             return (
                               <Tooltip>

@@ -199,7 +199,7 @@ export function OrderStep({ onComplete }: OrderStepProps) {
             disabled={isCreating}
             className={cn(
               'w-full gap-2 h-11',
-              isCreated && 'bg-green-600 hover:bg-green-700'
+              isCreated && 'bg-primary hover:bg-primary/90'
             )}
           >
             {isCreating ? (

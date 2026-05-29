@@ -574,7 +574,7 @@ export function CarrierCoverageManager({
           isExcluded
             ? 'border-red-200/50 bg-red-50/30 dark:border-red-900/30 dark:bg-red-950/10'
             : isConfigured
-              ? 'border-green-200/50 bg-green-50/30 dark:border-green-900/30 dark:bg-green-950/10'
+              ? 'border-primary/50 bg-primary/30 dark:border-primary/30 dark:bg-primary/10'
               : 'border-border bg-background'
         )}
       >
@@ -700,7 +700,7 @@ export function CarrierCoverageManager({
                     className={cn(
                       'text-[10px] px-1.5 py-0 h-4',
                       deptStat.configured > 0
-                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 hover:bg-green-100'
+                        ? 'bg-primary/10 text-primary dark:bg-primary/30 dark:text-primary hover:bg-primary/10'
                         : ''
                     )}
                   >

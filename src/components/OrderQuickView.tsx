@@ -355,7 +355,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                   typeClass = 'bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-700';
                   // Estado: simplemente "Pagado"
                   statusLabel = 'Pagado';
-                  statusClass = 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-300 dark:border-green-700';
+                  statusClass = 'bg-primary/5 dark:bg-primary/30 text-primary dark:text-primary border-primary/40 dark:border-primary';
                 } else if (isPrepaid) {
                   paymentType = 'prepaid';
                   // Tipo: cómo pagó por adelantado
@@ -367,7 +367,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                   typeClass = 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-700';
                   // Estado: pagado por adelantado
                   statusLabel = 'Pagado (Adelantado)';
-                  statusClass = 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-300 dark:border-green-700';
+                  statusClass = 'bg-primary/5 dark:bg-primary/30 text-primary dark:text-primary border-primary/40 dark:border-primary';
                 } else if (codAmount > 0 || paymentGateway === 'cash_on_delivery' || paymentGateway === 'manual') {
                   paymentType = 'cod';
                   // Tipo: siempre efectivo contra entrega
@@ -376,7 +376,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                   // Estado: depende de si ya se cobró o no
                   if (paymentStatus === 'collected') {
                     statusLabel = 'Cobrado';
-                    statusClass = 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-300 dark:border-green-700';
+                    statusClass = 'bg-primary/5 dark:bg-primary/30 text-primary dark:text-primary border-primary/40 dark:border-primary';
                   } else if (paymentStatus === 'failed') {
                     statusLabel = 'Cobro Fallido';
                     statusClass = 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-300 dark:border-red-700';
@@ -424,7 +424,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                     {paymentType === 'cod' && paymentStatus === 'collected' && (
                       <div className="flex justify-between items-center pt-2 border-t border-border">
                         <span className="text-sm text-muted-foreground">Monto Cobrado:</span>
-                        <span className="text-lg font-bold text-green-600 dark:text-green-400">
+                        <span className="text-lg font-bold text-primary dark:text-primary">
                           {formatCurrency((order as any).amount_collected ?? codAmount ?? order.total ?? 0)}
                         </span>
                       </div>
@@ -453,7 +453,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                     </div>
                     <div className="flex justify-between pt-1 border-t border-orange-200 dark:border-orange-700">
                       <span className="text-muted-foreground">Diferencia:</span>
-                      <span className={`font-bold ${(order as any).amount_collected - (order.cod_amount ?? order.total ?? 0) < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      <span className={`font-bold ${(order as any).amount_collected - (order.cod_amount ?? order.total ?? 0) < 0 ? 'text-red-600' : 'text-primary'}`}>
                         {(order as any).amount_collected - (order.cod_amount ?? order.total ?? 0) > 0 ? '+' : ''}{formatCurrency((order as any).amount_collected - (order.cod_amount ?? order.total ?? 0))}
                       </span>
                     </div>

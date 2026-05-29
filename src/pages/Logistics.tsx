@@ -229,10 +229,10 @@ export default function Logistics() {
           </Card>
 
           {/* Pagados */}
-          <Card className="border-green-500/30 bg-green-50/50 dark:bg-green-950/10">
+          <Card className="border-primary/30 bg-primary/50 dark:bg-primary/10">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium flex items-center">
-                <CreditCard className="mr-2 text-green-600" size={18} />
+                <CreditCard className="mr-2 text-primary" size={18} />
                 Pagado
                 <InfoTooltip content="Costos de envío que ya fueron liquidados y pagados a los transportistas. Este monto refleja las liquidaciones con estado 'pagado' en el sistema." />
               </CardTitle>
@@ -329,7 +329,7 @@ export default function Logistics() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium flex items-center">
-              <TrendingUp className="mr-2 text-teal-600" size={18} />
+              <TrendingUp className="mr-2 text-primary" size={18} />
               Tiempo de Entrega
               <InfoTooltip content="Promedio de días desde la creación del pedido hasta su entrega. Un menor tiempo indica mejor eficiencia logística." />
             </CardTitle>
@@ -353,7 +353,7 @@ export default function Logistics() {
             <Card className="border-primary/20">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-medium flex items-center">
-                  <CheckCircle2 className="mr-2 text-green-600" size={18} />
+                  <CheckCircle2 className="mr-2 text-primary" size={18} />
                   Tasa de Éxito
                   <InfoTooltip content="Porcentaje de pedidos entregados exitosamente sobre el total de pedidos despachados. Una tasa alta indica operaciones de entrega eficientes." />
                 </CardTitle>
@@ -617,7 +617,7 @@ export default function Logistics() {
                         {formatCurrency(Math.round(carrier.settledCosts))}
                       </td>
                       <td className="text-right py-4 px-4">
-                        <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-700">
+                        <Badge variant="outline" className="bg-primary/5 dark:bg-primary/20 text-primary dark:text-primary border-primary/40 dark:border-primary">
                           {formatCurrency(Math.round(carrier.paidCosts))}
                         </Badge>
                       </td>
@@ -646,7 +646,7 @@ export default function Logistics() {
                       {formatCurrency(Math.round(carrierBreakdown.reduce((sum, c) => sum + c.settledCosts, 0)))}
                     </td>
                     <td className="text-right py-4 px-4">
-                      <Badge className="bg-green-500 text-white">
+                      <Badge className="bg-primary text-primary-foreground">
                         {formatCurrency(Math.round(carrierBreakdown.reduce((sum, c) => sum + c.paidCosts, 0)))}
                       </Badge>
                     </td>

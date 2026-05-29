@@ -150,9 +150,9 @@ export function DispatchStep({ onComplete }: DispatchStepProps) {
               animate={{ opacity: 1, x: 0 }}
               className="space-y-4"
             >
-              <div className="p-4 bg-green-500/10 rounded-lg border border-green-500/20 text-center">
-                <Check className="w-8 h-8 text-green-500 mx-auto mb-2" />
-                <p className="font-semibold text-green-600 dark:text-green-400">
+              <div className="p-4 bg-primary/10 rounded-lg border border-primary/20 text-center">
+                <Check className="w-8 h-8 text-primary mx-auto mb-2" />
+                <p className="font-semibold text-primary dark:text-primary">
                   Sesión de Despacho Creada
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
@@ -192,9 +192,9 @@ export function DispatchStep({ onComplete }: DispatchStepProps) {
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-                className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4"
+                className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4"
               >
-                <Download className="w-8 h-8 text-green-500" />
+                <Download className="w-8 h-8 text-primary" />
               </motion.div>
               <h3 className="text-lg font-bold mb-2">¡Pedido Despachado!</h3>
               <p className="text-sm text-muted-foreground">
@@ -242,7 +242,7 @@ export function DispatchStep({ onComplete }: DispatchStepProps) {
                 onComplete?.();
                 nextStep();
               }}
-              className="w-full gap-2 h-11 bg-green-600 hover:bg-green-700"
+              className="w-full gap-2 h-11 bg-primary hover:bg-primary/90"
             >
               <Check className="w-4 h-4" />
               Continuar

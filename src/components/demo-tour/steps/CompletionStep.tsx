@@ -28,7 +28,7 @@ const ownerLearnedItems = [
   { icon: Truck, label: 'Crear transportadoras con zonas', color: 'text-blue-500' },
   { icon: Package, label: 'Agregar productos con precios', color: 'text-purple-500' },
   { icon: ShoppingBag, label: 'Gestionar pedidos completos', color: 'text-orange-500' },
-  { icon: Warehouse, label: 'Picking y packing en almacén', color: 'text-green-500' },
+  { icon: Warehouse, label: 'Picking y packing en almacén', color: 'text-primary' },
   { icon: BarChart3, label: 'Despacho y seguimiento', color: 'text-pink-500' },
 ];
 
@@ -36,7 +36,7 @@ const ownerLearnedItems = [
 const collaboratorLearnedItems = [
   { icon: Warehouse, label: 'Navegar por tu área de trabajo', color: 'text-blue-500' },
   { icon: ShoppingBag, label: 'Gestionar tus tareas asignadas', color: 'text-purple-500' },
-  { icon: BarChart3, label: 'Consultar información relevante', color: 'text-green-500' },
+  { icon: BarChart3, label: 'Consultar información relevante', color: 'text-primary' },
 ];
 
 export function CompletionStep({ onComplete }: CompletionStepProps) {
@@ -63,7 +63,7 @@ export function CompletionStep({ onComplete }: CompletionStepProps) {
       particleCount: 200,
       spread: 120,
       origin: { x: 0.5, y: 0.5 },
-      colors: ['#C1E94E', '#84cc16', '#22c55e', '#10b981', '#06b6d4', '#8b5cf6'],
+      colors: ['#C1E94E', '#84cc16', '#A3D820', '#8FB820', '#06b6d4', '#8b5cf6'],
       ticks: 350,
       gravity: 0.7,
       scalar: 1.3,
@@ -77,7 +77,7 @@ export function CompletionStep({ onComplete }: CompletionStepProps) {
         angle: 60,
         spread: 100,
         origin: { x: 0, y: 0.5 },
-        colors: ['#C1E94E', '#84cc16', '#22c55e'],
+        colors: ['#C1E94E', '#84cc16', '#A3D820'],
         ticks: 300,
         gravity: 0.8,
         scalar: 1.2,
@@ -91,7 +91,7 @@ export function CompletionStep({ onComplete }: CompletionStepProps) {
         angle: 120,
         spread: 100,
         origin: { x: 1, y: 0.5 },
-        colors: ['#22c55e', '#10b981', '#06b6d4'],
+        colors: ['#A3D820', '#8FB820', '#06b6d4'],
         ticks: 300,
         gravity: 0.8,
         scalar: 1.2,
@@ -119,7 +119,7 @@ export function CompletionStep({ onComplete }: CompletionStepProps) {
         angle: 135,
         spread: 80,
         origin: { x: 0.9, y: 0.1 },
-        colors: ['#22c55e', '#10b981', '#06b6d4'],
+        colors: ['#A3D820', '#8FB820', '#06b6d4'],
         ticks: 250,
         gravity: 1,
         scalar: 1.1,
@@ -132,7 +132,7 @@ export function CompletionStep({ onComplete }: CompletionStepProps) {
         particleCount: 150,
         spread: 180,
         origin: { x: 0.5, y: 0.3 },
-        colors: ['#C1E94E', '#84cc16', '#22c55e', '#10b981', '#8b5cf6'],
+        colors: ['#C1E94E', '#84cc16', '#A3D820', '#8FB820', '#8b5cf6'],
         ticks: 300,
         gravity: 0.9,
         scalar: 1.4,
@@ -223,7 +223,7 @@ export function CompletionStep({ onComplete }: CompletionStepProps) {
                       <Icon className={cn('w-4 h-4', item.color)} />
                     </div>
                     <span className="text-sm">{item.label}</span>
-                    <Check className="w-4 h-4 text-green-500 ml-auto" />
+                    <Check className="w-4 h-4 text-primary ml-auto" />
                   </motion.div>
                 );
               })}

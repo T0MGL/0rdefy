@@ -29,7 +29,7 @@ import { InfoTooltip } from '@/components/InfoTooltip';
 import type { DashboardOverview, Product } from '@/types';
 
 const getMarginColor = (margin: number) => {
-  if (margin > 40) return 'text-green-600 bg-green-50 dark:text-green-400 dark:bg-green-950';
+  if (margin > 40) return 'text-primary bg-primary/5 dark:text-primary dark:bg-primary';
   if (margin >= 20) return 'text-yellow-600 bg-yellow-50 dark:text-yellow-400 dark:bg-yellow-950';
   return 'text-red-600 bg-red-50 dark:text-red-400 dark:bg-red-950';
 };
@@ -297,7 +297,7 @@ export function RevenueIntelligence() {
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Margen Bruto</span>
-                    <span className="font-semibold text-green-600 dark:text-green-400">
+                    <span className="font-semibold text-primary dark:text-primary">
                       {formatCurrency(grossMargin)} ({grossMarginPercent.toFixed(1)}%)
                     </span>
                   </div>
@@ -526,7 +526,7 @@ export function RevenueIntelligence() {
                             </Badge>
                           )}
                           {product.isTopPerformer && productFilter === 'profitability' && (
-                            <Badge variant="default" className="text-xs bg-green-600">
+                            <Badge variant="default" className="text-xs bg-primary">
                               <Trophy size={12} className="mr-1" />
                               TOP PERFORMER
                             </Badge>
@@ -556,7 +556,7 @@ export function RevenueIntelligence() {
                         </span>
                       </td>
                       <td className="text-right py-4 px-4">
-                        <span className="inline-flex items-center gap-1 text-sm font-semibold text-green-700 dark:text-green-400">
+                        <span className="inline-flex items-center gap-1 text-sm font-semibold text-primary dark:text-primary">
                           {product.roi > 100 ? (
                             <TrendingUp size={14} />
                           ) : (
@@ -591,7 +591,7 @@ export function RevenueIntelligence() {
                         </Badge>
                       )}
                       {product.isTopPerformer && productFilter === 'profitability' && (
-                        <Badge variant="default" className="text-xs bg-green-600">
+                        <Badge variant="default" className="text-xs bg-primary">
                           <Trophy size={10} className="mr-1" />
                           TOP
                         </Badge>
@@ -631,7 +631,7 @@ export function RevenueIntelligence() {
                       </div>
                       <div>
                         <p className="text-muted-foreground">ROI</p>
-                        <p className="font-medium text-green-700 dark:text-green-400">{product.roi}%</p>
+                        <p className="font-medium text-primary dark:text-primary">{product.roi}%</p>
                       </div>
                     </div>
                   </CardContent>

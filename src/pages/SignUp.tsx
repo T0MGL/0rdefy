@@ -150,19 +150,19 @@ export default function SignUp() {
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-6 p-4 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg"
+              className="mb-6 p-4 bg-primary/5 dark:bg-primary/30 border border-primary/30 dark:border-primary rounded-lg"
             >
               <div className="flex items-center gap-2 mb-2">
-                <Gift className="w-5 h-5 text-green-600 dark:text-green-400" />
-                <span className="font-semibold text-green-700 dark:text-green-400">
+                <Gift className="w-5 h-5 text-primary dark:text-primary" />
+                <span className="font-semibold text-primary dark:text-primary">
                   Descuento de Referido Aplicado
                 </span>
               </div>
-              <p className="text-sm text-green-600 dark:text-green-400">
+              <p className="text-sm text-primary dark:text-primary">
                 Obtendrás 20% de descuento en tu primer mes al elegir un plan de pago.
               </p>
               <div className="mt-2 flex items-center gap-2">
-                <Badge variant="secondary" className="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">
+                <Badge variant="secondary" className="bg-primary/10 dark:bg-primary text-primary dark:text-primary">
                   Código: {referralCode}
                 </Badge>
               </div>
@@ -284,19 +284,19 @@ export default function SignUp() {
             {/* Referral Code Display (Read-only) */}
             {referralCode && (
               <div className="space-y-2">
-                <Label className="text-base font-medium text-green-700 dark:text-green-400">
+                <Label className="text-base font-medium text-primary dark:text-primary">
                   Código de referido
                 </Label>
                 <div className="relative">
-                  <Gift className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-green-600" />
+                  <Gift className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-primary" />
                   <Input
                     type="text"
                     value={referralCode}
-                    className="pl-10 h-12 text-base bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 font-mono"
+                    className="pl-10 h-12 text-base bg-primary/5 dark:bg-primary/30 border-primary/30 dark:border-primary text-primary dark:text-primary font-mono"
                     disabled
                     readOnly
                   />
-                  <Check className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-green-600" />
+                  <Check className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-primary" />
                 </div>
               </div>
             )}

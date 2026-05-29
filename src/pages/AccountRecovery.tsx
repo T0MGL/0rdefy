@@ -103,9 +103,9 @@ export default function AccountRecovery() {
 
           {/* Success message */}
           {showSuccess && (
-            <Alert className="mt-6 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
-              <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
-              <AlertDescription className="text-green-800 dark:text-green-200">
+            <Alert className="mt-6 bg-primary/5 dark:bg-primary/20 border-primary/30 dark:border-primary">
+              <CheckCircle2 className="h-4 w-4 text-primary dark:text-primary" />
+              <AlertDescription className="text-primary dark:text-primary">
                 Te contactaremos pronto para ayudarte a recuperar tu cuenta.
               </AlertDescription>
             </Alert>
