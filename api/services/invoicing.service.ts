@@ -118,6 +118,19 @@ export interface FiscalContext {
   activities: FiscalActivityRow[];
 }
 
+/**
+ * Lightweight summary of a store linked to an identity. Returned by
+ * listIdentitiesForOwner so the setup wizard can show which emission
+ * points are taken and auto-suggest the next free punto_expedicion.
+ */
+export interface FiscalIdentityStoreSummary {
+  store_id: string;
+  store_name: string | null;
+  establecimiento_codigo: string;
+  punto_expedicion: string;
+  timbrado: string | null;
+}
+
 export interface FiscalIdentityInput {
   ruc: string;
   ruc_dv: number;
@@ -790,6 +803,44 @@ export async function loadCertificateMaterial(
 }
 
 // ================================================================
+// Error translation
+// ================================================================
+
+/**
+ * Map raw Postgres UNIQUE-violation errors from the fiscal tables into
+ * actionable Spanish messages. SIFEN multi-store reuse hits these
+ * constraints by design (same RUC across brands, distinct emission points),
+ * so the user must see what to do, not "duplicate key value violates ...".
+ *
+ * Any error that is not a recognized fiscal constraint falls back to the
+ * original message under the given prefix. We never swallow errors.
+ */
+function translateFiscalConstraintError(
+  error: { code?: string; message?: string; details?: string } | null,
+  prefix: string,
+  ctx?: { establecimiento_codigo?: string; punto_expedicion?: string },
+): string {
+  const haystack = `${error?.message ?? ''} ${error?.details ?? ''}`;
+  const isUnique = error?.code === '23505' || /duplicate key|violates unique/i.test(haystack);
+
+  if (isUnique) {
+    if (haystack.includes('uniq_fiscal_identity_owner_ruc')) {
+      return 'Ya tenes una identidad fiscal con este RUC. Usa la opcion "Usar identidad existente" para vincularla a esta tienda.';
+    }
+    if (haystack.includes('uniq_identity_estab_punto')) {
+      const estab = ctx?.establecimiento_codigo ?? '001';
+      const punto = ctx?.punto_expedicion ?? '001';
+      return `Esta identidad ya usa el establecimiento ${estab} / punto de expedicion ${punto} en otra tienda. Asigna un punto de expedicion distinto (ej. 002) para esta tienda.`;
+    }
+    if (haystack.includes('fiscal_identity_stores_store_id') || /store_id/.test(haystack)) {
+      return 'Esta tienda ya tiene una identidad fiscal vinculada.';
+    }
+  }
+
+  return `${prefix}: ${error?.message ?? 'unknown'}`;
+}
+
+// ================================================================
 // Identity CRUD
 // ================================================================
 
@@ -835,7 +886,7 @@ export async function createIdentity(
     .single();
 
   if (error || !data) {
-    throw new Error(`Error creando identidad fiscal: ${error?.message ?? 'unknown'}`);
+    throw new Error(translateFiscalConstraintError(error, 'Error creando identidad fiscal'));
   }
 
   return { ...(data as any), has_certificate: false } as FiscalIdentityRow;
@@ -952,11 +1003,11 @@ export async function updateIdentity(
  */
 export async function listIdentitiesForOwner(
   ownerUserId: string,
-): Promise<Array<FiscalIdentityRow & { activities: FiscalActivityRow[] }>> {
+): Promise<Array<FiscalIdentityRow & { activities: FiscalActivityRow[]; stores: FiscalIdentityStoreSummary[] }>> {
   const { data, error } = await supabaseAdmin
     .from('fiscal_identities')
     .select(
-      'id, owner_user_id, ruc, ruc_dv, razon_social, nombre_fantasia, tipo_contribuyente, tipo_regimen, country, sifen_environment, cert_pem, encrypted_private_key, csc_id, representante_legal_nombre, representante_legal_documento_tipo, representante_legal_documento_numero, representante_legal_cargo, domicilio_fiscal_direccion, domicilio_fiscal_numero_casa, domicilio_fiscal_departamento, domicilio_fiscal_distrito, domicilio_fiscal_ciudad, is_active, created_at, updated_at, fiscal_identity_activities(id, codigo, descripcion, is_principal, display_order)',
+      'id, owner_user_id, ruc, ruc_dv, razon_social, nombre_fantasia, tipo_contribuyente, tipo_regimen, country, sifen_environment, cert_pem, encrypted_private_key, csc_id, representante_legal_nombre, representante_legal_documento_tipo, representante_legal_documento_numero, representante_legal_cargo, domicilio_fiscal_direccion, domicilio_fiscal_numero_casa, domicilio_fiscal_departamento, domicilio_fiscal_distrito, domicilio_fiscal_ciudad, is_active, created_at, updated_at, fiscal_identity_activities(id, codigo, descripcion, is_principal, display_order), fiscal_identity_stores(store_id, establecimiento_codigo, punto_expedicion, timbrado, is_active, stores(name))',
     )
     .eq('owner_user_id', ownerUserId)
     .eq('is_active', true)
@@ -965,13 +1016,23 @@ export async function listIdentitiesForOwner(
   if (error) throw new Error(`Error listando identidades: ${error.message}`);
 
   return (data ?? []).map((row: any) => {
-    const { cert_pem, encrypted_private_key, fiscal_identity_activities, ...rest } = row;
+    const { cert_pem, encrypted_private_key, fiscal_identity_activities, fiscal_identity_stores, ...rest } = row;
+    const stores: FiscalIdentityStoreSummary[] = (fiscal_identity_stores ?? [])
+      .filter((s: any) => s.is_active)
+      .map((s: any) => ({
+        store_id: s.store_id,
+        store_name: s.stores?.name ?? null,
+        establecimiento_codigo: s.establecimiento_codigo,
+        punto_expedicion: s.punto_expedicion,
+        timbrado: s.timbrado ?? null,
+      }));
     return {
       ...rest,
       has_certificate: Boolean(cert_pem && encrypted_private_key),
       activities: (fiscal_identity_activities ?? []).sort(
         (a: FiscalActivityRow, b: FiscalActivityRow) => a.display_order - b.display_order,
       ),
+      stores,
     };
   });
 }
@@ -1094,7 +1155,14 @@ export async function linkIdentityToStore(
     )
     .single();
 
-  if (error || !data) throw new Error(`Error vinculando identidad a tienda: ${error?.message ?? 'unknown'}`);
+  if (error || !data) {
+    throw new Error(
+      translateFiscalConstraintError(error, 'Error vinculando identidad a tienda', {
+        establecimiento_codigo: input.establecimiento_codigo ?? '001',
+        punto_expedicion: input.punto_expedicion ?? '001',
+      }),
+    );
+  }
   return data as FiscalIdentityStoreRow;
 }
 
