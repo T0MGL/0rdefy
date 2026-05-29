@@ -207,6 +207,10 @@ export interface Order {
     total_price: number;
     units_per_pack?: number; // Snapshot for audit (Migration 097)
     bundle_selections?: Array<{ variant_id?: string; variant_name?: string; quantity: number }> | null; // 146/181: color makeup
+    // 181: per color physical unit breakdown resolved server side from
+    // bundle_selections. Present only for bundles with a resolvable color
+    // makeup; absent for simple products and color-less bundles.
+    color_breakdown?: Array<{ color: string; quantity: number }>;
     shopify_product_id?: string;
     shopify_variant_id?: string;
     is_upsell?: boolean;

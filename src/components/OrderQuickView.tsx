@@ -1,6 +1,7 @@
 import { Order } from '@/types';
 import { logger } from '@/utils/logger';
 import { formatCurrency } from '@/utils/currency';
+import { getRenderableColors } from '@/utils/lineItemColors';
 import { ordersService } from '@/services/orders.service';
 import { useToast } from '@/hooks/use-toast';
 import { confirm } from '@/components/ui/confirm';
@@ -303,16 +304,63 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
           {/* Producto */}
           <div className="space-y-3">
             <h4 className="font-semibold text-sm text-muted-foreground">PRODUCTO</h4>
-            <div className="flex items-center gap-4 p-3 bg-muted rounded-lg">
-              <div className="w-16 h-16 bg-background rounded flex items-center justify-center">
-                <Package className="text-muted-foreground" />
-              </div>
-              <div className="flex-1">
-                <p className="font-medium">{order.product}</p>
-                <p className="text-sm text-muted-foreground">Cantidad: {order.quantity}</p>
-                <p className="text-sm font-semibold mt-1">{formatCurrency(order.total ?? 0)}</p>
-              </div>
-            </div>
+            {(() => {
+              const lineItems = order.order_line_items || [];
+              // Degrade cleanly: when there are no normalized line items, keep
+              // the legacy single product summary.
+              if (lineItems.length === 0) {
+                return (
+                  <div className="flex items-center gap-4 p-3 bg-muted rounded-lg">
+                    <div className="w-16 h-16 bg-background rounded flex items-center justify-center">
+                      <Package className="text-muted-foreground" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium">{order.product}</p>
+                      <p className="text-sm text-muted-foreground">Cantidad: {order.quantity}</p>
+                      <p className="text-sm font-semibold mt-1">{formatCurrency(order.total ?? 0)}</p>
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div className="space-y-2">
+                  {lineItems.map((item, idx) => {
+                    const productImage = item.products?.image_url || item.image_url;
+                    const colors = getRenderableColors(item);
+                    return (
+                      <div key={item.id || idx} className="flex items-center gap-4 p-3 bg-muted rounded-lg">
+                        <div className="w-12 h-12 bg-background rounded flex items-center justify-center overflow-hidden shrink-0">
+                          {productImage ? (
+                            <img src={productImage} alt={item.product_name} className="w-full h-full object-cover" loading="lazy" />
+                          ) : (
+                            <Package className="text-muted-foreground" size={20} />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium">{item.product_name}</p>
+                          {item.variant_title && (
+                            <p className="text-xs text-muted-foreground">{item.variant_title}</p>
+                          )}
+                          {colors.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">Cantidad: {item.quantity}</p>
+                          ) : colors.length === 1 ? (
+                            <p className="text-sm text-muted-foreground">
+                              Cantidad: {item.quantity} ({colors[0].color})
+                            </p>
+                          ) : (
+                            <div className="text-sm text-muted-foreground">
+                              <span className="font-medium text-foreground">Composición:</span>{' '}
+                              {colors.map((c) => `${c.quantity} ${c.color}`).join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <p className="text-sm font-semibold text-right">{formatCurrency(order.total ?? 0)}</p>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Pago */}

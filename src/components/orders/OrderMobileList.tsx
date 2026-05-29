@@ -29,6 +29,7 @@ import {
   Truck,
   XCircle,
 } from 'lucide-react';
+import { formatColorFragment } from '@/utils/lineItemColors';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -133,7 +134,11 @@ function buildProductSummary(order: Order): string {
     const first = items[0];
     const name = first.product_name || 'Producto';
     if (items.length > 1) return `${name} +${items.length - 1}`;
-    return `${first.quantity ?? 1}x ${name}`;
+    // 181: surface bundle color makeup on a single line item so the picker
+    // sees what to pack. Degrades to the bare name for color-less items.
+    const frag = formatColorFragment(first);
+    const base = `${first.quantity ?? 1}x ${name}`;
+    return frag ? `${base} ${frag}` : base;
   }
   return order.product || '-';
 }

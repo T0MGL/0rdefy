@@ -868,13 +868,23 @@ export function OrderConfirmationDialog({
         financialStatus: confirmedOrder.financial_status,
         deliveryToken: confirmedOrder.delivery_link_token || '',
         items: confirmedOrder.line_items && confirmedOrder.line_items.length > 0
-          ? confirmedOrder.line_items.map((item: any) => ({
-            // Migration 097: Include variant_title in item name if present
-            name: item.variant_title
-              ? `${item.product_name || item.title} - ${item.variant_title}`
-              : (item.product_name || item.title),
-            quantity: item.quantity,
-          }))
+          ? confirmedOrder.line_items.map((item: any) => {
+            // 181: bundles pack physical units, not pack count. Pass the color
+            // makeup and physical units so the label shows what to put in the box.
+            const unitsPerPack = Number(item.units_per_pack) > 0 ? Number(item.units_per_pack) : 1;
+            const colorBreakdown = Array.isArray(item.color_breakdown) && item.color_breakdown.length > 0
+              ? item.color_breakdown
+              : undefined;
+            return {
+              // Migration 097: Include variant_title in item name if present
+              name: item.variant_title
+                ? `${item.product_name || item.title} - ${item.variant_title}`
+                : (item.product_name || item.title),
+              quantity: item.quantity,
+              physicalUnits: (Number(item.quantity) || 0) * unitsPerPack,
+              ...(colorBreakdown ? { colorBreakdown } : {}),
+            };
+          })
           : order
             ? [{ name: order.product, quantity: order.quantity }]
             : [],

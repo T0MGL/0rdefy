@@ -7,6 +7,7 @@ import {
   XCircle,
   ChevronDown,
   ChevronUp,
+  Palette,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -43,6 +44,8 @@ interface OrderInGroup {
   orderIsComplete: boolean;
   isPrinted: boolean;
   hasToken: boolean;
+  // 181: per color physical units for this order's line of the grouped product.
+  colorBreakdown?: Array<{ color: string; quantity: number }>;
   order: OrderForPacking;
 }
 
@@ -110,6 +113,7 @@ function buildProductGroups(orders: OrderForPacking[]): ProductGroup[] {
         orderIsComplete: order.is_complete,
         isPrinted: order.printed ?? false,
         hasToken: !!order.delivery_link_token,
+        colorBreakdown: item.color_breakdown,
         order,
       });
     }
@@ -185,12 +189,35 @@ function OrderRow({ entry, productId, variantId, packingKey, onPack, onPrint, pr
 
       {/* Order info */}
       <div className="flex-1 min-w-0">
-        <span className={cn('font-semibold text-sm', itemDone && 'text-muted-foreground')}>
-          #{entry.orderNumber}
-        </span>
-        <span className="text-muted-foreground text-sm ml-2 truncate">
-          {entry.customerName}
-        </span>
+        <div>
+          <span className={cn('font-semibold text-sm', itemDone && 'text-muted-foreground')}>
+            #{entry.orderNumber}
+          </span>
+          <span className="text-muted-foreground text-sm ml-2 truncate">
+            {entry.customerName}
+          </span>
+        </div>
+        {/* 181: color makeup so the packer knows what to put in this box. */}
+        {(() => {
+          const colors = (entry.colorBreakdown || []).filter(
+            (c) => c && c.color && c.quantity > 0,
+          );
+          if (colors.length === 0) return null;
+          return (
+            <div className="flex flex-wrap items-center gap-1 mt-1">
+              <Palette className="h-3 w-3 text-muted-foreground shrink-0" />
+              {colors.map((c, i) => (
+                <Badge
+                  key={i}
+                  variant="secondary"
+                  className="h-5 px-1.5 text-[11px] font-medium"
+                >
+                  {c.quantity} {c.color}
+                </Badge>
+              ))}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Qty badge */}
