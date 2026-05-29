@@ -661,11 +661,23 @@ async function dispatchInvoiceEmail(params: DispatchEmailParams): Promise<void> 
     return;
   }
 
-  // Gate 2: need an email address.
+  // Gate 2: need an email address. The invoice is already approved/emitted at
+  // SIFEN, but the customer cannot receive it. Surface an owner_alert (not a
+  // silent log) so the owner can add the email and resend the KUDE.
   if (!params.customerEmail) {
     logger.info(`[Invoicing] No customer email on invoice ${params.invoiceId}, skipping dispatch`);
     await logInvoiceEvent(params.storeId, params.invoiceId, 'email_skipped', {
       reason: 'no_customer_email',
+    });
+    await emitOwnerAlert({
+      storeId: params.storeId,
+      alertType: 'invoice_not_delivered',
+      severity: 'medium',
+      title: 'Factura emitida pero no enviada: cliente sin email',
+      message: `La factura ${params.documentNumber} se emitio correctamente pero el cliente no tiene email cargado, asi que no se envio. Carga el email del cliente y reenvia el KUDE.`,
+      invoiceId: params.invoiceId,
+      orderId: params.orderId ?? null,
+      metadata: { reason: 'no_customer_email', document_number: params.documentNumber },
     });
     return;
   }
@@ -1685,6 +1697,15 @@ export async function generateInvoice(
     throw new Error('El cliente de esta orden no tiene RUC. Agrega el RUC antes de facturar.');
   }
 
+  // Email del cliente: la orden puede traerlo directo (order.customer_email)
+  // o via el customer vinculado. La factura se entrega por email, asi que
+  // resolvemos ambas fuentes y lo usamos consistentemente en XML, registro y
+  // envio. Sin email el KUDE no llega al cliente (dispatchInvoiceEmail avisa).
+  const customerEmail =
+    (order.customer_email as string | null)?.trim() ||
+    (order.customers?.email as string | null)?.trim() ||
+    null;
+
   const { data: existingInvoice } = await supabaseAdmin
     .from('invoices')
     .select('id, cdc, sifen_status')
@@ -1770,7 +1791,7 @@ export async function generateInvoice(
         ciudadDescripcion: ASUNCION_DEFAULTS.ciudadDescripcion,
         pais: 'PRY',
         paisDescripcion: 'Paraguay',
-        email: order.customers?.email || undefined,
+        email: customerEmail || undefined,
       };
     })(),
     usuario: buildUsuarioBlock(ctx),
@@ -1847,7 +1868,7 @@ export async function generateInvoice(
       customer_ruc: order.customer_ruc,
       customer_ruc_dv: order.customer_ruc_dv,
       customer_name: order.customer_name || order.customers?.name || null,
-      customer_email: order.customers?.email || null,
+      customer_email: customerEmail,
       customer_address: order.address || order.customers?.address || null,
       subtotal,
       iva_5: 0,
@@ -2020,7 +2041,7 @@ export async function generateInvoice(
       customerName: (order.customer_name as string) || order.customers?.name || 'Sin nombre',
       customerRuc: order.customer_ruc as string,
       customerRucDv: (order.customer_ruc_dv ?? null) as number | null,
-      customerEmail: (order.customers?.email as string) || null,
+      customerEmail,
       customerAddress,
       items: kudeItems,
       totals: { subtotal, iva10, iva5: 0, ivaExento: 0, total },
@@ -2034,7 +2055,7 @@ export async function generateInvoice(
     invoiceId: invoice.id,
     storeId,
     storeName,
-    customerEmail: (order.customers?.email as string | null) || null,
+    customerEmail,
     customerName: (order.customer_name as string) || order.customers?.name || null,
     documentNumber: docNumber as number,
     invoiceDate: new Date().toISOString(),
@@ -3140,12 +3161,39 @@ export async function tryAutoEmitOnDelivery(
 
     const { data: order } = await supabaseAdmin
       .from('orders')
-      .select('customer_ruc, invoice_id, display_order_number')
+      .select('customer_ruc, customer_email, invoice_id, display_order_number, customers(email)')
       .eq('id', orderId)
       .single();
+    // No RUC => consumidor final, auto-emit no aplica. Skip silencioso (es el
+    // caso esperado para la mayoria de ordenes B2C sin datos fiscales).
     if (!order?.customer_ruc) return;
     if (order.invoice_id) {
       logger.info(`[AutoInvoice] Order ${orderId} already has invoice ${order.invoice_id}, skipping`);
+      return;
+    }
+
+    // Gate email: una factura que no podemos entregar al cliente no se
+    // auto-emite. Tiene RUC (contribuyente) pero sin email no hay forma de
+    // mandarle el KUDE, asi que alertamos al owner para que cargue el email
+    // y reintente, en vez de emitir un documento fiscal sin entregar.
+    const customerEmail =
+      (order.customer_email as string | null)?.trim() ||
+      ((Array.isArray(order.customers) ? order.customers[0]?.email : (order.customers as any)?.email) as
+        | string
+        | null
+        | undefined)?.trim() ||
+      null;
+    if (!customerEmail) {
+      logger.info(`[AutoInvoice] Order ${orderId} skip auto-emit: cliente con RUC pero sin email`);
+      await emitOwnerAlert({
+        storeId,
+        alertType: 'invoice_auto_emit_blocked',
+        severity: 'medium',
+        title: 'Factura no auto-emitida: cliente sin email',
+        message: `La orden ${order.display_order_number ?? orderId} tiene RUC pero el cliente no tiene email cargado, asi que no se pudo enviar la factura. Carga el email del cliente y reintenta la emision manual.`,
+        orderId,
+        metadata: { reason: 'no_customer_email', customer_ruc: order.customer_ruc },
+      });
       return;
     }
 
