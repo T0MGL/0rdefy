@@ -459,22 +459,39 @@ fiscalRouter.post('/test-connection', requireRole(Role.OWNER), async (req: Permi
     }
 
     const { certPem, privateKeyPem } = await invoicingService.loadCertificateMaterial(ctx.identity.id);
-    const result = await sifenClient.consultLote('0', env as 'test' | 'prod', { certPem, privateKeyPem });
+    // Dummy protocol: 15 digitos (formato valido por XSD) que no existe, asi
+    // SIFEN responde 0360 (lote inexistente) en vez de 0160 (XML malformado,
+    // que es lo que devuelve prod cuando el protocolo no pasa el schema, p.ej.
+    // un '0' de 1 digito).
+    const result = await sifenClient.consultLote('999999999999999', env as 'test' | 'prod', {
+      certPem,
+      privateKeyPem,
+    });
     const latencyMs = Date.now() - start;
 
-    // 0360 = numero de lote inexistente = SIFEN OK, cert OK.
-    const isHealthy = result.state === 'not_found' || result.responseCode === '0360';
+    // El objetivo del test es probar cert + mTLS + alcance. Cualquier codigo
+    // de respuesta de negocio devuelto sobre el canal mTLS ya prueba las tres
+    // cosas: un cert rechazado fallaria en el handshake TLS (cae al catch), no
+    // volveria con un dCodResLot. 0360 es el ping limpio; otros codigos
+    // (0160, etc.) igual confirman conexion, solo los mostramos con detalle.
+    const reachedSifen =
+      Boolean(result.responseCode) &&
+      result.responseCode !== 'PARSE_ERROR' &&
+      result.responseCode !== 'UNKNOWN';
+    const cleanPing = result.state === 'not_found' || result.responseCode === '0360';
     res.json({
       data: {
-        ok: isHealthy,
+        ok: reachedSifen,
         stage: 'sifen',
         environment: env,
         latencyMs,
         responseCode: result.responseCode,
         responseMessage: result.responseMessage,
-        message: isHealthy
+        message: cleanPing
           ? `SIFEN ${env} respondio OK en ${latencyMs} ms (cert + mTLS aceptados).`
-          : `SIFEN ${env} respondio con ${result.responseCode}: ${result.responseMessage}`,
+          : reachedSifen
+            ? `Conexion con SIFEN ${env} OK (cert + mTLS aceptados, ${latencyMs} ms). Respuesta de prueba: ${result.responseCode} ${result.responseMessage}.`
+            : `SIFEN ${env} respondio con ${result.responseCode}: ${result.responseMessage}`,
       },
     });
   } catch (err: any) {
