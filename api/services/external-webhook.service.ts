@@ -113,11 +113,21 @@ export interface ValidationError {
  * Items without a sku are filled with all-null fields, matching the legacy
  * behaviour for line items that explicitly do not declare an SKU.
  */
+export interface ResolvedBundleSelection {
+  variant_id: string;
+  variant_name: string | null;
+  quantity: number;
+}
+
 export interface SkuPreflightEntry {
   product_id: string | null;
   variant_id: string | null;
   image_url: string | null;
   variant_type: string | null;
+  // Migration 146 + 181: bundle selections with every sku resolved to a real
+  // variant_id, so the stock trigger can deduct from the color variations.
+  // null when the item is not a composed bundle.
+  bundle_selections: ResolvedBundleSelection[] | null;
 }
 
 /**
@@ -650,6 +660,7 @@ export class ExternalWebhookService {
     variant_id: null,
     image_url: null,
     variant_type: null,
+    bundle_selections: null,
   };
 
   /**
@@ -695,10 +706,30 @@ export class ExternalWebhookService {
       let inferredVariantType: string | null = null;
 
       try {
-        const { data } = await supabaseAdmin.rpc('find_product_or_variant_by_sku', {
-          p_store_id: storeId,
-          p_sku: normalized,
-        });
+        // 181: prefer the alias-aware resolver so legacy/external SKUs that
+        // were folded into aliases keep resolving. Falls back to the canonical
+        // RPC if the aliased one is not deployed yet (older snapshots).
+        let data: unknown = null;
+        try {
+          const aliased = await supabaseAdmin.rpc('find_product_or_variant_by_sku_aliased', {
+            p_store_id: storeId,
+            p_sku: normalized,
+          });
+          data = aliased.data;
+          if (!Array.isArray(data) || data.length === 0) {
+            const canonical = await supabaseAdmin.rpc('find_product_or_variant_by_sku', {
+              p_store_id: storeId,
+              p_sku: normalized,
+            });
+            data = canonical.data;
+          }
+        } catch {
+          const canonical = await supabaseAdmin.rpc('find_product_or_variant_by_sku', {
+            p_store_id: storeId,
+            p_sku: normalized,
+          });
+          data = canonical.data;
+        }
 
         if (Array.isArray(data) && data.length > 0) {
           const r = data[0];
@@ -772,15 +803,138 @@ export class ExternalWebhookService {
         ? variantTypeByVariantId.get(decision.variant_id) ?? inferredVariantType
         : inferredVariantType;
 
+      // Migration 181: for composed bundles, resolve bundle_selections to real
+      // variant_ids so the stock trigger deducts from the color variations.
+      // Order of precedence:
+      //   1. payload bundle_selections (resolve each sku -> variant_id)
+      //   2. bundle default composition (expand_bundle_default_selections)
+      // Non-bundle items and bundles without a composition keep null.
+      let resolvedBundleSelections: ResolvedBundleSelection[] | null = null;
+      const isBundle = resolvedVariantType === 'bundle';
+      if (isBundle && decision.variant_id) {
+        if (Array.isArray(item.bundle_selections) && item.bundle_selections.length > 0) {
+          const resolved = await this.resolveBundleSelections(storeId, item.bundle_selections);
+          if (!resolved.ok) {
+            logger.warn(
+              'BACKEND',
+              `[ExternalWebhook] bundle_selection rejected: store=${storeId} item_index=${i} reason=${resolved.message}`,
+            );
+            return {
+              ok: false,
+              code: resolved.code,
+              message: resolved.message,
+              item_index: i,
+              sku: normalized,
+            };
+          }
+          resolvedBundleSelections = resolved.selections;
+        } else {
+          // No mix supplied: pull the bundle's default composition.
+          const { data: defaults } = await supabaseAdmin.rpc('expand_bundle_default_selections', {
+            p_bundle_variant_id: decision.variant_id,
+          });
+          if (Array.isArray(defaults) && defaults.length > 0) {
+            resolvedBundleSelections = defaults.map((d: { variant_id: string; variant_name: string | null; quantity: number }) => ({
+              variant_id: d.variant_id,
+              variant_name: d.variant_name ?? null,
+              quantity: Number(d.quantity),
+            }));
+          }
+        }
+      }
+
       entries.push({
         product_id: decision.product_id,
         variant_id: decision.variant_id,
         image_url: imageUrl,
         variant_type: resolvedVariantType,
+        bundle_selections: resolvedBundleSelections,
       });
     }
 
     return { ok: true, entries };
+  }
+
+  /**
+   * Resolve a payload's bundle_selections (each carrying a sku or a variant_id)
+   * into entries with a guaranteed variant_id. A selection that already has a
+   * variant_id is validated to exist in the store; one carrying only a sku is
+   * looked up via the alias-aware resolver. Quantities are preserved.
+   */
+  private async resolveBundleSelections(
+    storeId: string,
+    selections: Array<{ variant_id?: string; sku?: string; variant_name?: string; quantity: number }>,
+  ): Promise<
+    | { ok: true; selections: ResolvedBundleSelection[] }
+    | { ok: false; code: string; message: string }
+  > {
+    const out: ResolvedBundleSelection[] = [];
+
+    for (const sel of selections) {
+      const qty = Number(sel.quantity);
+      if (!Number.isFinite(qty) || qty <= 0) {
+        return { ok: false, code: 'INVALID_BUNDLE_SELECTION', message: 'bundle_selection quantity must be a positive number' };
+      }
+
+      // Already a variant_id: confirm it belongs to this store and is active.
+      if (sel.variant_id) {
+        const { data } = await supabaseAdmin
+          .from('product_variants')
+          .select('id, variant_title')
+          .eq('store_id', storeId)
+          .eq('id', sel.variant_id)
+          .eq('is_active', true)
+          .maybeSingle();
+        if (!data) {
+          return { ok: false, code: 'BUNDLE_VARIANT_NOT_FOUND', message: `bundle_selection variant_id ${sel.variant_id} not found in store` };
+        }
+        out.push({ variant_id: data.id, variant_name: sel.variant_name ?? data.variant_title ?? null, quantity: qty });
+        continue;
+      }
+
+      // Only a sku: resolve via the alias-aware RPC, falling back to the
+      // canonical RPC if the aliased one is not deployed yet.
+      const normalizedSel = normalizeSku(sel.sku);
+      if (!normalizedSel) {
+        return { ok: false, code: 'INVALID_BUNDLE_SELECTION', message: 'bundle_selection must carry a sku or variant_id' };
+      }
+
+      let resolvedVariantId: string | null = null;
+      let resolvedTitle: string | null = null;
+      try {
+        const { data } = await supabaseAdmin.rpc('find_product_or_variant_by_sku_aliased', {
+          p_store_id: storeId,
+          p_sku: normalizedSel,
+        });
+        const row = Array.isArray(data) ? data[0] : null;
+        if (row && row.entity_type === 'variant' && row.variant_id) {
+          resolvedVariantId = row.variant_id;
+          resolvedTitle = row.variant_title ?? null;
+        }
+      } catch {
+        const { data } = await supabaseAdmin.rpc('find_product_or_variant_by_sku', {
+          p_store_id: storeId,
+          p_sku: normalizedSel,
+        });
+        const row = Array.isArray(data) ? data[0] : null;
+        if (row && row.entity_type === 'variant' && row.variant_id) {
+          resolvedVariantId = row.variant_id;
+          resolvedTitle = row.variant_title ?? null;
+        }
+      }
+
+      if (!resolvedVariantId) {
+        return {
+          ok: false,
+          code: 'BUNDLE_SELECTION_SKU_UNRESOLVED',
+          message: `bundle_selection sku "${normalizedSel}" did not resolve to an active variant`,
+        };
+      }
+
+      out.push({ variant_id: resolvedVariantId, variant_name: sel.variant_name ?? resolvedTitle, quantity: qty });
+    }
+
+    return { ok: true, selections: out };
   }
 
   /**
@@ -1153,7 +1307,12 @@ export class ExternalWebhookService {
           total_price: item.price * item.quantity,
           image_url: resolved.image_url,
           stock_deducted: false,
-          bundle_selections: item.bundle_selections || null // Migration 146
+          // Migration 146 + 181: persist the PREFLIGHT-RESOLVED selections
+          // (every entry carries a real variant_id), not the raw payload skus.
+          // The stock trigger reads selection->>'variant_id'; without this the
+          // mixed-color packs would never deduct. Falls back to the raw payload
+          // only if preflight produced nothing (defensive; should be null then).
+          bundle_selections: resolved.bundle_selections ?? item.bundle_selections ?? null
         };
       });
 
@@ -2325,7 +2484,7 @@ export class ExternalWebhookService {
       }
 
       // Block transitions that don't make sense or are dangerous via external API.
-      // Stock is deducted at ready_to_ship/shipped/delivered — only allow cancel (trigger handles stock restore).
+      // Stock is deducted at ready_to_ship/shipped/delivered, only allow cancel (trigger handles stock restore).
       // External API should not revert warehouse/delivery statuses to pre-warehouse states.
       const blockedTransitions: Record<string, string[]> = {
         delivered: ['pending', 'contacted', 'confirmed', 'cancelled', 'rejected'],

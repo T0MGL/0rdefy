@@ -1863,6 +1863,13 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             name: item.product_name,
             quantity: item.quantity,
             price: item.unit_price,
+            // 181: physical units the picker packs, plus per-color makeup.
+            physicalUnits: item.quantity * (item.units_per_pack || 1),
+            colorBreakdown: Array.isArray(item.bundle_selections) && item.bundle_selections.length > 0
+              ? item.bundle_selections
+                  .filter((s) => s.variant_name && s.quantity > 0)
+                  .map((s) => ({ color: s.variant_name as string, quantity: s.quantity * item.quantity }))
+              : undefined,
           }))
           : [{
               name: order.product,
@@ -1974,6 +1981,13 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             name: item.product_name,
             quantity: item.quantity,
             price: item.unit_price,
+            // 181: physical units the picker packs, plus per-color makeup.
+            physicalUnits: item.quantity * (item.units_per_pack || 1),
+            colorBreakdown: Array.isArray(item.bundle_selections) && item.bundle_selections.length > 0
+              ? item.bundle_selections
+                  .filter((s) => s.variant_name && s.quantity > 0)
+                  .map((s) => ({ color: s.variant_name as string, quantity: s.quantity * item.quantity }))
+              : undefined,
           }))
           : [{
               name: order.product,

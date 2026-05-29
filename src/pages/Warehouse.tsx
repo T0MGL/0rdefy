@@ -727,7 +727,9 @@ export default function Warehouse() {
         items: order.items.map(item => ({
           name: item.product_name,
           quantity: item.quantity_needed,
-          price: item.unit_price || 0
+          price: item.unit_price || 0,
+          physicalUnits: item.physical_units,
+          colorBreakdown: item.color_breakdown
         }))
       });
 
@@ -837,7 +839,9 @@ export default function Warehouse() {
         items: order.items.map(item => ({
           name: item.product_name,
           quantity: item.quantity_needed,
-          price: item.unit_price || 0
+          price: item.unit_price || 0,
+          physicalUnits: item.physical_units,
+          colorBreakdown: item.color_breakdown
         }))
       }));
 

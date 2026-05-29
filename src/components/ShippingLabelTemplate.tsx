@@ -22,6 +22,8 @@ export interface ShippingLabelProps {
         items: Array<{
             product_name: string;
             quantity_needed: number;
+            physical_units?: number;       // 181: physical units to pack
+            color_breakdown?: Array<{ color: string; quantity: number }>; // 181
         }>;
     };
     className?: string;
@@ -107,12 +109,25 @@ export function ShippingLabelTemplate({ order, className = '' }: ShippingLabelPr
                     <div className="section products-section">
                         <div className="section-header">PRODUCTOS</div>
                         <ul className="product-list">
-                            {order.items.map((item, i) => (
-                                <li key={i}>
-                                    <span className="qty">{item.quantity_needed}x</span>
-                                    <span className="name">{item.product_name}</span>
-                                </li>
-                            ))}
+                            {order.items.map((item, i) => {
+                                // 181: physical units to pack, plus color makeup.
+                                const physical = item.physical_units && item.physical_units > 0
+                                    ? item.physical_units
+                                    : item.quantity_needed;
+                                const colors = (item.color_breakdown || []).filter((c) => c.color && c.quantity > 0);
+                                let name = item.product_name;
+                                if (colors.length === 1) {
+                                    name = `${name} (${colors[0].color})`;
+                                } else if (colors.length > 1) {
+                                    name = `${name}: ${colors.map((c) => `${c.quantity} ${c.color}`).join(', ')}`;
+                                }
+                                return (
+                                    <li key={i}>
+                                        <span className="qty">{physical}x</span>
+                                        <span className="name">{name}</span>
+                                    </li>
+                                );
+                            })}
                         </ul>
                     </div>
                 </div>

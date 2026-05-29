@@ -29,8 +29,10 @@ interface LabelData {
   deliveryToken: string;
   items: Array<{
     name: string;
-    quantity: number;
+    quantity: number;          // pack count
     price?: number;
+    physicalUnits?: number;    // 181: physical units to pack (quantity * units_per_pack)
+    colorBreakdown?: Array<{ color: string; quantity: number }>; // 181: per-color physical units
   }>;
 }
 
@@ -383,9 +385,23 @@ function drawLabel(
   const itemsToShow = data.items.slice(0, maxItems);
 
   itemsToShow.forEach((item) => {
-    pdf.text(item.quantity.toString(), MARGIN + 0.25, itemY, { align: 'center' });
+    // 181: the picker packs PHYSICAL units, not pack count. Show physical units
+    // when known (bundles), otherwise fall back to the line quantity.
+    const displayQty = typeof item.physicalUnits === 'number' && item.physicalUnits > 0
+      ? item.physicalUnits
+      : item.quantity;
+    pdf.text(displayQty.toString(), MARGIN + 0.25, itemY, { align: 'center' });
 
+    // 181: append color makeup. Single color -> "(Rojo)". Mixed pack ->
+    // enumerated "1 Rojo, 1 Naranja, 1 Amarillo".
     let itemName = stripEmojis(item.name);
+    const colors = item.colorBreakdown?.filter((c) => c.color && c.quantity > 0) ?? [];
+    if (colors.length === 1) {
+      itemName = `${itemName} (${stripEmojis(colors[0].color)})`;
+    } else if (colors.length > 1) {
+      const enumerated = colors.map((c) => `${c.quantity} ${stripEmojis(c.color)}`).join(', ');
+      itemName = `${itemName}: ${enumerated}`;
+    }
     // Truncate if too long
     const maxNameWidth = CONTENT_WIDTH - 0.7;
     while (pdf.getTextWidth(itemName) > maxNameWidth && itemName.length > 10) {
