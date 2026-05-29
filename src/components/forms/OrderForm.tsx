@@ -34,7 +34,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { Loader2, Check, ChevronsUpDown, MapPin, Truck, Store, Package, Layers, StickyNote } from 'lucide-react';
+import { Loader2, Check, ChevronsUpDown, MapPin, Truck, Store, Package, Layers, StickyNote, Tag } from 'lucide-react';
 import { productsService } from '@/services/products.service';
 import { useState, useEffect, useRef } from 'react';
 import { Product, ProductVariant, BundleSelection, isBundle, isVariation } from '@/types';
@@ -102,6 +102,14 @@ export interface OrderFormData extends OrderFormValues {
   customerRucDv?: number;
   // Bundle composition: which variations compose the pack (Migration 146)
   bundleSelections?: BundleSelection[] | null;
+  // Order-level discount applied over the total (Migration 196).
+  // Absolute amount, not a percentage. Edit flow only: applied via the
+  // apply_order_discount RPC after the order update persists, so it never
+  // touches line items.
+  discountAmount?: number;
+  // Current gross total of the order, used in the edit flow to preview the
+  // post-discount total. Read-only context, not submitted.
+  grossTotal?: number;
 }
 
 interface OrderFormProps {
@@ -152,6 +160,24 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
   const { currentStore } = useAuth();
   const [customerRuc, setCustomerRuc] = useState(initialData?.customerRuc || '');
   const [showRucField, setShowRucField] = useState(false);
+
+  // Order-level discount (edit flow only). Kept as a string so the input can be
+  // cleared. Operates over the order total, never over line items.
+  const isEditMode = Boolean(initialData);
+  const [discountInput, setDiscountInput] = useState<string>(
+    initialData?.discountAmount && initialData.discountAmount > 0
+      ? String(initialData.discountAmount)
+      : ''
+  );
+
+  // Keep digits and at most one decimal point. Drops any extra dots so values
+  // like '1.2.3' can never reach Number() and coerce to NaN -> 0 silently.
+  const sanitizeDiscountInput = (raw: string): string => {
+    const cleaned = raw.replace(/[^0-9.]/g, '');
+    const firstDot = cleaned.indexOf('.');
+    if (firstDot === -1) return cleaned;
+    return cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '');
+  };
 
   // Upsell state
   const [upsellEnabled, setUpsellEnabled] = useState(false);
@@ -586,6 +612,15 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
         customerRucDv: customerRuc.trim() && customerRuc.trim().includes('-') && /^\d$/.test(customerRuc.trim().split('-')[1])
           ? parseInt(customerRuc.trim().split('-')[1], 10)
           : undefined,
+        // Order-level discount (Migration 196). Only relevant in edit mode.
+        // Empty input clears the discount (sends 0). The RPC re-derives
+        // total_price and cod_amount from line_items, so products stay intact.
+        discountAmount: isEditMode
+          ? (() => {
+              const parsed = Number(discountInput);
+              return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+            })()
+          : undefined,
         // Bundle composition (Migration 146)
         bundleSelections: selectedVariant && isBundle(selectedVariant as any) && hasVariationsForComposition
           ? Object.entries(bundleSelections)
@@ -901,11 +936,11 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
 
             {/* Shipping Cost Display */}
             {selectedCity && selectedCarrierId && shippingCost > 0 && (
-              <div className="flex items-center justify-between p-3 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900 rounded-md">
-                <span className="text-sm font-medium text-green-700 dark:text-green-400">
+              <div className="flex items-center justify-between p-3 bg-primary/5 dark:bg-primary/20 border border-primary/30 dark:border-primary rounded-md">
+                <span className="text-sm font-medium text-primary dark:text-primary">
                   Costo de envío:
                 </span>
-                <span className="text-sm font-bold text-green-700 dark:text-green-400">
+                <span className="text-sm font-bold text-primary dark:text-primary">
                   {formatCurrency(shippingCost)}
                 </span>
               </div>
@@ -1042,7 +1077,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
                               PACK
                             </Badge>
                           ) : (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700">
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-primary/10 text-primary border-primary/40 dark:bg-primary/30 dark:text-primary dark:border-primary">
                               VAR
                             </Badge>
                           )}
@@ -1113,7 +1148,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
                             className="flex items-center justify-between p-2 rounded border bg-background"
                           >
                             <div className="flex items-center gap-2">
-                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700">
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-primary/10 text-primary border-primary/40 dark:bg-primary/30 dark:text-primary dark:border-primary">
                                 VAR
                               </Badge>
                               <span className="text-sm font-medium">{variation.variant_title}</span>
@@ -1410,6 +1445,64 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
             />
           </div>
         )}
+
+        {/* Order-level discount (edit flow only, Migration 196).
+            Applies over the total without modifying line items. The carrier
+            collection amount (COD) and total_price are recomputed server-side
+            by the apply_order_discount RPC. */}
+        {isEditMode && (() => {
+          const gross = Number(initialData?.grossTotal) || 0;
+          const parsed = Number(discountInput);
+          const hasValidParse = discountInput.trim() === '' || (Number.isFinite(parsed) && parsed >= 0);
+          const effectiveDiscount = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, gross) : 0;
+          const exceedsTotal = Number.isFinite(parsed) && parsed > gross && gross > 0;
+          const resultingTotal = Math.max(0, gross - effectiveDiscount);
+
+          return (
+            <div className="space-y-1 rounded-md border border-border bg-muted/30 p-3">
+              <Label className="flex items-center gap-2 text-sm font-medium">
+                <Tag className="h-4 w-4" />
+                Descuento sobre el total
+                <span className="text-muted-foreground text-xs font-normal">(opcional)</span>
+              </Label>
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                step={1}
+                placeholder="0"
+                value={discountInput}
+                onChange={(e) => setDiscountInput(sanitizeDiscountInput(e.target.value))}
+              />
+              {gross > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Total actual: {gross.toLocaleString('es-PY')}
+                  {effectiveDiscount > 0 && (
+                    <>
+                      {' '}- {effectiveDiscount.toLocaleString('es-PY')} ={' '}
+                      <span className="font-medium text-foreground">
+                        {resultingTotal.toLocaleString('es-PY')}
+                      </span>
+                    </>
+                  )}
+                </p>
+              )}
+              {!hasValidParse && (
+                <p className="text-xs text-destructive">
+                  Ingresá un monto válido (solo números, un punto decimal).
+                </p>
+              )}
+              {exceedsTotal && (
+                <p className="text-xs text-destructive">
+                  El descuento supera el total. Se aplicará el máximo: {gross.toLocaleString('es-PY')}.
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                No modifica los productos. Se recalcula el total y el monto a cobrar.
+              </p>
+            </div>
+          );
+        })()}
 
         {/* Delivery Preferences (Optional) - Date restrictions, time slots, notes */}
         <DeliveryPreferencesAccordion

@@ -102,6 +102,8 @@ interface OrderFormData {
   upsellProductId?: string;
   upsellQuantity?: number;
   bundleSelections?: import('@/types').BundleSelection[] | null;
+  // Absolute order-level discount, set only in edit mode (Migration 196).
+  discountAmount?: number;
 }
 
 type LineItem = NonNullable<Order['order_line_items']>[number];
@@ -115,7 +117,7 @@ const statusColors = {
   ready_to_ship: 'bg-cyan-50 dark:bg-cyan-950/20 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-800',
   shipped: 'bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800',
   in_transit: 'bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800',
-  delivered: 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800',
+  delivered: 'bg-primary/5 dark:bg-primary/20 text-primary dark:text-primary border-primary/40 dark:border-primary',
   returned: 'bg-gray-50 dark:bg-gray-950/20 text-gray-700 dark:text-gray-400 border-gray-300 dark:border-gray-800',
   cancelled: 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-300 dark:border-red-800',
   incident: 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-800',
@@ -1449,10 +1451,46 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         customer_ruc: data.customerRuc || undefined,
         customer_ruc_dv: data.customerRucDv ?? undefined,
       };
-      const updatedOrder = await ordersService.update(orderToEdit.id, updatePayload);
+      let updatedOrder = await ordersService.update(orderToEdit.id, updatePayload);
+
+      // Reconcile the order-level discount AFTER the update + upsell persist.
+      // The RPC derives the gross subtotal from the final line_items and stamps
+      // the discount as an absolute value, so it is idempotent and self-correcting:
+      // we always call it in edit mode (not only when the discount changed).
+      // Calling it unconditionally is what closes the silent-drop hole, since the
+      // PUT/upsell can shift total_price and cod_amount and the discount must be
+      // re-derived against the new product subtotal even when its own value is unchanged.
+      //
+      // This call is a separate, non-atomic step after the PUT/upsell. If it fails,
+      // the product changes are already persisted, so we re-fetch the canonical
+      // order from the server and surface a specific error instead of swallowing it,
+      // so the operator knows the discount did not apply and can retry. The RPC's
+      // idempotency means a retry reconciles cleanly without compounding.
+      if (updatedOrder && data.discountAmount !== undefined) {
+        const nextDiscount = Number(data.discountAmount) || 0;
+        try {
+          const discounted = await ordersService.applyDiscount(orderToEdit.id, nextDiscount);
+          if (discounted) {
+            updatedOrder = discounted;
+          }
+        } catch (discountError) {
+          const fresh = await ordersService.getById(orderToEdit.id);
+          if (fresh) {
+            setOrders(prev => prev.map(o => (o.id === orderToEdit.id ? fresh : o)));
+          }
+          setEditDialogOpen(false);
+          setOrderToEdit(null);
+          showErrorToast(toast, discountError, {
+            module: 'orders',
+            action: 'update',
+            entity: 'descuento',
+          });
+          return;
+        }
+      }
 
       if (updatedOrder) {
-        setOrders(prev => prev.map(o => (o.id === orderToEdit.id ? updatedOrder : o)));
+        setOrders(prev => prev.map(o => (o.id === orderToEdit.id ? updatedOrder! : o)));
         setEditDialogOpen(false);
         setOrderToEdit(null);
         toast({
@@ -2326,7 +2364,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             variant="outline"
             className={`cursor-pointer px-3 py-1.5 text-sm transition-colors ${
               scheduledFilter === 'ready'
-                ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border-green-400 dark:border-green-700'
+                ? 'bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary border-primary/60 dark:border-primary'
                 : 'hover:bg-muted'
             }`}
             onClick={() => setScheduledFilter('ready')}
@@ -2422,10 +2460,10 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             {pagination.total > orders.length && ` de ${pagination.total}`}
           </Badge>
           {selectedOrderIds.size > 0 && (
-            <span className="text-sm text-emerald-500 dark:text-emerald-400 font-medium flex items-center gap-1.5">
+            <span className="text-sm text-primary dark:text-primary font-medium flex items-center gap-1.5">
               <span className="text-muted-foreground/60">·</span>
               Seleccionados: {selectedOrderIds.size}
-              <span className="text-emerald-600 dark:text-emerald-300 font-semibold tabular-nums">
+              <span className="text-primary dark:text-primary font-semibold tabular-nums">
                 ({formatCurrency(selectedTotal)})
               </span>
             </span>
@@ -2757,7 +2795,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                           {!order.shopify_order_id && (
                             <Badge
                               variant="outline"
-                              className="bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800 text-xs px-1.5 py-0"
+                              className="bg-primary/5 dark:bg-primary/30 text-primary dark:text-primary border-primary/40 dark:border-primary text-xs px-1.5 py-0"
                             >
                               ORDEFY
                             </Badge>
@@ -2824,7 +2862,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
 
                             const colorClass = isCOD && !isPaid
                               ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800'
-                              : 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800';
+                              : 'bg-primary/5 dark:bg-primary/30 text-primary dark:text-primary border-primary/40 dark:border-primary';
 
                             return (
                               <Tooltip>
@@ -2919,7 +2957,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                       </td>
                       <td className="py-4 px-6 text-sm whitespace-nowrap">
                         {order.is_pickup ? (
-                          <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                          <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary border border-primary/30 dark:border-primary">
                             <Store size={12} />
                             Retiro en local
                           </span>
@@ -2949,7 +2987,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-7 px-2.5 text-xs bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/30 hover:border-green-400 dark:hover:border-green-700 hover:shadow-sm transition-all duration-200"
+                                    className="h-7 px-2.5 text-xs bg-primary/5 dark:bg-primary/20 text-primary dark:text-primary border-primary/40 dark:border-primary hover:bg-primary/10 dark:hover:bg-primary/30 hover:border-primary/60 dark:hover:border-primary hover:shadow-sm transition-all duration-200"
                                     onClick={() => handleContact(order.id, generateWhatsAppConfirmationLink(order))}
                                   >
                                     <MessageSquare size={14} className="mr-1" />
@@ -3159,7 +3197,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-6 px-2 text-[10px] bg-teal-50 dark:bg-teal-950/20 text-teal-700 dark:text-teal-400 border-teal-300 dark:border-teal-800 hover:bg-teal-100 dark:hover:bg-teal-900/30"
+                                className="h-6 px-2 text-[10px] bg-primary/5 dark:bg-primary/20 text-primary dark:text-primary border-primary/40 dark:border-primary hover:bg-primary/10 dark:hover:bg-primary/30"
                                 onClick={() => handleDTEDownload(order)}
                                 disabled={dteLoadingOrderId === order.id}
                               >
@@ -3324,7 +3362,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                                   {/* Opciones para pedidos eliminados */}
                                   <DropdownMenuItem
                                     onClick={() => handleRestoreOrder(order.id)}
-                                    className="text-green-600 dark:text-green-400"
+                                    className="text-primary dark:text-primary"
                                   >
                                     <RefreshCw className="mr-2 h-4 w-4" />
                                     Restaurar pedido
@@ -3476,6 +3514,10 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                   internalNotes: orderToEdit.internal_notes || '',
                   // Customer RUC (electronic invoicing)
                   customerRuc: orderToEdit.customer_ruc ? `${orderToEdit.customer_ruc}${orderToEdit.customer_ruc_dv !== undefined && orderToEdit.customer_ruc_dv !== null ? '-' + orderToEdit.customer_ruc_dv : ''}` : '',
+                  // Order-level discount (Migration 196). gross = current total
+                  // plus the discount already stamped, matching the RPC base.
+                  discountAmount: Number(orderToEdit.total_discounts) || 0,
+                  grossTotal: (Number(orderToEdit.total_price) || 0) + (Number(orderToEdit.total_discounts) || 0),
                 }}
                 onSubmit={handleUpdateOrder}
                 onCancel={() => {

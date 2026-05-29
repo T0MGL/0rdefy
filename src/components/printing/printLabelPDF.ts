@@ -120,19 +120,6 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
   // 6. MASTER DECISION: COBRAR only if amountToCollect > 0
   const isCOD = amountToCollect > 0;
 
-  console.log('🏷️ [LABEL] Payment determination:', {
-    financialStatus: data.financialStatus,
-    prepaidMethod: data.prepaidMethod,
-    paymentGateway: data.paymentGateway,
-    isPaidOnline,
-    isPrepaid,
-    codAmountFromBackend,
-    totalPrice: data.totalPrice,
-    amountToCollect,
-    isCOD,
-    RESULT: isCOD ? `COBRAR ${getCurrencySymbol()} ${amountToCollect.toLocaleString()}` : 'PAGADO'
-  });
-
   // Draw label
   drawLabel(pdf, data, qrDataUrl, isCOD, amountToCollect, data.discountAmount);
 
@@ -314,10 +301,15 @@ function drawLabel(
   const paymentBoxY = actionZoneY + 0.15;
   const paymentBoxHeight = 0.7;
 
+  const hasDiscount = !!discountAmount && discountAmount > 0;
+
   if (isCOD) {
-    // COD - Black filled box
+    // COD - Black filled box. When a discount applies, the box grows downward
+    // to host an inline "DESC." line instead of a floating badge that would
+    // collide with the DELIVERY/carrier label rendered lower in this zone.
+    const codBoxHeight = hasDiscount ? paymentBoxHeight + 0.22 : paymentBoxHeight;
     pdf.setFillColor(0, 0, 0);
-    pdf.rect(paymentBoxX, paymentBoxY, paymentBoxWidth, paymentBoxHeight, 'F');
+    pdf.rect(paymentBoxX, paymentBoxY, paymentBoxWidth, codBoxHeight, 'F');
 
     pdf.setTextColor(255, 255, 255);
     pdf.setFont('helvetica', 'bold');
@@ -327,20 +319,13 @@ function drawLabel(
     pdf.setFontSize(16);
     pdf.text(`${getCurrencySymbol()} ${amountToCollect.toLocaleString()}`, paymentBoxX + paymentBoxWidth / 2, paymentBoxY + 0.52, { align: 'center' });
 
-    pdf.setTextColor(0, 0, 0);
-
-    // Show discount badge if applicable
-    if (discountAmount && discountAmount > 0) {
-      const discountBadgeY = paymentBoxY + paymentBoxHeight + 0.08;
-      pdf.setFillColor(255, 140, 0); // Orange
-      pdf.rect(paymentBoxX, discountBadgeY, paymentBoxWidth, 0.32, 'F');
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(9);
-      pdf.text('DESC. APLICADO', paymentBoxX + paymentBoxWidth / 2, discountBadgeY + 0.12, { align: 'center' });
-      pdf.setFontSize(10);
-      pdf.text(`-${getCurrencySymbol()} ${discountAmount.toLocaleString()}`, paymentBoxX + paymentBoxWidth / 2, discountBadgeY + 0.26, { align: 'center' });
-      pdf.setTextColor(0, 0, 0);
+    if (hasDiscount) {
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8);
+      pdf.text(`DESC. -${getCurrencySymbol()} ${discountAmount!.toLocaleString()}`, paymentBoxX + paymentBoxWidth / 2, paymentBoxY + 0.7, { align: 'center' });
     }
+
+    pdf.setTextColor(0, 0, 0);
   } else {
     // PAID - Green filled box (more visible)
     pdf.setFillColor(34, 139, 34); // Forest green

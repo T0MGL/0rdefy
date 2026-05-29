@@ -4085,6 +4085,79 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
 
 
 // ================================================================
+// POST /api/orders/:id/discount - Apply/update discount on an existing order
+// ================================================================
+// Decoupled from confirm_order_atomic so a discount can be applied to orders
+// that are already confirmed (or in_preparation / ready_to_ship / awaiting_carrier).
+// p_discount_amount is the ABSOLUTE total discount, not a delta: the RPC rebuilds
+// the gross subtotal and re-derives total_price + cod_amount idempotently.
+ordersRouter.post('/:id/discount', validateUUIDParam('id'), requirePermission(Module.ORDERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { discount_amount } = req.body;
+
+        const discount = Number(discount_amount);
+        if (discount_amount === undefined || discount_amount === null || !Number.isFinite(discount) || discount < 0) {
+            return res.status(400).json({
+                error: 'Invalid discount',
+                message: 'discount_amount debe ser un número mayor o igual a cero.',
+                code: 'INVALID_DISCOUNT'
+            });
+        }
+
+        const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc('apply_order_discount', {
+            p_order_id: id,
+            p_store_id: req.storeId,
+            p_discount_amount: discount,
+            p_applied_by: req.userId || 'dashboard'
+        });
+
+        if (rpcError) {
+            const message = rpcError.message || '';
+
+            if (message.includes('ORDER_NOT_FOUND')) {
+                return res.status(404).json({
+                    error: 'Order not found',
+                    message: 'El pedido no existe o no pertenece a esta tienda.',
+                    code: 'ORDER_NOT_FOUND'
+                });
+            }
+
+            if (message.includes('INVALID_STATUS')) {
+                return res.status(400).json({
+                    error: 'Invalid order status',
+                    message: 'No se puede aplicar descuento: el pedido ya está en tránsito o en un estado final.',
+                    code: 'INVALID_STATUS'
+                });
+            }
+
+            if (message.includes('INVALID_DISCOUNT')) {
+                return res.status(400).json({
+                    error: 'Invalid discount',
+                    message: 'El monto del descuento no es válido.',
+                    code: 'INVALID_DISCOUNT'
+                });
+            }
+
+            return res.status(500).json({
+                error: 'Discount failed',
+                message: 'Error al aplicar el descuento.',
+                details: message
+            });
+        }
+
+        return res.json(rpcResult);
+    } catch (error: any) {
+        return res.status(500).json({
+            error: 'Discount failed',
+            message: 'Error al aplicar el descuento.',
+            details: error?.message
+        });
+    }
+});
+
+
+// ================================================================
 // POST /api/orders/:id/assign-carrier - Assign carrier to awaiting_carrier order
 // ================================================================
 // Step 2 of separate confirmation flow.

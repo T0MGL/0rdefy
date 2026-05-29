@@ -404,6 +404,31 @@ export const ordersService = {
     }
   },
 
+  // Applies (or clears) an order-level discount over the total via the
+  // apply_order_discount RPC. p_discount_amount is absolute: 0 clears it.
+  // Must run AFTER any line-item/upsell mutation so the RPC derives the
+  // gross subtotal from the final line_items. Never touches products.
+  //
+  // The RPC returns row_to_json(orders), raw DB columns that do NOT match the
+  // Order shape the GET endpoint builds (joined line_items, normalized fields).
+  // Returning that raw row directly would pollute the cached Order on merge, so
+  // we re-fetch through getById to get the correctly shaped Order.
+  applyDiscount: async (id: string, discountAmount: number): Promise<Order | undefined> => {
+    const response = await fetch(`${API_BASE_URL}/orders/${id}/discount`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ discount_amount: discountAmount }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) return undefined;
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Error HTTP: ${response.status}`);
+    }
+
+    return ordersService.getById(id);
+  },
+
   delete: async (id: string, permanent: boolean = false): Promise<boolean> => {
     try {
       const url = permanent
