@@ -110,6 +110,8 @@ const storeSchema = z.object({
     .email('Email invalido')
     .optional()
     .or(z.literal('')),
+  // Migration 197: per-store commercial name override. Empty = inherit identity.
+  nombre_fantasia: z.string().max(255).optional().default(''),
   // Migration 193: opt-in explicito. Default false; al marcar order
   // como delivered NO se auto-emite factura salvo que esto sea true.
   auto_emit_invoice_on_delivery: z.boolean().optional().default(false),
@@ -191,6 +193,7 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
       establecimiento_direccion: '',
       establecimiento_telefono: '',
       establecimiento_email: '',
+      nombre_fantasia: '',
       auto_emit_invoice_on_delivery: false,
       use_generic_description: false,
       default_generic_description: '',
@@ -257,6 +260,7 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
         establecimiento_direccion: data.link.establecimiento_direccion ?? '',
         establecimiento_telefono: data.link.establecimiento_telefono ?? '',
         establecimiento_email: data.link.establecimiento_email ?? '',
+        nombre_fantasia: (data.link as any).nombre_fantasia ?? '',
         auto_emit_invoice_on_delivery: Boolean(data.link.auto_emit_invoice_on_delivery),
         use_generic_description: Boolean(data.link.use_generic_description),
         default_generic_description: data.link.default_generic_description ?? '',
@@ -324,6 +328,7 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
       'establecimiento_direccion',
       'establecimiento_telefono',
       'establecimiento_email',
+      'nombre_fantasia',
       'auto_emit_invoice_on_delivery',
       'use_generic_description',
       'default_generic_description',
@@ -717,6 +722,18 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
                 </p>
               )}
             </div>
+          </div>
+
+          <div>
+            <Label>Nombre comercial de esta tienda</Label>
+            <Input
+              maxLength={255}
+              placeholder={ctx?.identity.nombre_fantasia || ctx?.identity.razon_social || 'Mi Marca'}
+              {...storeForm.register('nombre_fantasia')}
+            />
+            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+              Marca que aparece en las facturas de esta tienda. Si lo dejas vacio se usa el de la identidad. Es por tienda: no afecta a las demas tiendas del mismo RUC.
+            </p>
           </div>
 
           <div>

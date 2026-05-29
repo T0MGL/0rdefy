@@ -179,6 +179,7 @@ const establecimientoSchema = z.object({
   punto_expedicion: z.string().regex(/^\d{3}$/).default('001'),
   establecimiento_direccion: z.string().max(500).optional(),
   establecimiento_telefono: z.string().max(50).optional(),
+  nombre_fantasia: z.string().max(255).optional(),
   timbrado: z.string().regex(/^\d{8}$/, 'Timbrado debe tener 8 digitos'),
   timbrado_fecha_inicio: z.string().optional(),
   timbrado_fecha_fin: z.string().optional(),
@@ -275,6 +276,7 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
       punto_expedicion: '001',
       establecimiento_direccion: '',
       establecimiento_telefono: '',
+      nombre_fantasia: '',
       timbrado: '',
     },
   });
@@ -287,7 +289,18 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
     const estab = firstLink?.establecimiento_codigo ?? '001';
     establecimientoForm.setValue('establecimiento_codigo', estab);
     establecimientoForm.setValue('punto_expedicion', suggestNextPunto(identity, estab));
+    // Same establishment + timbrado => carry over its data so the user does
+    // not re-type what we already know. The brand name is intentionally left
+    // blank: a new store usually means a new brand.
     if (firstLink?.timbrado) establecimientoForm.setValue('timbrado', firstLink.timbrado);
+    if (firstLink?.timbrado_fecha_inicio)
+      establecimientoForm.setValue('timbrado_fecha_inicio', firstLink.timbrado_fecha_inicio);
+    if (firstLink?.timbrado_fecha_fin)
+      establecimientoForm.setValue('timbrado_fecha_fin', firstLink.timbrado_fecha_fin);
+    if (firstLink?.establecimiento_direccion)
+      establecimientoForm.setValue('establecimiento_direccion', firstLink.establecimiento_direccion);
+    if (firstLink?.establecimiento_telefono)
+      establecimientoForm.setValue('establecimiento_telefono', firstLink.establecimiento_telefono);
   };
 
   const selectIdentity = (identity: FiscalIdentity) => {
@@ -505,6 +518,7 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
         punto_expedicion: data.punto_expedicion,
         establecimiento_direccion: data.establecimiento_direccion || null,
         establecimiento_telefono: data.establecimiento_telefono || null,
+        nombre_fantasia: data.nombre_fantasia?.trim() || null,
       };
       await fiscalService.linkIdentityToStore(storeId, selectedIdentityId, linkInput);
 
@@ -1080,6 +1094,15 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
                       </p>
                     </div>
                   )}
+                  <div>
+                    <Label>Nombre comercial de esta tienda<FieldHint>Marca que aparece en las facturas de esta tienda (dNomFanEmi). Si lo dejas vacio, se usa el de la identidad ({selectedIdentity?.nombre_fantasia || selectedIdentity?.razon_social}).</FieldHint></Label>
+                    <Input
+                      placeholder={selectedIdentity?.nombre_fantasia || selectedIdentity?.razon_social || 'Mi Marca'}
+                      maxLength={255}
+                      {...establecimientoForm.register('nombre_fantasia')}
+                    />
+                    <HintText>Distinto por tienda: podes facturar NOCTE con su marca aunque comparta RUC con otra tienda.</HintText>
+                  </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label>Código de establecimiento</Label>

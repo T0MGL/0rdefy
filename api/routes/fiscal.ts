@@ -123,6 +123,8 @@ const storeLinkSchema = z.object({
   establecimiento_ciudad: z.number().int().nullable().optional(),
   establecimiento_telefono: z.string().max(50).nullable().optional(),
   establecimiento_email: z.string().email().nullable().optional(),
+  // Per-store commercial name override (migration 197).
+  nombre_fantasia: z.string().max(255).nullable().optional(),
   // Invoicing preferences (migration 163 + 193).
   default_generic_description: z.string().trim().min(1).max(120).optional(),
   use_generic_description: z.boolean().optional(),

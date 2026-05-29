@@ -103,6 +103,8 @@ export interface FiscalIdentityStoreRow {
   establecimiento_ciudad: number | null;
   establecimiento_telefono: string | null;
   establecimiento_email: string | null;
+  // Migration 197: per-store commercial name (dNomFanEmi). NULL inherits identity.
+  nombre_fantasia: string | null;
   next_document_number: number;
   is_active: boolean;
   setup_completed: boolean;
@@ -129,6 +131,13 @@ export interface FiscalIdentityStoreSummary {
   establecimiento_codigo: string;
   punto_expedicion: string;
   timbrado: string | null;
+  // Carried over to pre-fill the wizard when reusing the identity on a new
+  // store (same establishment + timbrado => same address/phone/vigencia).
+  timbrado_fecha_inicio: string | null;
+  timbrado_fecha_fin: string | null;
+  establecimiento_direccion: string | null;
+  establecimiento_telefono: string | null;
+  nombre_fantasia: string | null;
 }
 
 export interface FiscalIdentityInput {
@@ -169,6 +178,8 @@ export interface FiscalStoreLinkInput {
   establecimiento_ciudad?: number | null;
   establecimiento_telefono?: string | null;
   establecimiento_email?: string | null;
+  // Migration 197: per-store commercial name override.
+  nombre_fantasia?: string | null;
   // Migration 163: store-level invoicing preferences.
   default_generic_description?: string;
   use_generic_description?: boolean;
@@ -244,6 +255,8 @@ function buildXmlgenParams(
   const { identity, link, activities } = ctx;
   const codigo = link.establecimiento_codigo || '001';
   const tz = opts?.storeTimezone || 'America/Asuncion';
+  // Per-store commercial name overrides the identity-level one (migration 197).
+  const nombreFantasia = link.nombre_fantasia || identity.nombre_fantasia || identity.razon_social;
 
   // Principal activity first; selected code (if any) overrides.
   let activityList = activities;
@@ -264,7 +277,7 @@ function buildXmlgenParams(
     version: 150,
     ruc: `${identity.ruc}-${identity.ruc_dv}`,
     razonSocial: identity.razon_social,
-    nombreFantasia: identity.nombre_fantasia || identity.razon_social,
+    nombreFantasia,
     timbradoNumero: link.timbrado,
     timbradoFecha:
       (link.timbrado_fecha_inicio || getTodayInTimezone(tz)) + 'T00:00:00',
@@ -286,8 +299,8 @@ function buildXmlgenParams(
         telefono: link.establecimiento_telefono || '021000000',
         email:
           link.establecimiento_email ||
-          `facturacion@${(identity.nombre_fantasia || 'empresa').toLowerCase().replace(/\s+/g, '')}.com.py`,
-        denominacion: identity.nombre_fantasia || 'Casa Central',
+          `facturacion@${(nombreFantasia || 'empresa').toLowerCase().replace(/\s+/g, '')}.com.py`,
+        denominacion: nombreFantasia || 'Casa Central',
       },
     ],
     actividadesEconomicas: activityList.map((a) => ({
@@ -376,7 +389,7 @@ function buildKudeInput(args: {
     moneda: args.moneda ?? 'PYG',
     emitter: {
       razonSocial: identity.razon_social,
-      nombreFantasia: identity.nombre_fantasia,
+      nombreFantasia: link.nombre_fantasia || identity.nombre_fantasia,
       ruc: identity.ruc,
       rucDv: identity.ruc_dv,
       timbrado: link.timbrado,
@@ -1007,7 +1020,7 @@ export async function listIdentitiesForOwner(
   const { data, error } = await supabaseAdmin
     .from('fiscal_identities')
     .select(
-      'id, owner_user_id, ruc, ruc_dv, razon_social, nombre_fantasia, tipo_contribuyente, tipo_regimen, country, sifen_environment, cert_pem, encrypted_private_key, csc_id, representante_legal_nombre, representante_legal_documento_tipo, representante_legal_documento_numero, representante_legal_cargo, domicilio_fiscal_direccion, domicilio_fiscal_numero_casa, domicilio_fiscal_departamento, domicilio_fiscal_distrito, domicilio_fiscal_ciudad, is_active, created_at, updated_at, fiscal_identity_activities(id, codigo, descripcion, is_principal, display_order), fiscal_identity_stores(store_id, establecimiento_codigo, punto_expedicion, timbrado, is_active, stores(name))',
+      'id, owner_user_id, ruc, ruc_dv, razon_social, nombre_fantasia, tipo_contribuyente, tipo_regimen, country, sifen_environment, cert_pem, encrypted_private_key, csc_id, representante_legal_nombre, representante_legal_documento_tipo, representante_legal_documento_numero, representante_legal_cargo, domicilio_fiscal_direccion, domicilio_fiscal_numero_casa, domicilio_fiscal_departamento, domicilio_fiscal_distrito, domicilio_fiscal_ciudad, is_active, created_at, updated_at, fiscal_identity_activities(id, codigo, descripcion, is_principal, display_order), fiscal_identity_stores(store_id, establecimiento_codigo, punto_expedicion, timbrado, timbrado_fecha_inicio, timbrado_fecha_fin, establecimiento_direccion, establecimiento_telefono, nombre_fantasia, is_active, stores(name))',
     )
     .eq('owner_user_id', ownerUserId)
     .eq('is_active', true)
@@ -1025,6 +1038,11 @@ export async function listIdentitiesForOwner(
         establecimiento_codigo: s.establecimiento_codigo,
         punto_expedicion: s.punto_expedicion,
         timbrado: s.timbrado ?? null,
+        timbrado_fecha_inicio: s.timbrado_fecha_inicio ?? null,
+        timbrado_fecha_fin: s.timbrado_fecha_fin ?? null,
+        establecimiento_direccion: s.establecimiento_direccion ?? null,
+        establecimiento_telefono: s.establecimiento_telefono ?? null,
+        nombre_fantasia: s.nombre_fantasia ?? null,
       }));
     return {
       ...rest,
@@ -1148,10 +1166,11 @@ export async function linkIdentityToStore(
       establecimiento_ciudad: input.establecimiento_ciudad ?? null,
       establecimiento_telefono: input.establecimiento_telefono ?? null,
       establecimiento_email: input.establecimiento_email ?? null,
+      nombre_fantasia: input.nombre_fantasia ?? null,
       setup_completed: true,
     })
     .select(
-      'id, store_id, timbrado, timbrado_fecha_inicio, timbrado_fecha_fin, establecimiento_codigo, punto_expedicion, establecimiento_direccion, establecimiento_departamento, establecimiento_distrito, establecimiento_ciudad, establecimiento_telefono, establecimiento_email, next_document_number, is_active, setup_completed',
+      'id, store_id, timbrado, timbrado_fecha_inicio, timbrado_fecha_fin, establecimiento_codigo, punto_expedicion, establecimiento_direccion, establecimiento_departamento, establecimiento_distrito, establecimiento_ciudad, establecimiento_telefono, establecimiento_email, nombre_fantasia, next_document_number, is_active, setup_completed',
     )
     .single();
 
@@ -1186,6 +1205,7 @@ export async function updateStoreFields(
     'establecimiento_ciudad',
     'establecimiento_telefono',
     'establecimiento_email',
+    'nombre_fantasia',
     'default_generic_description',
     'use_generic_description',
     'auto_emit_invoice_on_delivery',
@@ -1211,7 +1231,7 @@ export async function updateStoreFields(
     .eq('store_id', storeId)
     .eq('is_active', true)
     .select(
-      'id, store_id, timbrado, timbrado_fecha_inicio, timbrado_fecha_fin, establecimiento_codigo, punto_expedicion, establecimiento_direccion, establecimiento_departamento, establecimiento_distrito, establecimiento_ciudad, establecimiento_telefono, establecimiento_email, next_document_number, is_active, setup_completed, default_generic_description, use_generic_description, auto_emit_invoice_on_delivery',
+      'id, store_id, timbrado, timbrado_fecha_inicio, timbrado_fecha_fin, establecimiento_codigo, punto_expedicion, establecimiento_direccion, establecimiento_departamento, establecimiento_distrito, establecimiento_ciudad, establecimiento_telefono, establecimiento_email, nombre_fantasia, next_document_number, is_active, setup_completed, default_generic_description, use_generic_description, auto_emit_invoice_on_delivery',
     )
     .single();
 

@@ -403,6 +403,11 @@ export interface FiscalIdentityStoreSummary {
   establecimiento_codigo: string;
   punto_expedicion: string;
   timbrado: string | null;
+  timbrado_fecha_inicio: string | null;
+  timbrado_fecha_fin: string | null;
+  establecimiento_direccion: string | null;
+  establecimiento_telefono: string | null;
+  nombre_fantasia: string | null;
 }
 
 export interface FiscalStoreLink {
@@ -419,6 +424,8 @@ export interface FiscalStoreLink {
   establecimiento_ciudad: number | null;
   establecimiento_telefono: string | null;
   establecimiento_email: string | null;
+  /** Migration 197: per-store commercial name (dNomFanEmi) override. */
+  nombre_fantasia?: string | null;
   next_document_number: number;
   is_active: boolean;
   setup_completed: boolean;
@@ -473,6 +480,8 @@ export interface FiscalStoreLinkInput {
   establecimiento_ciudad?: number | null;
   establecimiento_telefono?: string | null;
   establecimiento_email?: string | null;
+  /** Migration 197: per-store commercial name (dNomFanEmi) override. */
+  nombre_fantasia?: string | null;
   /** Migration 163: per-store generic description fallback for invoices. */
   default_generic_description?: string;
   use_generic_description?: boolean;
