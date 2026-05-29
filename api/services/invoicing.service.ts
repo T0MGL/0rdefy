@@ -504,6 +504,23 @@ function rewriteFecFirmaToLocalTz(xml: string, tz: string): string {
 }
 
 /**
+ * Surgically rewrites the timbrado vigencia start date (dFeIniT) in an
+ * already-generated XML, then it gets re-signed. dFeIniT is NOT part of the
+ * CDC, so patching it keeps the CDC valid while fixing a SIFEN 1107 ("fecha
+ * de inicio de vigencia del timbrado incorrecta"). Used by retryInvoice for
+ * manual invoices, whose line items are not persisted and therefore can't be
+ * regenerated from source the way order-based invoices can.
+ *
+ * Returns the XML unchanged when the field or the new date is absent.
+ */
+function rewriteTimbradoVigencia(xml: string, fechaInicio: string | null | undefined): string {
+  if (!fechaInicio) return xml;
+  const dateOnly = fechaInicio.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return xml;
+  return xml.replace(/<dFeIniT>[^<]*<\/dFeIniT>/, `<dFeIniT>${dateOnly}</dFeIniT>`);
+}
+
+/**
  * Sentinel SifenResponse returned by {@link signInjectSend} when the
  * identity tiene `sifen_async_enabled = true`. La firma y el QR estan
  * listos, pero el envio a SIFEN lo realiza el worker dispatcher despues
@@ -2757,30 +2774,6 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
   // no saltear correlativo; el CDC se recalcula (codigo de seguridad +
   // fecha nuevos), lo cual es correcto para un intento nuevo no aprobado.
   if (ctx.identity.sifen_async_enabled) {
-    if (!invoice.order_id) {
-      throw new Error('La factura no tiene orden asociada; no se puede regenerar para reintentar.');
-    }
-
-    const { data: order, error: orderErr } = await supabaseAdmin
-      .from('orders')
-      .select(
-        `*,
-        order_line_items(id, product_name, quantity, unit_price, sku, products(fiscal_description)),
-        customers(name, email, address)`,
-      )
-      .eq('id', invoice.order_id)
-      .eq('store_id', storeId)
-      .single();
-
-    if (orderErr || !order) {
-      throw new Error('No se encontro la orden para regenerar la factura.');
-    }
-
-    const customerEmail =
-      (order.customer_email as string | null)?.trim() ||
-      (order.customers?.email as string | null)?.trim() ||
-      null;
-
     const { certPem, privateKeyPem, csc } = await loadCertificateMaterial(ctx.identity.id);
     const envForRetry = ctx.identity.sifen_environment as 'test' | 'prod';
     const idCSCRetry = envForRetry === 'prod'
@@ -2790,15 +2783,64 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
     if (envForRetry === 'prod' && (!idCSCRetry || !cscRetry)) {
       throw new Error('CSC no configurado. Cargalo en Configuracion Fiscal antes de reintentar en produccion.');
     }
-
     const storeTz = await getStoreTimezone(supabaseAdmin, storeId);
-    const { xmlGenerated, cdc } = await buildInvoiceDteData(
-      ctx,
-      order,
-      invoice.document_number as number,
-      storeTz,
-      customerEmail,
-    );
+
+    // CDC nuevo solo cuando regeneramos desde la orden (cambia codigo de
+    // seguridad + fecha). En el path manual reusamos el CDC existente porque
+    // solo parcheamos dFeIniT, que no entra al CDC.
+    let xmlGenerated: string;
+    let cdcForUpdate: string | null = invoice.cdc as string | null;
+    let regenMode: 'order' | 'manual_patch';
+
+    if (invoice.order_id) {
+      // Factura de orden: regenerar el DTE completo desde la orden + el
+      // contexto fiscal actual. Recoge TODA correccion (fecha de timbrado,
+      // direccion, RUC, items). Mismo document_number, CDC recalculado.
+      const { data: order, error: orderErr } = await supabaseAdmin
+        .from('orders')
+        .select(
+          `*,
+          order_line_items(id, product_name, quantity, unit_price, sku, products(fiscal_description)),
+          customers(name, email, address)`,
+        )
+        .eq('id', invoice.order_id)
+        .eq('store_id', storeId)
+        .single();
+
+      if (orderErr || !order) {
+        throw new Error('No se encontro la orden para regenerar la factura.');
+      }
+
+      const customerEmail =
+        (order.customer_email as string | null)?.trim() ||
+        (order.customers?.email as string | null)?.trim() ||
+        null;
+
+      const built = await buildInvoiceDteData(
+        ctx,
+        order,
+        invoice.document_number as number,
+        storeTz,
+        customerEmail,
+      );
+      xmlGenerated = built.xmlGenerated;
+      cdcForUpdate = built.cdc ?? (invoice.cdc as string | null);
+      regenMode = 'order';
+    } else {
+      // Factura manual: los items NO se persisten (solo viven en el XML),
+      // asi que no se puede regenerar desde la fuente. Parcheamos la fecha
+      // de vigencia del timbrado (dFeIniT) en el xml_generado con el valor
+      // corregido del contexto fiscal y re-firmamos. Resuelve el 1107 sin
+      // tocar el CDC (dFeIniT no entra al CDC).
+      if (!invoice.xml_generated) {
+        throw new Error('La factura manual no tiene XML para reintentar. Cancelala y volve a emitirla.');
+      }
+      xmlGenerated = rewriteTimbradoVigencia(
+        invoice.xml_generated as string,
+        ctx.link.timbrado_fecha_inicio,
+      );
+      regenMode = 'manual_patch';
+    }
 
     const xmlWithLocalFirma = rewriteFecFirmaToLocalTz(xmlGenerated, storeTz);
     const xmlSigned = await signXML(xmlWithLocalFirma, privateKeyPem, certPem);
@@ -2809,7 +2851,7 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
       .update({
         xml_generated: xmlGenerated,
         xml_signed: xmlSignedToPersist,
-        cdc,
+        cdc: cdcForUpdate,
         sifen_status: 'queued',
         sifen_lote_dispatch_key: null,
         sifen_protocol_number: null,
@@ -2825,8 +2867,8 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
     await logInvoiceEvent(storeId, invoiceId, 'queued', {
       retry: true,
       mode: 'async_lote',
-      regenerated: true,
-      cdc,
+      regenerated: regenMode,
+      cdc: cdcForUpdate,
     });
 
     return {
