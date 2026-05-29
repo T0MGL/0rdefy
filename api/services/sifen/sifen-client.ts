@@ -360,7 +360,7 @@ export interface SifenLoteResponse {
   success: boolean;
   responseCode: string;
   responseMessage: string;
-  /** dProtConsLote, presente cuando success=true. Hasta 15 digitos. */
+  /** dProtConsLote, presente cuando success=true. Numerico, ~18 digitos en prod. */
   protocolNumber?: string;
   /** dTpoProces: tiempo promedio de procesamiento en SEGUNDOS reportado
    *  por SIFEN. El poller lo usa para programar la primera consulta. */
@@ -647,7 +647,8 @@ export async function sendDELote(
  * Consulta el resultado de un lote enviado previamente con
  * {@link sendDELote} (siResultLoteDE).
  *
- * @param protocolNumber dProtConsLote devuelto por sendDELote. 1..15 digitos.
+ * @param protocolNumber dProtConsLote devuelto por sendDELote. Solo numerico;
+ *                       SIFEN prod usa ~18 digitos, sin limite fijo de longitud.
  * @param env            'test' | 'prod'.
  * @param mtls           cert + private key PEM.
  * @param signal         AbortSignal opcional.
@@ -658,12 +659,11 @@ export async function consultLote(
   mtls: SifenMtls,
   signal?: AbortSignal,
 ): Promise<SifenLoteResultResponse> {
+  // dProtConsLote lo asigna SIFEN, no nosotros. En produccion devuelve
+  // numeros de 18 digitos (no 15 como el dId que generamos). Solo validamos
+  // que sea numerico; cualquier limite de longitud aca cuelga el poll y deja
+  // la factura en 'sent' para siempre.
   validateNumericId(protocolNumber);
-  if (protocolNumber.length > 15) {
-    throw new Error(
-      `protocolNumber excede 15 digitos: ${protocolNumber.length}`,
-    );
-  }
 
   const url = `${ENDPOINTS[env]}consultas/consulta-lote.wsdl`;
   const dispatchId = String(Date.now() % 1_000_000_000);
