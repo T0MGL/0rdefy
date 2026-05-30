@@ -84,9 +84,35 @@ async function main(): Promise<void> {
         const t0 = Date.now();
         try {
           const r = await consultLote('999999999999999', env, mtls);
-          console.log(`[sifen-worker][probe] OK in ${Date.now() - t0}ms env=${env} state=${r.state} code=${r.responseCode}`);
+          console.log(`[sifen-worker][probe] SMALL OK in ${Date.now() - t0}ms env=${env} state=${r.state} code=${r.responseCode}`);
         } catch (e) {
-          console.log(`[sifen-worker][probe] FAIL in ${Date.now() - t0}ms err=${e instanceof Error ? e.message : String(e)}`);
+          console.log(`[sifen-worker][probe] SMALL FAIL in ${Date.now() - t0}ms err=${e instanceof Error ? e.message : String(e)}`);
+        }
+
+        // Large-POST probe: ~12KB of garbage to the recibe-lote endpoint with
+        // mTLS. Not a valid DE -> SIFEN rejects it fast WITHOUT creating any
+        // document. If THIS hangs while SMALL succeeded, the worker->SET path
+        // has a PMTUD/MSS blackhole on multi-segment POSTs.
+        for (const sizeKb of [4, 12]) {
+          const https = await import('https');
+          const body = 'A'.repeat(sizeKb * 1024);
+          const tBig = Date.now();
+          await new Promise<void>((resolve) => {
+            const req = https.request({
+              hostname: 'sifen.set.gov.py', port: 443,
+              path: '/de/ws/async/recibe-lote.wsdl', method: 'POST',
+              cert: mtls.certPem, key: mtls.privateKeyPem, rejectUnauthorized: true,
+              headers: { 'Content-Type': 'application/soap+xml; charset=utf-8', 'Content-Length': Buffer.byteLength(body) },
+              timeout: 30000, agent: new https.Agent({ keepAlive: false }),
+            }, (res) => {
+              res.on('data', () => {}); res.on('end', () => {
+                console.log(`[sifen-worker][probe] BIG ${sizeKb}KB HTTP ${res.statusCode} in ${Date.now() - tBig}ms`); resolve();
+              });
+            });
+            req.on('timeout', () => { req.destroy(); console.log(`[sifen-worker][probe] BIG ${sizeKb}KB TIMEOUT in ${Date.now() - tBig}ms`); resolve(); });
+            req.on('error', (err) => { console.log(`[sifen-worker][probe] BIG ${sizeKb}KB ERR in ${Date.now() - tBig}ms: ${err.message}`); resolve(); });
+            req.write(body); req.end();
+          });
         }
       }
     } catch (e) {
