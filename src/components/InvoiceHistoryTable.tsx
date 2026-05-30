@@ -188,7 +188,10 @@ export function InvoiceHistoryTable({ onViewInvoice }: Props) {
                     <td className="px-4 py-3">
                       <div>{inv.customer_name || '-'}</div>
                       {inv.customer_ruc && (
-                        <div className="text-xs text-muted-foreground">RUC: {inv.customer_ruc}</div>
+                        <div className="text-xs text-muted-foreground">
+                          RUC: {inv.customer_ruc}
+                          {inv.customer_ruc_dv !== undefined && inv.customer_ruc_dv !== null && `-${inv.customer_ruc_dv}`}
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3 text-right font-medium">
