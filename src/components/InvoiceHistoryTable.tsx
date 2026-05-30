@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { invoicingService, Invoice } from '@/services/invoicing.service';
-import { Loader2, Download, RefreshCw, Eye, ChevronLeft, ChevronRight, FileText, FileCode, AlertTriangle } from 'lucide-react';
+import { Loader2, Download, RefreshCw, Eye, ChevronLeft, ChevronRight, FileText, FileCode, AlertTriangle, Clock } from 'lucide-react';
 import { formatCurrency } from '@/utils/currency';
 
 const STATUS_BADGES: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
@@ -16,6 +16,16 @@ const STATUS_BADGES: Record<string, { label: string; variant: 'default' | 'secon
   cancelled: { label: 'Cancelado', variant: 'outline' },
   demo: { label: 'Demo', variant: 'secondary' },
 };
+
+// Response codes that mean "el SET no respondio" (indisponibilidad de la
+// infraestructura del SET), NO un rechazo del contenido de la factura. Se
+// muestran distinto: ambar + mensaje claro, no rojo "Rechazado", porque la
+// factura esta bien y solo hay que reintentar cuando el SET responda.
+const SET_UNAVAILABLE_CODES = new Set(['DSP_FAIL']);
+
+function isSetUnavailable(inv: Invoice): boolean {
+  return inv.sifen_status === 'rejected' && SET_UNAVAILABLE_CODES.has(inv.sifen_response_code || '');
+}
 
 interface Props {
   onViewInvoice?: (invoiceId: string) => void;
@@ -169,6 +179,7 @@ export function InvoiceHistoryTable({ onViewInvoice }: Props) {
               </tr>
             ) : (
               invoices.map((inv) => {
+                const setUnavailable = isSetUnavailable(inv);
                 const statusInfo = STATUS_BADGES[inv.sifen_status] || STATUS_BADGES.pending;
                 return (
                   <tr key={inv.id} className="border-t hover:bg-muted/30 transition-colors">
@@ -185,21 +196,36 @@ export function InvoiceHistoryTable({ onViewInvoice }: Props) {
                     </td>
                     <td className="px-4 py-3 text-center">
                       <div className="flex flex-col items-center gap-1">
-                        <Badge variant={statusInfo.variant}>
-                          {statusInfo.label}
-                        </Badge>
-                        {inv.sifen_status === 'rejected' && (inv.sifen_response_code || inv.sifen_response_message) && (
-                          <div
-                            className="flex items-start gap-1 text-[11px] leading-tight text-destructive max-w-[220px] text-left"
-                            title={inv.sifen_response_message ?? undefined}
-                          >
-                            <AlertTriangle size={11} className="shrink-0 mt-0.5" />
-                            <span className="truncate">
-                              {inv.sifen_response_code && <span className="font-mono">{inv.sifen_response_code}</span>}
-                              {inv.sifen_response_code && inv.sifen_response_message && ': '}
-                              {inv.sifen_response_message}
+                        {setUnavailable ? (
+                          <Badge variant="outline" className="border-amber-500 text-amber-600 dark:text-amber-400">
+                            SET no disponible
+                          </Badge>
+                        ) : (
+                          <Badge variant={statusInfo.variant}>
+                            {statusInfo.label}
+                          </Badge>
+                        )}
+                        {setUnavailable ? (
+                          <div className="flex items-start gap-1 text-[11px] leading-tight text-amber-600 dark:text-amber-400 max-w-[220px] text-left">
+                            <Clock size={11} className="shrink-0 mt-0.5" />
+                            <span>
+                              El SET no respondió. Tu factura está correcta. Reintentá en horario hábil (07:30 a 16:00).
                             </span>
                           </div>
+                        ) : (
+                          inv.sifen_status === 'rejected' && (inv.sifen_response_code || inv.sifen_response_message) && (
+                            <div
+                              className="flex items-start gap-1 text-[11px] leading-tight text-destructive max-w-[220px] text-left"
+                              title={inv.sifen_response_message ?? undefined}
+                            >
+                              <AlertTriangle size={11} className="shrink-0 mt-0.5" />
+                              <span className="truncate">
+                                {inv.sifen_response_code && <span className="font-mono">{inv.sifen_response_code}</span>}
+                                {inv.sifen_response_code && inv.sifen_response_message && ': '}
+                                {inv.sifen_response_message}
+                              </span>
+                            </div>
+                          )
                         )}
                       </div>
                     </td>

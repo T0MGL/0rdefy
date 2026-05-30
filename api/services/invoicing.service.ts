@@ -521,6 +521,18 @@ function rewriteTimbradoVigencia(xml: string, fechaInicio: string | null | undef
 }
 
 /**
+ * Extracts the original dFeEmiDE (emission timestamp) from a generated XML.
+ * Used on retry to FREEZE the emission date so a re-emission on a later day
+ * does not move the invoice into a different fiscal month. Returns null when
+ * the field is absent (caller then falls back to "now").
+ */
+function extractFechaEmision(xml: string | null | undefined): string | null {
+  if (!xml) return null;
+  const m = xml.match(/<dFeEmiDE>([^<]+)<\/dFeEmiDE>/);
+  return m ? m[1] : null;
+}
+
+/**
  * Sentinel SifenResponse returned by {@link signInjectSend} when the
  * identity tiene `sifen_async_enabled = true`. La firma y el QR estan
  * listos, pero el envio a SIFEN lo realiza el worker dispatcher despues
@@ -1692,7 +1704,7 @@ async function buildInvoiceDteData(
   documentNumber: number,
   storeTimezone: string,
   customerEmail: string | null,
-  opts?: { activityCode?: string },
+  opts?: { activityCode?: string; fechaEmision?: string },
 ): Promise<{ xmlGenerated: string; cdc: string | undefined; subtotal: number; iva10: number; total: number }> {
   const lineItems = order.order_line_items || [];
   const subtotal = lineItems.reduce(
@@ -1707,7 +1719,12 @@ async function buildInvoiceDteData(
     storeTimezone,
   });
 
-  const nowLocal = getNowInTimezone(storeTimezone);
+  // fechaEmision (dFeEmiDE) define el periodo fiscal. En la PRIMERA emision es
+  // "ahora". En un REINTENTO pasamos la fecha original para que la factura NO
+  // se mueva de mes si el reintento cae otro dia (el plazo de 72h de SIFEN se
+  // mide desde la firma, que si se actualiza al re-firmar, asi que congelar la
+  // emision es seguro). Sin override, default a ahora.
+  const nowLocal = opts?.fechaEmision || getNowInTimezone(storeTimezone);
   const numeroStr = String(documentNumber).padStart(7, '0');
   const estab = ctx.link.establecimiento_codigo || '001';
   const punto = ctx.link.punto_expedicion || '001';
@@ -2816,12 +2833,17 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
         (order.customers?.email as string | null)?.trim() ||
         null;
 
+      // Congelar la fecha de emision original para que el reintento no mueva
+      // la factura de mes fiscal. Si no se puede extraer del XML previo, cae a
+      // "ahora" (comportamiento anterior).
+      const fechaEmisionOriginal = extractFechaEmision(invoice.xml_generated as string | null);
       const built = await buildInvoiceDteData(
         ctx,
         order,
         invoice.document_number as number,
         storeTz,
         customerEmail,
+        fechaEmisionOriginal ? { fechaEmision: fechaEmisionOriginal } : undefined,
       );
       xmlGenerated = built.xmlGenerated;
       cdcForUpdate = built.cdc ?? (invoice.cdc as string | null);
