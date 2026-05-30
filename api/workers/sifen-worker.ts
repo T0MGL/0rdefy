@@ -62,6 +62,38 @@ async function main(): Promise<void> {
   await listener.start();
   console.log('[sifen-worker] listener.start() returned');
 
+  // Boot self-probe (temporal, gated por env): hace una consulta CHICA a SIFEN
+  // desde el proceso worker para aislar si la ruta de red worker->SET funciona,
+  // sin emitir ningun documento. Se quita despues del diagnostico.
+  if (process.env.SIFEN_BOOT_PROBE === '1') {
+    try {
+      const { supabaseAdmin } = await import('../db/connection');
+      const { decrypt } = await import('../services/sifen/encryption');
+      const { consultLote } = await import('../services/sifen/sifen-client');
+      const identityId = process.env.SIFEN_BOOT_PROBE_IDENTITY || '';
+      const { data: fi } = await supabaseAdmin
+        .from('fiscal_identities')
+        .select('cert_pem, encrypted_private_key, sifen_environment')
+        .eq('id', identityId)
+        .single();
+      if (!fi) {
+        console.log('[sifen-worker][probe] no identity for probe');
+      } else {
+        const mtls = { certPem: fi.cert_pem as string, privateKeyPem: decrypt(fi.encrypted_private_key as string) };
+        const env = (fi.sifen_environment === 'prod' ? 'prod' : 'test') as 'test' | 'prod';
+        const t0 = Date.now();
+        try {
+          const r = await consultLote('999999999999999', env, mtls);
+          console.log(`[sifen-worker][probe] OK in ${Date.now() - t0}ms env=${env} state=${r.state} code=${r.responseCode}`);
+        } catch (e) {
+          console.log(`[sifen-worker][probe] FAIL in ${Date.now() - t0}ms err=${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    } catch (e) {
+      console.log(`[sifen-worker][probe] setup error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   const components: Array<{ stop: () => Promise<void> }> = [];
 
   if (role === 'dispatcher' || role === 'all') {
