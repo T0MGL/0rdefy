@@ -13,7 +13,7 @@ import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
 import { checkOrderLimit, PlanLimitRequest } from '../middleware/planLimits';
-import { Module, Permission } from '../permissions';
+import { Module, Permission, hasPermission, isValidRole, Role } from '../permissions';
 import { generateDeliveryQRCode } from '../utils/qr-generator';
 import { ShopifyGraphQLClientService } from '../services/shopify-graphql-client.service';
 import { OutboundWebhookService } from '../services/outbound-webhook.service';
@@ -22,6 +22,7 @@ import { isCodPayment as isCodPaymentUtil } from '../utils/payment';
 import { endOfDayIso, getStoreTimezone, getTodayInTimezone, startOfDayIso } from '../utils/dateUtils';
 import { validate } from '../utils/validate';
 import { enrichLineItemsWithColors } from '../utils/line-item-colors';
+import { resolveOrderStore } from '../utils/resolve-order-store';
 
 // ================================================================
 // Zod Schemas
@@ -257,6 +258,17 @@ const safeNumber = (value: any, defaultValue: number = 0): number => {
 };
 
 export const ordersRouter = Router();
+
+// When resolveOrderStore auto-heals to a store other than the header store,
+// the upstream requirePermission middleware authorized against the header
+// store's role, not the resolved store's. Re-authorize here so a user who is,
+// say, owner in store A but view-only in store B cannot mutate a store-B order
+// just because B happened to be the order's real store. Returns true if the
+// caller may perform `permission` on `module` in the resolved store.
+function reauthorizeHealedAccess(resolvedRole: string | null, module: Module, permission: Permission): boolean {
+    if (!resolvedRole || !isValidRole(resolvedRole)) return false;
+    return hasPermission(resolvedRole as Role, module, permission);
+}
 
 // ================================================================
 // PUBLIC ENDPOINTS (No authentication required)
@@ -2711,6 +2723,59 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             });
         }
 
+        // Resolve the store that OWNS this order. A multi-store owner can
+        // hold a stale X-Store-ID in one tab while acting on an order from
+        // another of their stores; matching against that wrong store would
+        // return zero rows and surface a misleading 404. resolveOrderStore
+        // auto-heals to the order's real store when the caller has access,
+        // and reports an honest mismatch otherwise.
+        const storeResolution = await resolveOrderStore({
+            orderId: id,
+            headerStoreId: req.storeId!,
+            userId: req.userId,
+            isShopifySession: !!req.shopifySession,
+        });
+
+        if (storeResolution.outcome === 'not_found') {
+            logger.warn('ORDERS', 'Order not found for status update', {
+                requestedId: id,
+                requestedStoreId: req.storeId,
+            });
+            return res.status(404).json({
+                error: 'Order not found',
+                code: 'ORDER_NOT_FOUND',
+                message: 'El pedido no existe.'
+            });
+        }
+
+        if (storeResolution.outcome === 'mismatch') {
+            logger.warn('ORDERS', 'Order store mismatch on status update', {
+                requestedId: id,
+                requestedStoreId: req.storeId,
+                orderStoreId: storeResolution.orderStoreId,
+            });
+            return res.status(409).json({
+                error: 'Order belongs to a different store',
+                code: 'ORDER_STORE_MISMATCH',
+                message: 'Este pedido pertenece a otra tienda a la que no tienes acceso.',
+                details: { order_store_id: storeResolution.orderStoreId }
+            });
+        }
+
+        // Effective store for every read/write below. May differ from the
+        // header store when auto-healed.
+        const effectiveStoreId = storeResolution.storeId;
+
+        // Re-authorize against the resolved store when auto-healed.
+        if (storeResolution.healed &&
+            !reauthorizeHealedAccess(storeResolution.resolvedRole, Module.ORDERS, Permission.EDIT)) {
+            return res.status(403).json({
+                error: 'Forbidden',
+                code: 'INSUFFICIENT_PERMISSION_IN_ORDER_STORE',
+                message: 'No tienes permiso para modificar pedidos en la tienda dueña de este pedido.'
+            });
+        }
+
         // Get current order status to check if reactivating from cancelled
         const { data: currentOrder, error: fetchError } = await supabaseAdmin
             .from('orders')
@@ -2719,31 +2784,11 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
                 order_line_items (id, product_id, quantity, product_name)
             `)
             .eq('id', id)
-            .eq('store_id', req.storeId)
+            .eq('store_id', effectiveStoreId)
             .is('deleted_at', null)
             .single();
 
         if (fetchError || !currentOrder) {
-            // Debug: Try to find order without store_id filter to diagnose the issue
-            const { data: debugOrder } = await supabaseAdmin
-                .from('orders')
-                .select('id, store_id, deleted_at, sleeves_status')
-                .eq('id', id)
-                .single();
-
-            logger.warn('ORDERS', 'Order not found for status update', {
-                requestedId: id,
-                requestedStoreId: req.storeId,
-                foundOrder: debugOrder ? {
-                    id: debugOrder.id,
-                    store_id: debugOrder.store_id,
-                    deleted_at: debugOrder.deleted_at,
-                    status: debugOrder.sleeves_status,
-                    storeIdMatch: debugOrder.store_id === req.storeId
-                } : 'NOT_FOUND_AT_ALL',
-                fetchError: fetchError?.message
-            });
-
             return res.status(404).json({
                 error: 'Order not found',
                 code: 'ORDER_NOT_FOUND',
@@ -2818,7 +2863,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
                         .from('products')
                         .select('name, sku, stock')
                         .eq('id', productId)
-                        .eq('store_id', req.storeId)
+                        .eq('store_id', effectiveStoreId)
                         .single();
 
                     if (product && (product.stock || 0) < requiredQty) {
@@ -2883,7 +2928,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             // RUC, fiscal context, setup_completed, opt-in toggle) lives
             // inside the helper.
             import('../services/invoicing.service')
-                .then(({ tryAutoEmitOnDelivery }) => tryAutoEmitOnDelivery(req.storeId!, id))
+                .then(({ tryAutoEmitOnDelivery }) => tryAutoEmitOnDelivery(effectiveStoreId, id))
                 .catch((err) => { logger.error('API', '[AutoInvoice] Helper import failed:', err); });
 
             // Fire-and-forget milestone detector. Counts delivered orders and,
@@ -2891,7 +2936,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             // a share card and sends the founder-signed retention email.
             // Idempotent (UNIQUE constraint on founder_emails_sent).
             import('../services/milestone-detector.service')
-                .then(({ checkAndSendMilestone }) => checkAndSendMilestone(req.storeId!, id))
+                .then(({ checkAndSendMilestone }) => checkAndSendMilestone(effectiveStoreId, id))
                 .catch((err) => { logger.error('API', '[Milestone] Helper import failed:', err); });
         }
 
@@ -2916,7 +2961,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             .from('orders')
             .update(updateData)
             .eq('id', id)
-            .eq('store_id', req.storeId)
+            .eq('store_id', effectiveStoreId)
             .select(`
                 *,
                 carriers!orders_courier_id_fkey (
@@ -2973,7 +3018,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
                 const { data: integration } = await supabaseAdmin
                     .from('shopify_integrations')
                     .select('shop_domain, access_token')
-                    .eq('store_id', req.storeId)
+                    .eq('store_id', effectiveStoreId)
                     .eq('status', 'active')
                     .single();
 
@@ -3040,7 +3085,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
         // Non-blocking — errors logged but never affect the response
         // ================================================================
         OutboundWebhookService.fireOrderStatusEvent(
-            req.storeId!,
+            effectiveStoreId,
             toStatus,
             fromStatus,
             {
@@ -3119,16 +3164,60 @@ ordersRouter.get('/:id/history', async (req: AuthRequest, res: Response) => {
 ordersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.ORDERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
-        const userRole = req.userRole;
         const userId = req.userId;
 
+        // Resolve the owning store (including soft-deleted orders, which the
+        // permanent-delete path must still reach) so a stale active-store
+        // header cannot misfire as a 404 on a multi-store account.
+        const storeResolution = await resolveOrderStore({
+            orderId: id,
+            headerStoreId: req.storeId!,
+            userId: req.userId,
+            isShopifySession: !!req.shopifySession,
+            includeDeleted: true,
+        });
+
+        if (storeResolution.outcome === 'not_found') {
+            return res.status(404).json({ error: 'Order not found' });
+        }
+
+        if (storeResolution.outcome === 'mismatch') {
+            logger.warn('ORDERS', 'Order store mismatch on delete', {
+                requestedId: id,
+                requestedStoreId: req.storeId,
+                orderStoreId: storeResolution.orderStoreId,
+            });
+            return res.status(409).json({
+                error: 'Order belongs to a different store',
+                code: 'ORDER_STORE_MISMATCH',
+                message: 'Este pedido pertenece a otra tienda a la que no tienes acceso.',
+                details: { order_store_id: storeResolution.orderStoreId }
+            });
+        }
+
+        const effectiveStoreId = storeResolution.storeId;
+
+        // Determine the role that governs THIS order's store. When auto-healed
+        // the header role belongs to a different store, so the hard/soft delete
+        // branch below must follow the resolved store's role instead.
+        const effectiveRole = storeResolution.healed ? storeResolution.resolvedRole : req.userRole;
+
+        // Re-authorize against the resolved store when auto-healed.
+        if (storeResolution.healed &&
+            !reauthorizeHealedAccess(storeResolution.resolvedRole, Module.ORDERS, Permission.DELETE)) {
+            return res.status(403).json({
+                error: 'Forbidden',
+                code: 'INSUFFICIENT_PERMISSION_IN_ORDER_STORE',
+                message: 'No tienes permiso para eliminar pedidos en la tienda dueña de este pedido.'
+            });
+        }
 
         // Get order details
         const { data: order, error: fetchError } = await supabaseAdmin
             .from('orders')
             .select('id, shopify_order_id, sleeves_status, deleted_at')
             .eq('id', id)
-            .eq('store_id', req.storeId)
+            .eq('store_id', effectiveStoreId)
             .single();
 
         if (fetchError || !order) {
@@ -3140,14 +3229,14 @@ ordersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.OR
         // ============================================================
         // OWNER: Hard Delete (permanent removal with cascading cleanup)
         // ============================================================
-        if (userRole === 'owner') {
+        if (effectiveRole === 'owner') {
 
             // Hard delete (trigger will handle cascading cleanup + stock restoration)
             const { data, error } = await supabaseAdmin
                 .from('orders')
                 .delete()
                 .eq('id', id)
-                .eq('store_id', req.storeId)
+                .eq('store_id', effectiveStoreId)
                 .select('id')
                 .single();
 
@@ -3191,7 +3280,7 @@ ordersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.OR
                     updated_at: new Date().toISOString()
                 })
                 .eq('id', id)
-                .eq('store_id', req.storeId)
+                .eq('store_id', effectiveStoreId)
                 .select('id')
                 .single();
 
@@ -3700,6 +3789,50 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
         // This is critical for separate confirmation flow where confirmadores don't select carriers
         const isPickupOrder = is_pickup === true;
 
+        // Resolve the owning store so a stale active-store header on a
+        // multi-store account does not misfire as a 404 (or operate on the
+        // wrong tenant) when confirming an order from a different store.
+        const storeResolution = await resolveOrderStore({
+            orderId: id,
+            headerStoreId: req.storeId!,
+            userId: req.userId,
+            isShopifySession: !!req.shopifySession,
+        });
+
+        if (storeResolution.outcome === 'not_found') {
+            return res.status(404).json({
+                error: 'Order not found',
+                code: 'ORDER_NOT_FOUND',
+                message: 'El pedido no existe.'
+            });
+        }
+
+        if (storeResolution.outcome === 'mismatch') {
+            logger.warn('ORDERS', 'Order store mismatch on confirm', {
+                requestedId: id,
+                requestedStoreId: req.storeId,
+                orderStoreId: storeResolution.orderStoreId,
+            });
+            return res.status(409).json({
+                error: 'Order belongs to a different store',
+                code: 'ORDER_STORE_MISMATCH',
+                message: 'Este pedido pertenece a otra tienda a la que no tienes acceso.',
+                details: { order_store_id: storeResolution.orderStoreId }
+            });
+        }
+
+        const effectiveStoreId = storeResolution.storeId;
+
+        // Re-authorize against the resolved store when auto-healed.
+        if (storeResolution.healed &&
+            !reauthorizeHealedAccess(storeResolution.resolvedRole, Module.ORDERS, Permission.EDIT)) {
+            return res.status(403).json({
+                error: 'Forbidden',
+                code: 'INSUFFICIENT_PERMISSION_IN_ORDER_STORE',
+                message: 'No tienes permiso para modificar pedidos en la tienda dueña de este pedido.'
+            });
+        }
+
         // ================================================================
         // CHECK FOR SEPARATE CONFIRMATION FLOW
         // ================================================================
@@ -3708,11 +3841,14 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
         const { data: storeConfig } = await supabaseAdmin
             .from('stores')
             .select('separate_confirmation_flow')
-            .eq('id', req.storeId)
+            .eq('id', effectiveStoreId)
             .single();
 
         const separateFlowEnabled = storeConfig?.separate_confirmation_flow === true;
-        const userRole = (req as any).userRole || 'owner'; // From permission middleware
+        // Use the role that governs the resolved store when auto-healed.
+        const userRole = storeResolution.healed
+            ? (storeResolution.resolvedRole || 'owner')
+            : ((req as any).userRole || 'owner');
         const isConfirmador = userRole === 'confirmador';
 
         // Use separate flow if:
@@ -3728,7 +3864,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             // ================================================================
             const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc('confirm_order_without_carrier', {
                 p_order_id: id,
-                p_store_id: req.storeId,
+                p_store_id: effectiveStoreId,
                 p_confirmed_by: req.userId || 'confirmador',
                 p_address: address || null,
                 p_google_maps_link: google_maps_link || null,
@@ -3805,7 +3941,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                         .from('products')
                         .select('id, name, price, cost, packaging_cost, additional_costs, sku, image_url')
                         .eq('id', upsell_product_id)
-                        .eq('store_id', req.storeId)
+                        .eq('store_id', effectiveStoreId)
                         .single();
 
                     if (upsellProduct) {
@@ -3905,7 +4041,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
         // ================================================================
         const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc('confirm_order_atomic', {
             p_order_id: id,
-            p_store_id: req.storeId,
+            p_store_id: effectiveStoreId,
             p_confirmed_by: req.userId || 'confirmador',
             p_courier_id: courier_id || null,  // NULL for pickup orders
             p_address: address || null,
@@ -4057,7 +4193,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                 .from('order_status_history')
                 .insert({
                     order_id: id,
-                    store_id: req.storeId,
+                    store_id: effectiveStoreId,
                     previous_status: 'pending',
                     new_status: 'confirmed',
                     changed_by: req.userId || 'confirmador',
@@ -4683,9 +4819,49 @@ ordersRouter.patch('/:id/upsell', validateUUIDParam('id'), requirePermission(Mod
 ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permission.EDIT), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
-        const storeId = req.storeId;
         const userId = req.user?.email || req.user?.name || 'unknown';
 
+        // Resolve the owning store so a stale active-store header on a
+        // multi-store account cannot turn a legitimate print into a 404.
+        const storeResolution = await resolveOrderStore({
+            orderId: id,
+            headerStoreId: req.storeId!,
+            userId: req.userId,
+            isShopifySession: !!req.shopifySession,
+        });
+
+        if (storeResolution.outcome === 'not_found') {
+            return res.status(404).json({
+                error: 'Order not found',
+                message: 'El pedido no existe'
+            });
+        }
+
+        if (storeResolution.outcome === 'mismatch') {
+            logger.warn('API', '[mark-printed] Order store mismatch', {
+                requestedId: id,
+                requestedStoreId: req.storeId,
+                orderStoreId: storeResolution.orderStoreId,
+            });
+            return res.status(409).json({
+                error: 'Order belongs to a different store',
+                code: 'ORDER_STORE_MISMATCH',
+                message: 'Este pedido pertenece a otra tienda a la que no tienes acceso.',
+                details: { order_store_id: storeResolution.orderStoreId }
+            });
+        }
+
+        const storeId = storeResolution.storeId;
+
+        // Re-authorize against the resolved store when auto-healed.
+        if (storeResolution.healed &&
+            !reauthorizeHealedAccess(storeResolution.resolvedRole, Module.ORDERS, Permission.EDIT)) {
+            return res.status(403).json({
+                error: 'Forbidden',
+                code: 'INSUFFICIENT_PERMISSION_IN_ORDER_STORE',
+                message: 'No tienes permiso para modificar pedidos en la tienda dueña de este pedido.'
+            });
+        }
 
         // Verify order exists and belongs to store - include both line_items sources for stock check
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
@@ -4700,24 +4876,6 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
             .single();
 
         if (fetchError || !existingOrder) {
-            // Debug: Try to find order without store_id filter
-            const { data: debugOrder } = await supabaseAdmin
-                .from('orders')
-                .select('id, store_id, deleted_at, sleeves_status')
-                .eq('id', id)
-                .single();
-
-            logger.error('API', `[mark-printed] Order not found:`, {
-                requestedId: id,
-                requestedStoreId: storeId,
-                foundOrder: debugOrder ? {
-                    store_id: debugOrder.store_id,
-                    deleted_at: debugOrder.deleted_at,
-                    storeIdMatch: debugOrder.store_id === storeId
-                } : 'NOT_FOUND',
-                fetchError: fetchError?.message
-            });
-
             return res.status(404).json({
                 error: 'Order not found',
                 message: 'El pedido no existe o no pertenece a esta tienda'

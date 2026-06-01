@@ -484,7 +484,10 @@ export default function WarehouseNew() {
       });
 
       if (success) {
-        await ordersService.markAsPrinted(order.id);
+        // Packing-session orders belong to the session's store; scope to it.
+        if (session?.store_id) {
+          await ordersService.markAsPrinted(order.id, session.store_id);
+        }
         if (session) {
           await loadPackingList(session.id);
         }
@@ -543,8 +546,11 @@ export default function WarehouseNew() {
       const success = await printBatchLabelsPDF(labelsData);
 
       if (success) {
-        for (const order of ordersToPrint) {
-          await ordersService.markAsPrinted(order.id);
+        // Packing-session orders belong to the session's store; scope to it.
+        if (session?.store_id) {
+          for (const order of ordersToPrint) {
+            await ordersService.markAsPrinted(order.id, session.store_id);
+          }
         }
 
         if (session) {
