@@ -682,8 +682,11 @@ export default function Warehouse() {
 
   const handleOrderPrinted = useCallback(async (orderId: string) => {
     try {
-      // Mark order as printed
-      await ordersService.markAsPrinted(orderId);
+      // Mark order as printed. Packing-session orders belong to the
+      // session's store; scope to it rather than the tab's active store.
+      const sessionStoreId = currentSession?.store_id;
+      if (!sessionStoreId) throw new Error('No active packing session store');
+      await ordersService.markAsPrinted(orderId, sessionStoreId);
 
       // Reload packing list to update UI with printed status
       await loadPackingList();
@@ -700,7 +703,7 @@ export default function Warehouse() {
         variant: 'destructive',
       });
     }
-  }, [toast, loadPackingList]);
+  }, [toast, loadPackingList, currentSession]);
 
   const handlePrintLabel = useCallback(async (order: OrderForPacking) => {
     try {
@@ -750,12 +753,14 @@ export default function Warehouse() {
 
   const handleBatchPrinted = useCallback(async () => {
     const orderCount = selectedOrdersForPrint.size;
+    const sessionStoreId = currentSession?.store_id;
+    if (!sessionStoreId) return;
     try {
       // PERF FIX: Mark all orders as printed in parallel instead of sequentially
       // This reduces time from ~5s (50 orders × 100ms) to ~200ms
       await Promise.all(
         [...selectedOrdersForPrint].map(orderId =>
-          ordersService.markAsPrinted(orderId)
+          ordersService.markAsPrinted(orderId, sessionStoreId)
         )
       );
 
@@ -777,7 +782,7 @@ export default function Warehouse() {
         variant: 'destructive',
       });
     }
-  }, [selectedOrdersForPrint, toast, loadPackingList]);
+  }, [selectedOrdersForPrint, toast, loadPackingList, currentSession]);
 
   const handleBatchPrint = useCallback(async () => {
     if (selectedOrdersForPrint.size === 0) {

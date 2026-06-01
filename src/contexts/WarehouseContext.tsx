@@ -453,7 +453,11 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
 
   const printLabel = useCallback(async (order: OrderForPacking) => {
     try {
-      await ordersService.markAsPrinted(order.id);
+      // All orders in a packing session belong to the session's store, so
+      // scope the mutation to it rather than the tab's active store.
+      const sessionStoreId = state.session?.store_id;
+      if (!sessionStoreId) throw new Error('No active packing session store');
+      await ordersService.markAsPrinted(order.id, sessionStoreId);
       if (!isMountedRef.current) return;
       if (state.session) {
         await loadPackingData(state.session.id);
@@ -477,13 +481,16 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
   const printAllLabels = useCallback(async () => {
     if (!state.packingData) return;
 
+    const sessionStoreId = state.session?.store_id;
+    if (!sessionStoreId) return;
+
     const ordersToPrint = state.packingData.orders.filter(
       o => o.is_complete && !o.printed && o.delivery_link_token
     );
 
     for (const order of ordersToPrint) {
       if (!isMountedRef.current) return;
-      await ordersService.markAsPrinted(order.id);
+      await ordersService.markAsPrinted(order.id, sessionStoreId);
     }
 
     if (!isMountedRef.current) return;

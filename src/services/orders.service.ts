@@ -23,6 +23,23 @@ const getHeaders = (overrideStoreId?: string) => {
   return headers;
 };
 
+// Headers for a mutation scoped to a SPECIFIC order row.
+//
+// The active store is a global, per-tab context meant for listings. It must
+// never silently scope a mutation against a concrete order: a multi-store
+// owner can hold a stale active store in one tab and act on an order from
+// another of their stores, and that mismatch surfaces as a misleading 404.
+// Every order-scoped mutation must carry the owning store of THAT order, so
+// we require it explicitly here instead of falling back to getActiveStoreId.
+const getOrderScopedHeaders = (storeId: string) => {
+  if (!storeId) {
+    // A missing owning store is a programmer error at the call site, not a
+    // recoverable runtime condition. Fail loud rather than corrupt scope.
+    throw new Error('getOrderScopedHeaders requires the order store_id');
+  }
+  return getHeaders(storeId);
+};
+
 export interface OrdersResponse {
   data: Order[];
   pagination: {
@@ -429,14 +446,16 @@ export const ordersService = {
     return ordersService.getById(id);
   },
 
-  delete: async (id: string, permanent: boolean = false): Promise<boolean> => {
+  delete: async (id: string, permanent: boolean = false, storeId?: string): Promise<boolean> => {
     try {
       const url = permanent
         ? `${API_BASE_URL}/orders/${id}?permanent=true`
         : `${API_BASE_URL}/orders/${id}`;
       const response = await fetch(url, {
         method: 'DELETE',
-        headers: getHeaders(),
+        // Scope to the order's owning store when known; the backend also
+        // auto-resolves the store from the order id as defense in depth.
+        headers: storeId ? getOrderScopedHeaders(storeId) : getHeaders(),
       });
       if (!response.ok) {
         if (response.status === 404) return false;
@@ -485,11 +504,11 @@ export const ordersService = {
     }
   },
 
-  confirm: async (id: string, storeId?: string): Promise<Order | undefined> => {
+  confirm: async (id: string, storeId: string): Promise<Order | undefined> => {
     try {
       const response = await fetch(`${API_BASE_URL}/orders/${id}/status`, {
         method: 'PATCH',
-        headers: getHeaders(storeId),
+        headers: getOrderScopedHeaders(storeId),
         body: JSON.stringify({
           sleeves_status: 'confirmed',
           confirmed_by: 'manual',
@@ -510,6 +529,7 @@ export const ordersService = {
 
       return {
         id: data.id,
+        store_id: data.store_id,
         customer: `${data.customer_first_name || ''} ${data.customer_last_name || ''}`.trim() || 'Cliente',
         address: data.customer_address || '',
         product: firstItem?.product_name || firstItem?.title || 'Producto',
@@ -535,11 +555,11 @@ export const ordersService = {
   },
 
   // Mark order as contacted (WhatsApp message sent, waiting for customer response)
-  contact: async (id: string, storeId?: string): Promise<Order | undefined> => {
+  contact: async (id: string, storeId: string): Promise<Order | undefined> => {
     try {
       const response = await fetch(`${API_BASE_URL}/orders/${id}/status`, {
         method: 'PATCH',
-        headers: getHeaders(storeId),
+        headers: getOrderScopedHeaders(storeId),
         body: JSON.stringify({
           sleeves_status: 'contacted',
           confirmed_by: 'manual',
@@ -560,6 +580,7 @@ export const ordersService = {
 
       return {
         id: data.id,
+        store_id: data.store_id,
         customer: `${data.customer_first_name || ''} ${data.customer_last_name || ''}`.trim() || 'Cliente',
         address: data.customer_address || '',
         product: firstItem?.product_name || firstItem?.title || 'Producto',
@@ -582,11 +603,11 @@ export const ordersService = {
     }
   },
 
-  reject: async (id: string, reason?: string, storeId?: string): Promise<Order | undefined> => {
+  reject: async (id: string, reason: string | undefined, storeId: string): Promise<Order | undefined> => {
     try {
       const response = await fetch(`${API_BASE_URL}/orders/${id}/status`, {
         method: 'PATCH',
-        headers: getHeaders(storeId),
+        headers: getOrderScopedHeaders(storeId),
         body: JSON.stringify({
           sleeves_status: 'rejected',
           rejection_reason: reason || 'Rechazado manualmente',
@@ -606,6 +627,7 @@ export const ordersService = {
 
       return {
         id: data.id,
+        store_id: data.store_id,
         customer: `${data.customer_first_name || ''} ${data.customer_last_name || ''}`.trim() || 'Cliente',
         address: data.customer_address || '',
         product: firstItem?.product_name || firstItem?.title || 'Producto',
@@ -629,10 +651,10 @@ export const ordersService = {
     }
   },
 
-  updateStatus: async (id: string, status: Order['status'], storeId?: string): Promise<Order | undefined> => {
+  updateStatus: async (id: string, status: Order['status'], storeId: string): Promise<Order | undefined> => {
     const response = await fetch(`${API_BASE_URL}/orders/${id}/status`, {
       method: 'PATCH',
-      headers: getHeaders(storeId),
+      headers: getOrderScopedHeaders(storeId),
       body: JSON.stringify({
         sleeves_status: status,
       }),
@@ -713,6 +735,7 @@ export const ordersService = {
 
     return {
       id: data.id,
+      store_id: data.store_id,
       customer: `${data.customer_first_name || ''} ${data.customer_last_name || ''}`.trim() || 'Cliente',
       address: data.customer_address || '',
       product: firstItem?.product_name || firstItem?.title || 'Producto',
@@ -734,11 +757,11 @@ export const ordersService = {
     };
   },
 
-  markAsPrinted: async (id: string): Promise<Order | undefined> => {
+  markAsPrinted: async (id: string, storeId: string): Promise<Order | undefined> => {
     try {
       const response = await fetch(`${API_BASE_URL}/orders/${id}/mark-printed`, {
         method: 'POST',
-        headers: getHeaders(),
+        headers: getOrderScopedHeaders(storeId),
       });
 
       if (!response.ok) {

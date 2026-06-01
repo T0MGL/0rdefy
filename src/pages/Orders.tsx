@@ -109,6 +109,17 @@ interface OrderFormData {
 
 type LineItem = NonNullable<Order['order_line_items']>[number];
 
+// A mutation scoped to a specific order must carry that order's owning store,
+// never the globally active store. Orders loaded from the API always include
+// store_id; if it is ever missing we fail loud rather than let the request
+// fall back to the active store and hit the wrong tenant (cross-store 404).
+function requireOrderStoreId(order: Pick<Order, 'id' | 'store_id'>): string {
+  if (!order.store_id) {
+    throw new Error(`Order ${order.id} is missing store_id; cannot scope mutation`);
+  }
+  return order.store_id;
+}
+
 const statusColors = {
   pending: 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-700 dark:text-yellow-400 border-yellow-300 dark:border-yellow-800',
   contacted: 'bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800',
@@ -958,7 +969,7 @@ export default function Orders() {
     if (!originalOrder) return;
 
     try {
-      const updatedOrder = await ordersService.confirm(orderId, originalOrder.store_id);
+      const updatedOrder = await ordersService.confirm(orderId, requireOrderStoreId(originalOrder!));
       if (updatedOrder) {
         // Update with server response (no flickering - smooth transition)
         setOrders(prev => prev.map(o => (o.id === orderId ? updatedOrder : o)));
@@ -1000,7 +1011,7 @@ export default function Orders() {
     if (!originalOrder) return;
 
     try {
-      const updatedOrder = await ordersService.reject(orderId, 'Rechazado manualmente', originalOrder.store_id);
+      const updatedOrder = await ordersService.reject(orderId, 'Rechazado manualmente', requireOrderStoreId(originalOrder!));
       if (updatedOrder) {
         // Update with server response
         setOrders(prev => prev.map(o => (o.id === orderId ? updatedOrder : o)));
@@ -1053,7 +1064,7 @@ export default function Orders() {
     if (!shouldProceed || !originalOrder) return;
 
     try {
-      const updatedOrder = await ordersService.contact(orderId, originalOrder.store_id);
+      const updatedOrder = await ordersService.contact(orderId, requireOrderStoreId(originalOrder!));
       if (updatedOrder) {
         // Update with server response (no flickering - smooth transition)
         setOrders(prev => prev.map(o => (o.id === orderId ? updatedOrder : o)));
@@ -1191,7 +1202,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
     const capturedOriginal: Order = originalOrder;
 
     try {
-      const updatedOrder = await ordersService.updateStatus(orderId, newStatus, capturedOriginal.store_id);
+      const updatedOrder = await ordersService.updateStatus(orderId, newStatus, requireOrderStoreId(capturedOriginal));
       if (updatedOrder) {
         // Merge with existing order so UI metadata (e.g. thumbnails) is not lost
         // when backend returns a partial payload on status updates.
@@ -1570,7 +1581,9 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
     const isPermanent = isOwner;
 
     try {
-      const success = await ordersService.delete(orderToDelete, isPermanent);
+      // Scope the delete to the order's owning store, not the active store.
+      const storeId = orders.find(o => o.id === orderToDelete)?.store_id;
+      const success = await ordersService.delete(orderToDelete, isPermanent, storeId);
       if (success) {
         if (isPermanent) {
           // Hard delete: remove from local state
@@ -1628,7 +1641,9 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
     setOrderToPermanentDelete(null);
 
     try {
-      const success = await ordersService.delete(orderId, true);
+      // Scope the delete to the order's owning store, not the active store.
+      const storeId = orders.find(o => o.id === orderId)?.store_id;
+      const success = await ordersService.delete(orderId, true, storeId);
       if (success) {
         // Remove from local state first (optimistic)
         setOrders(prev => prev.filter(o => o.id !== orderId));
@@ -1653,7 +1668,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         entity: 'pedido',
       });
     }
-  }, [orderToPermanentDelete, toast, refetch]);
+  }, [orderToPermanentDelete, orders, toast, refetch]);
 
   const handleRestoreOrder = useCallback(async (orderId: string) => {
     try {
@@ -1826,10 +1841,15 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
   }, []);
 
   // Print handlers
-  const handleOrderPrinted = useCallback(async (orderId: string) => {
+  const handleOrderPrinted = useCallback(async (order: Order) => {
+    const orderId = order.id;
+    // Capture the owning store from the source row so both the mark-printed
+    // call and the chained in_transit transition scope to the correct store,
+    // never the active store of the current tab.
+    const orderStoreId = requireOrderStoreId(order);
     try {
       // Mark order as printed
-      const updatedOrder = await ordersService.markAsPrinted(orderId);
+      const updatedOrder = await ordersService.markAsPrinted(orderId, orderStoreId);
       if (updatedOrder) {
         setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
       }
@@ -1838,7 +1858,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
       // Plans with warehouse feature use dispatch sessions to control the in_transit transition
       if (!hasWarehouseFeature) {
         // Free plan: simplified flow, print = mark as in transit
-        const transitOrder = await ordersService.updateStatus(orderId, 'in_transit', updatedOrder?.store_id);
+        const transitOrder = await ordersService.updateStatus(orderId, 'in_transit', orderStoreId);
         if (transitOrder) {
           setOrders(prev => prev.map(o => o.id === orderId ? transitOrder : o));
           toast({
@@ -1921,7 +1941,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
 
       if (success) {
         // Mark as printed and update status
-        await handleOrderPrinted(order.id);
+        await handleOrderPrinted(order);
       }
     } catch (error) {
       logger.error('Error printing label:', error);
