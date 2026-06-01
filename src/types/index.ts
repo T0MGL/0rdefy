@@ -237,6 +237,7 @@ export interface Order {
   // Electronic invoicing (SIFEN - Paraguay)
   customer_ruc?: string;
   customer_ruc_dv?: number;
+  customer_email?: string;
   invoice_id?: string;
   delivery_preferences?: Record<string, unknown>;
 }
@@ -271,11 +272,13 @@ export interface CreateOrderInput {
   bundle_selections?: BundleSelection[] | null;
   customer_ruc?: string;
   customer_ruc_dv?: number;
+  customer_email?: string;
 }
 
 export interface UpdateOrderInput extends Partial<CreateOrderInput> {
   customer_ruc?: string;
   customer_ruc_dv?: number;
+  customer_email?: string;
 }
 
 export interface Product {

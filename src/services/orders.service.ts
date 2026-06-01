@@ -180,7 +180,11 @@ export const ordersService = {
         customer_first_name: firstName || 'Cliente',
         customer_last_name: lastName || '',
         customer_phone: order.phone,
-        customer_email: '',
+        // Receptor email for electronic invoicing (SIFEN KUDE delivery).
+        // Only meaningful alongside a RUC; the backend stores it on the order
+        // and the invoicing flow reads it when emitting the invoice. Sent as
+        // a clean value or omitted so the column never holds an empty string.
+        customer_email: order.customer_email?.trim() || undefined,
         customer_address: order.address || '',
         line_items: lineItems,
         total_price: orderTotal,
@@ -202,6 +206,10 @@ export const ordersService = {
         internal_notes: order.internal_notes || null,
         upsell_added: !!upsellProductId,
         delivery_preferences: order.delivery_preferences || null,
+        // Electronic invoicing (SIFEN). Persisted at creation so the invoice
+        // flow has the receptor RUC without a separate edit step.
+        customer_ruc: order.customer_ruc || undefined,
+        customer_ruc_dv: order.customer_ruc_dv ?? undefined,
       };
 
       logger.log('📤 [ORDERS SERVICE] Sending to backend:', backendOrder);
@@ -327,6 +335,10 @@ export const ordersService = {
       if (data.customer_ruc !== undefined) {
         backendData.customer_ruc = data.customer_ruc;
         backendData.customer_ruc_dv = data.customer_ruc_dv;
+      }
+
+      if (data.customer_email !== undefined) {
+        backendData.customer_email = data.customer_email;
       }
 
       // Update main order data

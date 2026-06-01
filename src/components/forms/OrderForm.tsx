@@ -100,6 +100,8 @@ export interface OrderFormData extends OrderFormValues {
   // Customer RUC for electronic invoicing (Paraguay)
   customerRuc?: string;
   customerRucDv?: number;
+  // Receptor email for electronic invoice delivery (SIFEN KUDE)
+  customerEmail?: string;
   // Bundle composition: which variations compose the pack (Migration 146)
   bundleSelections?: BundleSelection[] | null;
   // Order-level discount applied over the total (Migration 196).
@@ -159,6 +161,8 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
   // Customer RUC for electronic invoicing (Paraguay only, requires fiscal config)
   const { currentStore } = useAuth();
   const [customerRuc, setCustomerRuc] = useState(initialData?.customerRuc || '');
+  const [customerEmail, setCustomerEmail] = useState(initialData?.customerEmail || '');
+  const [customerEmailError, setCustomerEmailError] = useState<string | null>(null);
   const [showRucField, setShowRucField] = useState(false);
 
   // Order-level discount (edit flow only). Kept as a string so the input can be
@@ -544,6 +548,11 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
       if (initialData.customerRuc) {
         setCustomerRuc(initialData.customerRuc);
       }
+
+      // Set receptor email if provided
+      if (initialData.customerEmail) {
+        setCustomerEmail(initialData.customerEmail);
+      }
     }
     // Only run on mount (key prop forces remount on order change)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -577,6 +586,13 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
       });
       return;
     }
+
+    // Validate receptor email when a RUC is present (invoice gets delivered here)
+    if (customerRuc.trim() && customerEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail.trim())) {
+      setCustomerEmailError('Email inválido. Revisa el email para el envío de la factura.');
+      return;
+    }
+    setCustomerEmailError(null);
 
     try {
       const fullPhone = `${data.countryCode}${data.phone}`;
@@ -612,6 +628,8 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
         customerRucDv: customerRuc.trim() && customerRuc.trim().includes('-') && /^\d$/.test(customerRuc.trim().split('-')[1])
           ? parseInt(customerRuc.trim().split('-')[1], 10)
           : undefined,
+        // Receptor email for invoice delivery (only sent alongside a RUC)
+        customerEmail: customerRuc.trim() && customerEmail.trim() ? customerEmail.trim() : undefined,
         // Order-level discount (Migration 196). Only relevant in edit mode.
         // Empty input clears the discount (sends 0). The RPC re-derives
         // total_price and cod_amount from line_items, so products stay intact.
@@ -1443,6 +1461,34 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
               onChange={(e) => setCustomerRuc(e.target.value.replace(/[^0-9-]/g, ''))}
               maxLength={22}
             />
+
+            {/* Receptor email: appears once a RUC is entered. The electronic
+                invoice (KUDE/XML) is delivered to this address on emission. */}
+            {customerRuc.trim() && (
+              <div className="space-y-1 pt-2">
+                <Label className="text-xs font-medium text-muted-foreground">Email del cliente (para enviar la factura)</Label>
+                <Input
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  placeholder="cliente@empresa.com"
+                  value={customerEmail}
+                  onChange={(e) => {
+                    setCustomerEmail(e.target.value.trim());
+                    if (customerEmailError) setCustomerEmailError(null);
+                  }}
+                  maxLength={255}
+                  aria-invalid={!!customerEmailError}
+                />
+                {customerEmailError ? (
+                  <p className="text-[11px] text-destructive">{customerEmailError}</p>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    La factura electrónica se enviará a este email. Sin email, se emite igual pero no se envía automáticamente.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
 

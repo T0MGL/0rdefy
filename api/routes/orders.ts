@@ -1037,6 +1037,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 customer_first_name,
                 customer_last_name,
                 customer_phone,
+                customer_email,
                 customer_address,
                 total_price,
                 sleeves_status,
@@ -1415,6 +1416,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 // Electronic invoicing (SIFEN)
                 customer_ruc: order.customer_ruc,
                 customer_ruc_dv: order.customer_ruc_dv,
+                customer_email: order.customer_email,
                 invoice_id: order.invoice_id
             };
         }) || [];
@@ -1767,7 +1769,7 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                 customer_id: customerId,
                 shopify_order_id,
                 shopify_order_number,
-                customer_email,
+                customer_email: (typeof customer_email === 'string' && customer_email.trim()) ? customer_email.trim().toLowerCase() : null,
                 customer_phone,
                 customer_first_name,
                 customer_last_name,
@@ -2057,7 +2059,7 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
         // Track if any label-critical field is changing
         let labelDataChanged = false;
 
-        if (customer_email !== undefined) updateData.customer_email = customer_email;
+        if (customer_email !== undefined) updateData.customer_email = (typeof customer_email === 'string' && customer_email.trim()) ? customer_email.trim().toLowerCase() : null;
         if (customer_phone !== undefined) {
             updateData.customer_phone = customer_phone;
             if (customer_phone !== existingOrder.customer_phone) labelDataChanged = true;
@@ -2435,6 +2437,7 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
             // Electronic invoicing
             customer_ruc: data.customer_ruc,
             customer_ruc_dv: data.customer_ruc_dv,
+            customer_email: data.customer_email,
             invoice_id: data.invoice_id,
             // Financial fields
             financial_status: data.financial_status,
@@ -3782,7 +3785,8 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             delivery_preferences = null,   // NEW: Delivery scheduling preferences (date, time slot, notes)
             force_without_carrier = false,  // NEW: Force separate flow even if courier_id provided
             customer_ruc = null,  // NEW: Customer RUC for electronic invoicing (SIFEN)
-            customer_ruc_dv = null  // NEW: Customer RUC DV (Modulo 11)
+            customer_ruc_dv = null,  // NEW: Customer RUC DV (Modulo 11)
+            customer_email = null  // NEW: Receptor email for electronic invoice delivery (SIFEN KUDE)
         } = req.body;
 
         // Use explicit is_pickup flag from frontend (not inferred from !courier_id)
@@ -4172,18 +4176,61 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             }
         }
 
-        // Save customer RUC for electronic invoicing (non-blocking)
-        if (customer_ruc) {
+        // Save electronic invoicing fields (RUC + receptor email) for SIFEN.
+        // The receptor email is where the KUDE/XML gets delivered once the
+        // invoice is emitted (dispatchInvoiceEmail reads orders.customer_email
+        // first, then the linked customer's email). Persist whatever the
+        // confirmador entered so the invoice flow has it. Non-blocking: a
+        // failure here must not abort the confirmation.
+        const normalizedEmail =
+            typeof customer_email === 'string' && customer_email.trim()
+                ? customer_email.trim().toLowerCase()
+                : null;
+
+        if (customer_ruc || normalizedEmail) {
+            const invoicingUpdate: Record<string, unknown> = {};
+            if (customer_ruc) {
+                invoicingUpdate.customer_ruc = customer_ruc;
+                invoicingUpdate.customer_ruc_dv = customer_ruc_dv ? Number(customer_ruc_dv) : null;
+            }
+            if (normalizedEmail) {
+                invoicingUpdate.customer_email = normalizedEmail;
+            }
+
             try {
                 await supabaseAdmin
                     .from('orders')
-                    .update({
-                        customer_ruc,
-                        customer_ruc_dv: customer_ruc_dv ? Number(customer_ruc_dv) : null
-                    })
-                    .eq('id', id);
-            } catch (rucError) {
-                logger.warn('BACKEND', `[CONFIRM_ORDER] Failed to save customer_ruc for order ${id}:`, rucError);
+                    .update(invoicingUpdate)
+                    .eq('id', id)
+                    .eq('store_id', effectiveStoreId);
+            } catch (invoicingError) {
+                logger.warn('BACKEND', `[CONFIRM_ORDER] Failed to save invoicing fields for order ${id}:`, invoicingError);
+            }
+
+            // Mirror the receptor email onto the linked customer so future
+            // orders and the invoicing fallback path resolve it consistently.
+            // Only backfill when the customer has no email yet (do not clobber
+            // an existing one the owner may have curated).
+            if (normalizedEmail) {
+                try {
+                    const { data: orderRow } = await supabaseAdmin
+                        .from('orders')
+                        .select('customer_id')
+                        .eq('id', id)
+                        .eq('store_id', effectiveStoreId)
+                        .single();
+
+                    if (orderRow?.customer_id) {
+                        await supabaseAdmin
+                            .from('customers')
+                            .update({ email: normalizedEmail })
+                            .eq('id', orderRow.customer_id)
+                            .eq('store_id', effectiveStoreId)
+                            .is('email', null);
+                    }
+                } catch (customerEmailError) {
+                    logger.warn('BACKEND', `[CONFIRM_ORDER] Failed to backfill customer email for order ${id}:`, customerEmailError);
+                }
             }
         }
 

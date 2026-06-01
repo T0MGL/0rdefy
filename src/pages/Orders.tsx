@@ -100,6 +100,7 @@ interface OrderFormData {
   internalNotes?: string;
   customerRuc?: string;
   customerRucDv?: number | null;
+  customerEmail?: string;
   upsellProductId?: string;
   upsellQuantity?: number;
   bundleSelections?: import('@/types').BundleSelection[] | null;
@@ -1324,7 +1325,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         orderTotal
       });
 
-      const createPayload: CreateOrderInput & { customer_ruc?: string | null; customer_ruc_dv?: number | null } = {
+      const createPayload: CreateOrderInput & { customer_ruc?: string | null; customer_ruc_dv?: number | null; customer_email?: string } = {
         customer: data.customer,
         phone: data.phone,
         address: data.address,
@@ -1349,6 +1350,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         internal_notes: data.internalNotes || undefined,
         customer_ruc: data.customerRuc || undefined,
         customer_ruc_dv: data.customerRucDv ?? undefined,
+        customer_email: data.customerEmail || undefined,
         upsell_product_id: data.upsellProductId || undefined,
         upsell_product_name: upsellProduct?.name || undefined,
         upsell_product_price: upsellProduct?.price || undefined,
@@ -1492,6 +1494,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         internal_notes: data.internalNotes || undefined,
         customer_ruc: data.customerRuc || undefined,
         customer_ruc_dv: data.customerRucDv ?? undefined,
+        customer_email: data.customerEmail || undefined,
       };
       let updatedOrder = await ordersService.update(orderToEdit.id, updatePayload);
 
@@ -3587,6 +3590,8 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                   internalNotes: orderToEdit.internal_notes || '',
                   // Customer RUC (electronic invoicing)
                   customerRuc: orderToEdit.customer_ruc ? `${orderToEdit.customer_ruc}${orderToEdit.customer_ruc_dv !== undefined && orderToEdit.customer_ruc_dv !== null ? '-' + orderToEdit.customer_ruc_dv : ''}` : '',
+                  // Receptor email (electronic invoicing)
+                  customerEmail: orderToEdit.customer_email || '',
                   // Order-level discount (Migration 196). gross = current total
                   // plus the discount already stamped, matching the RPC base.
                   discountAmount: Number(orderToEdit.total_discounts) || 0,

@@ -156,6 +156,9 @@ export function OrderConfirmationDialog({
 
   // Customer RUC for electronic invoicing (Paraguay only, requires fiscal config)
   const [customerRuc, setCustomerRuc] = useState('');
+  // Receptor email: where the electronic invoice (KUDE/XML) gets delivered.
+  // Shown only when a RUC is entered and fiscal config is set up.
+  const [customerEmail, setCustomerEmail] = useState('');
   const [showRucField, setShowRucField] = useState(false);
 
   // Track if order already has complete shipping data (manual order with city+carrier)
@@ -540,6 +543,16 @@ export function OrderConfirmationDialog({
       // Reset delivery preferences
       setDeliveryPreferences((order as any)?.delivery_preferences || null);
 
+      // Pre-fill electronic invoicing fields from the order if present
+      setCustomerRuc(
+        order?.customer_ruc
+          ? order.customer_ruc_dv != null
+            ? `${order.customer_ruc}-${order.customer_ruc_dv}`
+            : order.customer_ruc
+          : ''
+      );
+      setCustomerEmail(order?.customer_email || '');
+
       // Pre-fill address if order has one
       if (order?.address) {
         setAddress(order.address);
@@ -723,6 +736,19 @@ export function OrderConfirmationDialog({
       return;
     }
 
+    // Validate receptor email when a RUC is present (invoice gets delivered here)
+    if (customerRuc.trim() && customerEmail.trim()) {
+      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRe.test(customerEmail.trim())) {
+        toast({
+          title: 'Email inválido',
+          description: 'Revisa el email del cliente para el envío de la factura.',
+          variant: 'destructive',
+        });
+        return;
+      }
+    }
+
     try {
       setLoading(true);
 
@@ -792,6 +818,12 @@ export function OrderConfirmationDialog({
         payload.customer_ruc = rucParts[0];
         if (rucParts.length === 2 && /^\d$/.test(rucParts[1])) {
           payload.customer_ruc_dv = parseInt(rucParts[1], 10);
+        }
+
+        // Receptor email for invoice delivery (only meaningful with a RUC)
+        const trimmedEmail = customerEmail.trim();
+        if (trimmedEmail) {
+          payload.customer_email = trimmedEmail;
         }
       }
 
@@ -1767,6 +1799,28 @@ export function OrderConfirmationDialog({
                     maxLength={22}
                     className="h-9"
                   />
+
+                  {/* Receptor email: appears once a RUC is entered. The
+                      electronic invoice (KUDE/XML) gets delivered to this
+                      address when the invoice is emitted. */}
+                  {customerRuc.trim() && (
+                    <div className="space-y-1 pt-2">
+                      <Label className="text-xs font-medium text-muted-foreground">Email del cliente (para enviar la factura)</Label>
+                      <Input
+                        type="email"
+                        inputMode="email"
+                        autoComplete="email"
+                        placeholder="cliente@empresa.com"
+                        value={customerEmail}
+                        onChange={(e) => setCustomerEmail(e.target.value.trim())}
+                        maxLength={255}
+                        className="h-9"
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        La factura electrónica se enviará a este email. Sin email, la factura se emite igual pero no se envía automáticamente.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
