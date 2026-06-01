@@ -89,29 +89,45 @@ async function main(): Promise<void> {
           console.log(`[sifen-worker][probe] SMALL FAIL in ${Date.now() - t0}ms err=${e instanceof Error ? e.message : String(e)}`);
         }
 
-        // Large-POST probe: ~12KB of garbage to the recibe-lote endpoint with
-        // mTLS. Not a valid DE -> SIFEN rejects it fast WITHOUT creating any
-        // document. If THIS hangs while SMALL succeeded, the worker->SET path
-        // has a PMTUD/MSS blackhole on multi-segment POSTs.
-        for (const sizeKb of [4, 12]) {
-          const https = await import('https');
-          const body = 'A'.repeat(sizeKb * 1024);
+        const https = await import('https');
+
+        // (a) Egress IP que ve el SET (para descartar/confirmar filtrado por IP).
+        await new Promise<void>((resolve) => {
+          const req = https.request({ hostname: 'api.ipify.org', port: 443, path: '/', method: 'GET', timeout: 8000 }, (res) => {
+            let d = ''; res.on('data', (c) => (d += c)); res.on('end', () => { console.log(`[sifen-worker][probe] EGRESS_IP=${d.trim()}`); resolve(); });
+          });
+          req.on('timeout', () => { req.destroy(); console.log('[sifen-worker][probe] EGRESS_IP timeout'); resolve(); });
+          req.on('error', (e) => { console.log(`[sifen-worker][probe] EGRESS_IP err=${e.message}`); resolve(); });
+          req.end();
+        });
+
+        // (b) VALID rEnvioLote SOAP con xDE = base64 basura de tamano creciente.
+        // SIFEN DEBE leer el cuerpo completo y base64-decodificar antes de
+        // rechazar (no crea documento: xDE no es un lote gzip valido). Si hay un
+        // CORTE por tamano (chico responde, grande TIMEOUT) => MTU/PMTUD en la
+        // subida. Si TODOS responden rapido => no es tamano; el hang del lote
+        // real es filtrado del backend del SET por IP/handshake del worker.
+        const NS = 'http://ekuatia.set.gov.py/sifen/xsd';
+        for (const sizeKb of [2, 6, 8, 16, 32]) {
+          const xDE = Buffer.from('B'.repeat(sizeKb * 1024)).toString('base64');
+          const inner = `<rEnvioLote xmlns="${NS}"><dId>${100000 + sizeKb}</dId><xDE>${xDE}</xDE></rEnvioLote>`;
+          const envelope = `<?xml version="1.0" encoding="UTF-8"?>\n<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope"><env:Header/><env:Body>${inner}</env:Body></env:Envelope>`;
           const tBig = Date.now();
           await new Promise<void>((resolve) => {
             const req = https.request({
               hostname: 'sifen.set.gov.py', port: 443,
               path: '/de/ws/async/recibe-lote.wsdl', method: 'POST',
               cert: mtls.certPem, key: mtls.privateKeyPem, rejectUnauthorized: true,
-              headers: { 'Content-Type': 'application/soap+xml; charset=utf-8', 'Content-Length': Buffer.byteLength(body) },
-              timeout: 30000, agent: new https.Agent({ keepAlive: false }),
+              headers: { 'Content-Type': 'application/soap+xml; charset=utf-8', 'Content-Length': Buffer.byteLength(envelope) },
+              timeout: 95000, agent: new https.Agent({ keepAlive: false }),
             }, (res) => {
-              res.on('data', () => {}); res.on('end', () => {
-                console.log(`[sifen-worker][probe] BIG ${sizeKb}KB HTTP ${res.statusCode} in ${Date.now() - tBig}ms`); resolve();
+              let n = 0; res.on('data', (c) => (n += c.length)); res.on('end', () => {
+                console.log(`[sifen-worker][probe] LOTE ${sizeKb}KB (req=${Buffer.byteLength(envelope)}B) HTTP ${res.statusCode} respBytes=${n} in ${Date.now() - tBig}ms`); resolve();
               });
             });
-            req.on('timeout', () => { req.destroy(); console.log(`[sifen-worker][probe] BIG ${sizeKb}KB TIMEOUT in ${Date.now() - tBig}ms`); resolve(); });
-            req.on('error', (err) => { console.log(`[sifen-worker][probe] BIG ${sizeKb}KB ERR in ${Date.now() - tBig}ms: ${err.message}`); resolve(); });
-            req.write(body); req.end();
+            req.on('timeout', () => { req.destroy(); console.log(`[sifen-worker][probe] LOTE ${sizeKb}KB TIMEOUT in ${Date.now() - tBig}ms`); resolve(); });
+            req.on('error', (err) => { console.log(`[sifen-worker][probe] LOTE ${sizeKb}KB ERR in ${Date.now() - tBig}ms: ${err.message}`); resolve(); });
+            req.write(envelope); req.end();
           });
         }
       }
