@@ -2667,6 +2667,104 @@ function getSuggestionForTransition(fromStatus: string, toStatus: string): strin
     return suggestions[fromStatus]?.[toStatus] || '';
 }
 
+interface StockIssue {
+    product_name: string;
+    required: number;
+    available: number;
+    shortage: number;
+}
+
+/**
+ * Pre-flight stock check that mirrors the variant-aware DB stock trigger
+ * (migrations 098/107/108). Returns one StockIssue per insufficient line.
+ *
+ * Stock resolution rules:
+ *   - variant present, uses_shared_stock=false (VARIATION) -> the variant's
+ *     own stock; required = quantity.
+ *   - variant present, uses_shared_stock=true (BUNDLE) -> the parent product
+ *     stock; required = quantity * units_per_pack (each pack consumes N units).
+ *   - no variant -> the parent product stock; required = quantity.
+ *
+ * Checking the parent product for variation lines is the bug that silently
+ * blocked variant orders (parent reads 0 while the variant holds real stock).
+ */
+async function checkLineItemStock(
+    lineItems: Array<Record<string, any>>,
+    storeId: string
+): Promise<StockIssue[]> {
+    const issues: StockIssue[] = [];
+    if (!Array.isArray(lineItems) || lineItems.length === 0) return issues;
+
+    for (const item of lineItems) {
+        const productId = item.product_id;
+        const variantId = item.variant_id || null;
+        const requiredQty = safeNumber(item.quantity, 0);
+        if (!productId || requiredQty <= 0) continue;
+
+        if (variantId) {
+            const { data: variant } = await supabaseAdmin
+                .from('product_variants')
+                .select('variant_title, stock, uses_shared_stock, units_per_pack')
+                .eq('id', variantId)
+                .eq('store_id', storeId)
+                .single();
+
+            if (variant && !variant.uses_shared_stock) {
+                const available = variant.stock || 0;
+                if (available < requiredQty) {
+                    issues.push({
+                        product_name: variant.variant_title || item.product_name || item.name || 'Producto',
+                        required: requiredQty,
+                        available,
+                        shortage: requiredQty - available,
+                    });
+                }
+                continue;
+            }
+
+            if (variant && variant.uses_shared_stock) {
+                const unitsPerPack = safeNumber(variant.units_per_pack, 1) || 1;
+                const requiredUnits = requiredQty * unitsPerPack;
+                const { data: parent } = await supabaseAdmin
+                    .from('products')
+                    .select('name, stock')
+                    .eq('id', productId)
+                    .eq('store_id', storeId)
+                    .single();
+                const available = parent?.stock || 0;
+                if (available < requiredUnits) {
+                    issues.push({
+                        product_name: parent?.name || item.product_name || item.name || 'Producto',
+                        required: requiredUnits,
+                        available,
+                        shortage: requiredUnits - available,
+                    });
+                }
+                continue;
+            }
+            // Variant id present but row missing: fall through to parent check.
+        }
+
+        const { data: product } = await supabaseAdmin
+            .from('products')
+            .select('name, sku, stock')
+            .eq('id', productId)
+            .eq('store_id', storeId)
+            .single();
+
+        if (product && (product.stock || 0) < requiredQty) {
+            issues.push({
+                product_name: product.name || item.name || 'Producto',
+                required: requiredQty,
+                available: product.stock || 0,
+                shortage: requiredQty - (product.stock || 0),
+            });
+        }
+    }
+
+    return issues;
+}
+
 /**
  * Validates if a status transition is allowed and returns helpful message if not
  */
@@ -2848,36 +2946,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             const lineItems = normalizedItems.length > 0 ? normalizedItems : jsonbItems;
 
             if (Array.isArray(lineItems) && lineItems.length > 0) {
-                const stockIssues: Array<{
-                    product_name: string;
-                    required: number;
-                    available: number;
-                    shortage: number;
-                }> = [];
-
-                // Check stock for each product
-                for (const item of lineItems) {
-                    const productId = item.product_id;
-                    const requiredQty = safeNumber(item.quantity, 0);
-
-                    if (!productId || requiredQty <= 0) continue;
-
-                    const { data: product } = await supabaseAdmin
-                        .from('products')
-                        .select('name, sku, stock')
-                        .eq('id', productId)
-                        .eq('store_id', effectiveStoreId)
-                        .single();
-
-                    if (product && (product.stock || 0) < requiredQty) {
-                        stockIssues.push({
-                            product_name: product.name || item.name || 'Producto',
-                            required: requiredQty,
-                            available: product.stock || 0,
-                            shortage: requiredQty - (product.stock || 0)
-                        });
-                    }
-                }
+                const stockIssues = await checkLineItemStock(lineItems, effectiveStoreId);
 
                 if (stockIssues.length > 0) {
                     const issueList = stockIssues
@@ -4939,35 +5008,7 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
             const lineItems = normalizedItems.length > 0 ? normalizedItems : jsonbItems;
 
             if (Array.isArray(lineItems) && lineItems.length > 0) {
-                const stockIssues: Array<{
-                    product_name: string;
-                    required: number;
-                    available: number;
-                    shortage: number;
-                }> = [];
-
-                for (const item of lineItems) {
-                    const productId = item.product_id;
-                    const requiredQty = safeNumber(item.quantity, 0);
-
-                    if (!productId || requiredQty <= 0) continue;
-
-                    const { data: product } = await supabaseAdmin
-                        .from('products')
-                        .select('name, sku, stock')
-                        .eq('id', productId)
-                        .eq('store_id', storeId)
-                        .single();
-
-                    if (product && (product.stock || 0) < requiredQty) {
-                        stockIssues.push({
-                            product_name: product.name || item.name || 'Producto',
-                            required: requiredQty,
-                            available: product.stock || 0,
-                            shortage: requiredQty - (product.stock || 0)
-                        });
-                    }
-                }
+                const stockIssues = await checkLineItemStock(lineItems, storeId!);
 
                 if (stockIssues.length > 0) {
                     const issueList = stockIssues
@@ -5078,29 +5119,7 @@ ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permiss
             const lineItems = normalizedItems.length > 0 ? normalizedItems : jsonbItems;
             if (!Array.isArray(lineItems) || lineItems.length === 0) continue;
 
-            const stockIssues: any[] = [];
-
-            for (const item of lineItems) {
-                const productId = item.product_id;
-                const requiredQty = safeNumber(item.quantity, 0);
-
-                if (!productId || requiredQty <= 0) continue;
-
-                const { data: product } = await supabaseAdmin
-                    .from('products')
-                    .select('name, sku, stock')
-                    .eq('id', productId)
-                    .eq('store_id', storeId)
-                    .single();
-
-                if (product && (product.stock || 0) < requiredQty) {
-                    stockIssues.push({
-                        product_name: product.name || item.name || 'Producto',
-                        required: requiredQty,
-                        available: product.stock || 0
-                    });
-                }
-            }
+            const stockIssues = await checkLineItemStock(lineItems, storeId!);
 
             if (stockIssues.length > 0) {
                 ordersWithStockIssues.push({
@@ -5237,29 +5256,7 @@ ordersRouter.post('/bulk-print-and-dispatch', requirePermission(Module.ORDERS, P
             const lineItems = normalizedItems.length > 0 ? normalizedItems : jsonbItems;
             if (!Array.isArray(lineItems) || lineItems.length === 0) continue;
 
-            const stockIssues: any[] = [];
-
-            for (const item of lineItems) {
-                const productId = item.product_id;
-                const requiredQty = safeNumber(item.quantity, 0);
-
-                if (!productId || requiredQty <= 0) continue;
-
-                const { data: product } = await supabaseAdmin
-                    .from('products')
-                    .select('name, sku, stock')
-                    .eq('id', productId)
-                    .eq('store_id', storeId)
-                    .single();
-
-                if (product && (product.stock || 0) < requiredQty) {
-                    stockIssues.push({
-                        product_name: product.name || item.name || 'Producto',
-                        required: requiredQty,
-                        available: product.stock || 0
-                    });
-                }
-            }
+            const stockIssues = await checkLineItemStock(lineItems, storeId!);
 
             if (stockIssues.length > 0) {
                 ordersWithStockIssues.push({
@@ -5410,71 +5407,21 @@ ordersRouter.post('/bulk-status', requirePermission(Module.ORDERS, Permission.ED
 
         // Stock check: if target is ready_to_ship, validate stock for all applicable orders
         if (targetStatus === 'ready_to_ship') {
-            const ordersWithStockIssues: Array<{ order_id: string; order_number: string; issues: Array<{ product_name: string; required: number; available: number }> }> = [];
+            const ordersWithStockIssues: Array<{ order_id: string; order_number: string; issues: StockIssue[] }> = [];
 
-            // Collect all unique product IDs across every order first, then batch-fetch
-            const allProductIds = new Set<string>();
-            const orderLineItemsMap = new Map<string, Array<{ product_id: string; quantity: number; fallback_name: string }>>();
-
+            // Variant-aware stock check per order. checkLineItemStock resolves
+            // stock from product_variants for variation/bundle lines (mirrors
+            // the DB trigger); a parent-only batch check silently blocks
+            // variant orders whose parent product reads 0.
             for (const order of existingOrders) {
                 if (order.sleeves_status === 'ready_to_ship') continue;
 
-                const normalizedItems = (order as Record<string, unknown>).order_line_items as Array<{ product_id?: string; quantity?: number; product_name?: string }> || [];
-                const jsonbItems = order.line_items as Array<{ product_id?: string; quantity?: number; name?: string }> || [];
+                const normalizedItems = (order as Record<string, unknown>).order_line_items as Array<Record<string, any>> || [];
+                const jsonbItems = order.line_items as Array<Record<string, any>> || [];
                 const lineItems = normalizedItems.length > 0 ? normalizedItems : jsonbItems;
                 if (!Array.isArray(lineItems) || lineItems.length === 0) continue;
 
-                const parsed: Array<{ product_id: string; quantity: number; fallback_name: string }> = [];
-                for (const item of lineItems) {
-                    const productId = item.product_id;
-                    const requiredQty = safeNumber(item.quantity, 0);
-                    if (!productId || requiredQty <= 0) continue;
-
-                    allProductIds.add(productId);
-                    parsed.push({
-                        product_id: productId,
-                        quantity: requiredQty,
-                        fallback_name: (item as Record<string, unknown>).product_name as string || (item as Record<string, unknown>).name as string || 'Producto',
-                    });
-                }
-                if (parsed.length > 0) {
-                    orderLineItemsMap.set(order.id, parsed);
-                }
-            }
-
-            // Single batched query for all products
-            const productStockMap = new Map<string, { name: string; stock: number }>();
-            if (allProductIds.size > 0) {
-                const { data: products } = await supabaseAdmin
-                    .from('products')
-                    .select('id, name, stock')
-                    .in('id', Array.from(allProductIds))
-                    .eq('store_id', storeId);
-
-                if (products) {
-                    for (const p of products) {
-                        productStockMap.set(p.id, { name: p.name || 'Producto', stock: p.stock || 0 });
-                    }
-                }
-            }
-
-            // Check stock from the pre-fetched map
-            for (const order of existingOrders) {
-                const items = orderLineItemsMap.get(order.id);
-                if (!items) continue;
-
-                const stockIssues: Array<{ product_name: string; required: number; available: number }> = [];
-                for (const item of items) {
-                    const product = productStockMap.get(item.product_id);
-                    if (product && product.stock < item.quantity) {
-                        stockIssues.push({
-                            product_name: product.name || item.fallback_name,
-                            required: item.quantity,
-                            available: product.stock,
-                        });
-                    }
-                }
-
+                const stockIssues = await checkLineItemStock(lineItems, storeId!);
                 if (stockIssues.length > 0) {
                     ordersWithStockIssues.push({
                         order_id: order.id,
