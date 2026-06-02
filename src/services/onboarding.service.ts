@@ -60,6 +60,19 @@ interface TipStateCache {
 const tipStateCache = new Map<string, TipStateCache>(); // keyed by userId:storeId
 const TIP_STATE_CACHE_TTL = 60000; // 60 seconds
 
+// These Maps are keyed by `${userId}:${storeId}`. In a long-lived tab that
+// switches stores/users they grow without bound. Cap them so the oldest-
+// inserted entry is evicted past the ceiling (Map keeps insertion order).
+const MAX_CACHE_ENTRIES = 50;
+function setBounded<V>(map: Map<string, V>, key: string, value: V): void {
+  if (map.has(key)) map.delete(key);
+  map.set(key, value);
+  if (map.size > MAX_CACHE_ENTRIES) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) map.delete(oldest);
+  }
+}
+
 /**
  * Get cache key for current user/store context
  */
@@ -86,8 +99,8 @@ export async function getOnboardingProgress(): Promise<OnboardingProgress> {
     const response = await apiClient.get('/onboarding/progress');
     const data: OnboardingProgress = response.data;
 
-    // Store in memory cache with user-specific key
-    progressCache.set(cacheKey, {
+    // Store in memory cache with user-specific key (bounded)
+    setBounded(progressCache, cacheKey, {
       data,
       timestamp: Date.now(),
     });
@@ -193,7 +206,7 @@ async function prefetchTipStates(moduleIds: string[]): Promise<void> {
       moduleStates.set(moduleId, shouldShow);
     }
 
-    tipStateCache.set(cacheKey, {
+    setBounded(tipStateCache, cacheKey, {
       moduleStates,
       timestamp: Date.now(),
     });
@@ -216,7 +229,7 @@ async function prefetchTipStates(moduleIds: string[]): Promise<void> {
         moduleStates.set(moduleId, shouldShow);
       }
 
-      tipStateCache.set(cacheKey, {
+      setBounded(tipStateCache, cacheKey, {
         moduleStates,
         timestamp: Date.now(),
       });
@@ -286,7 +299,7 @@ async function fetchTipStateAsync(moduleId: string): Promise<void> {
     let cached = tipStateCache.get(cacheKey);
     if (!cached) {
       cached = { moduleStates: new Map(), timestamp: Date.now() };
-      tipStateCache.set(cacheKey, cached);
+      setBounded(tipStateCache, cacheKey, cached);
     }
     cached.moduleStates.set(moduleId, shouldShow);
     cached.timestamp = Date.now();
@@ -309,7 +322,7 @@ export async function shouldShowTipAsync(moduleId: string): Promise<boolean> {
     let cached = tipStateCache.get(cacheKey);
     if (!cached) {
       cached = { moduleStates: new Map(), timestamp: Date.now() };
-      tipStateCache.set(cacheKey, cached);
+      setBounded(tipStateCache, cacheKey, cached);
     }
     cached.moduleStates.set(moduleId, shouldShow);
 
@@ -577,11 +590,29 @@ if (typeof window !== 'undefined' && navigator.onLine) {
   processOfflineQueue();
 }
 
-// Listen for online event to process queue
+// Listen for online event to process queue. Named handler (not an anonymous
+// closure) so it can be removed via teardownOnboardingService() in tests or
+// on hot-module-reload, instead of leaking a dangling listener per reload.
+function handleOnline(): void {
+  processOfflineQueue();
+}
 if (typeof window !== 'undefined') {
-  window.addEventListener('online', () => {
-    processOfflineQueue();
-  });
+  window.addEventListener('online', handleOnline);
+}
+
+/**
+ * Remove the module-level online listener. Call on HMR dispose or in test
+ * teardown to avoid accumulating listeners across reloads.
+ */
+export function teardownOnboardingService(): void {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('online', handleOnline);
+  }
+}
+
+// Auto-detach on Vite HMR dispose to prevent listener accumulation in dev.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => teardownOnboardingService());
 }
 
 export const onboardingService = {

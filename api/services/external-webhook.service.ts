@@ -103,6 +103,10 @@ export interface WebhookLog {
   created_at: string;
 }
 
+// List projection: omits the heavy payload/headers/error_details blobs.
+// Full record (with those) is served by getWebhookLogById().
+export type WebhookLogListItem = Omit<WebhookLog, 'payload' | 'headers' | 'error_details'>;
+
 export interface ValidationError {
   field: string;
   message: string;
@@ -1600,7 +1604,7 @@ export class ExternalWebhookService {
     storeId: string,
     page: number = 1,
     limit: number = 20
-  ): Promise<{ logs: WebhookLog[]; total: number; page: number; totalPages: number }> {
+  ): Promise<{ logs: WebhookLogListItem[]; total: number; page: number; totalPages: number }> {
     try {
       limit = Math.min(Math.max(limit, 1), 100); // Cap between 1 and 100
       page = Math.max(page, 1);
@@ -1612,10 +1616,14 @@ export class ExternalWebhookService {
         .select('*', { count: 'exact', head: true })
         .eq('store_id', storeId);
 
-      // Obtener logs
+      // Obtener logs. NO traer payload/headers en el listado: pueden pesar
+      // KBs por fila y el detalle completo se sirve por getWebhookLogById().
+      // Listar con select('*') multiplicaba el transfer por 100 filas sin uso.
       const { data, error } = await supabaseAdmin
         .from('external_webhook_logs')
-        .select('*')
+        .select(
+          'id, config_id, store_id, request_id, source_ip, user_agent, status, order_id, customer_id, error_message, processing_time_ms, created_at'
+        )
         .eq('store_id', storeId)
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1);
@@ -1629,7 +1637,7 @@ export class ExternalWebhookService {
       const totalPages = Math.ceil(total / limit);
 
       return {
-        logs: data as WebhookLog[],
+        logs: (data ?? []) as WebhookLogListItem[],
         total,
         page,
         totalPages
