@@ -2681,8 +2681,11 @@ interface StockIssue {
  * Stock resolution rules:
  *   - variant present, uses_shared_stock=false (VARIATION) -> the variant's
  *     own stock; required = quantity.
- *   - variant present, uses_shared_stock=true (BUNDLE) -> the parent product
- *     stock; required = quantity * units_per_pack (each pack consumes N units).
+ *   - variant present, uses_shared_stock=true (BUNDLE) with bundle_selections
+ *     (MIXED BUNDLE) -> each selection's CHILD variation stock; required per
+ *     child = selection.quantity (as stored). Mirrors the DB trigger composition.
+ *   - variant present, uses_shared_stock=true (BUNDLE) without selections
+ *     (SIMPLE BUNDLE) -> the parent product stock; required = quantity * units_per_pack.
  *   - no variant -> the parent product stock; required = quantity.
  *
  * Checking the parent product for variation lines is the bug that silently
@@ -2723,6 +2726,62 @@ async function checkLineItemStock(
             }
 
             if (variant && variant.uses_shared_stock) {
+                // MIXED BUNDLE (migration 198): when the line carries an explicit
+                // bundle_selections composition (e.g. NOCTE Pack Oficina = Rojo x2
+                // + Naranja x1), the real stock lives in the CHILD variations, not
+                // in the parent product (whose stock is a phantom post-consolidation
+                // 181). Mirror update_product_stock_on_order_status exactly: deduct
+                // selection.quantity (as stored, not multiplied by requiredQty) from
+                // each selection.variant_id, which are independent-stock variations
+                // (uses_shared_stock=false -> deduct_shared_stock_for_variant pulls
+                // 1:1 from product_variants.stock). The trigger's CHECK already
+                // enforces sum(selection.quantity) = requiredQty * units_per_pack,
+                // so the raw selection.quantity is the authoritative per-variation
+                // requirement. Checking the parent here is the bug that produced
+                // false 400s (parent low) and false-PASS + late 400s (child empty).
+                const selections = Array.isArray(item.bundle_selections)
+                    ? item.bundle_selections
+                    : null;
+
+                if (selections && selections.length > 0) {
+                    for (const selection of selections) {
+                        const selVariantId = selection?.variant_id || null;
+                        const selQty = safeNumber(selection?.quantity, 0);
+                        if (!selVariantId || selQty <= 0) continue;
+
+                        const { data: childVariant } = await supabaseAdmin
+                            .from('product_variants')
+                            .select('variant_title, stock')
+                            .eq('id', selVariantId)
+                            .eq('store_id', storeId)
+                            .single();
+
+                        // Selection points to a variant that does not exist in this
+                        // store: skip here and let the DB trigger raise the
+                        // authoritative error (the guard must not block on a row it
+                        // cannot read, nor silently approve a real shortage).
+                        if (!childVariant) continue;
+
+                        const childAvailable = childVariant.stock || 0;
+                        if (childAvailable < selQty) {
+                            issues.push({
+                                product_name:
+                                    childVariant.variant_title ||
+                                    selection?.variant_name ||
+                                    item.product_name ||
+                                    item.name ||
+                                    'Producto',
+                                required: selQty,
+                                available: childAvailable,
+                                shortage: selQty - childAvailable,
+                            });
+                        }
+                    }
+                    continue;
+                }
+
+                // SIMPLE SHARED-STOCK BUNDLE (e.g. Solenne): no per-variation
+                // composition, stock genuinely lives in the parent. Unchanged.
                 const unitsPerPack = safeNumber(variant.units_per_pack, 1) || 1;
                 const requiredUnits = requiredQty * unitsPerPack;
                 const { data: parent } = await supabaseAdmin
@@ -2882,7 +2941,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             .from('orders')
             .select(`
                 sleeves_status, delivery_link_token, line_items, store_id, deleted_at,
-                order_line_items (id, product_id, variant_id, variant_type, quantity, units_per_pack, product_name)
+                order_line_items (id, product_id, variant_id, variant_type, quantity, units_per_pack, product_name, bundle_selections)
             `)
             .eq('id', id)
             .eq('store_id', effectiveStoreId)
@@ -4984,7 +5043,7 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
             .from('orders')
             .select(`
                 id, printed, printed_at, sleeves_status, line_items,
-                order_line_items (id, product_id, variant_id, variant_type, quantity, units_per_pack, product_name)
+                order_line_items (id, product_id, variant_id, variant_type, quantity, units_per_pack, product_name, bundle_selections)
             `)
             .eq('id', id)
             .eq('store_id', storeId)
@@ -5098,7 +5157,7 @@ ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permiss
             .from('orders')
             .select(`
                 id, printed, sleeves_status, line_items, order_number,
-                order_line_items (id, product_id, variant_id, variant_type, quantity, units_per_pack, product_name)
+                order_line_items (id, product_id, variant_id, variant_type, quantity, units_per_pack, product_name, bundle_selections)
             `)
             .in('id', order_ids)
             .eq('store_id', storeId);
@@ -5228,7 +5287,7 @@ ordersRouter.post('/bulk-print-and-dispatch', requirePermission(Module.ORDERS, P
             .from('orders')
             .select(`
                 id, printed, sleeves_status, line_items, order_number,
-                order_line_items (id, product_id, variant_id, variant_type, quantity, units_per_pack, product_name)
+                order_line_items (id, product_id, variant_id, variant_type, quantity, units_per_pack, product_name, bundle_selections)
             `)
             .in('id', order_ids)
             .eq('store_id', storeId);
@@ -5388,7 +5447,7 @@ ordersRouter.post('/bulk-status', requirePermission(Module.ORDERS, Permission.ED
             .select(`
                 id, sleeves_status, order_number, deleted_at, courier_id, is_pickup,
                 line_items,
-                order_line_items (id, product_id, variant_id, variant_type, quantity, units_per_pack, product_name)
+                order_line_items (id, product_id, variant_id, variant_type, quantity, units_per_pack, product_name, bundle_selections)
             `)
             .in('id', order_ids)
             .eq('store_id', storeId)
