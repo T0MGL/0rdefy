@@ -14,16 +14,97 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { productsService } from '@/services/products.service';
+import type { Product } from '@/types';
 import {
   invoicingService,
   fiscalService,
   ManualInvoiceResult,
   FiscalActivity,
 } from '@/services/invoicing.service';
-import { Loader2, Plus, Trash2, CheckCircle2, ExternalLink, Copy } from 'lucide-react';
+import { Loader2, Plus, Trash2, CheckCircle2, ExternalLink, Copy, Search } from 'lucide-react';
 import { formatCurrency } from '@/utils/currency';
+
+/**
+ * Catalog picker for an invoice line. Searches products server-side and, on
+ * select, fills the line's description (fiscal_description || product name) and
+ * unit price. Keeps the description editable for custom / non-catalog items.
+ */
+function ProductPicker({ onPick }: { onPick: (p: { descripcion: string; precio: number }) => void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    setLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await productsService.getAll({ search: query.trim() || undefined, limit: 8 });
+        if (active) setResults(res.data || []);
+      } catch {
+        if (active) setResults([]);
+      } finally {
+        if (active) setLoading(false);
+      }
+    }, 250);
+    return () => { active = false; clearTimeout(t); };
+  }, [query, open]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title="Buscar producto del catálogo"
+          className="shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md border text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+        >
+          <Search size={13} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-0" align="start">
+        <div className="p-2 border-b">
+          <Input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar producto..."
+            className="h-8 text-sm"
+          />
+        </div>
+        <div className="max-h-56 overflow-auto">
+          {loading && <div className="px-3 py-2 text-xs text-muted-foreground">Buscando...</div>}
+          {!loading && results.length === 0 && (
+            <div className="px-3 py-2 text-xs text-muted-foreground">Sin resultados</div>
+          )}
+          {results.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className="w-full text-left px-3 py-2 hover:bg-muted/60 transition-colors"
+              onClick={() => {
+                const desc = (p.fiscal_description && p.fiscal_description.trim()) || p.name;
+                onPick({ descripcion: desc, precio: Number(p.price) || 0 });
+                setOpen(false);
+                setQuery('');
+              }}
+            >
+              <div className="text-sm font-medium truncate">{p.name}</div>
+              <div className="text-xs text-muted-foreground truncate">
+                {p.sku ? `${p.sku} · ` : ''}{formatCurrency(Number(p.price) || 0, 'PYG')}
+              </div>
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 // ================================================================
 // Schema
@@ -414,11 +495,21 @@ export function ManualInvoiceModal({ open, onOpenChange, onSuccess }: Props) {
                       {fields.map((field, index) => (
                         <tr key={field.id} className="border-t">
                           <td className="px-2 py-2">
-                            <Input
-                              placeholder="Producto o servicio"
-                              className="h-8 text-sm"
-                              {...form.register(`items.${index}.descripcion`)}
-                            />
+                            <div className="flex items-center gap-1.5">
+                              <ProductPicker
+                                onPick={({ descripcion, precio }) => {
+                                  form.setValue(`items.${index}.descripcion`, descripcion, { shouldValidate: true, shouldDirty: true });
+                                  if (precio > 0) {
+                                    form.setValue(`items.${index}.precioUnitario`, precio, { shouldDirty: true });
+                                  }
+                                }}
+                              />
+                              <Input
+                                placeholder="Producto o servicio"
+                                className="h-8 text-sm"
+                                {...form.register(`items.${index}.descripcion`)}
+                              />
+                            </div>
                             {form.formState.errors.items?.[index]?.descripcion && (
                               <p className="text-xs text-destructive mt-0.5">
                                 {form.formState.errors.items[index]?.descripcion?.message}
