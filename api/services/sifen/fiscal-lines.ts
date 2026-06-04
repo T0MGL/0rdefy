@@ -9,6 +9,8 @@
  * the Supabase/SIFEN runtime dependencies.
  */
 
+import { parseStringPromise } from 'xml2js';
+
 /**
  * A raw order line item as fetched for invoicing, including the joined
  * `product_variants` row needed to resolve bundle physical-unit expansion.
@@ -223,4 +225,118 @@ export function buildFiscalLineItems(lineItems: RawInvoiceLineItem[]): FiscalLin
   });
 
   return { items, integrityFlags };
+}
+
+/**
+ * Recover the fiscal lines from a signed DTE XML.
+ *
+ * The signed XML is the source of truth for what was emitted to SIFEN. For
+ * manual invoices (no order_id, hence no order_line_items to rebuild from), the
+ * KUDE/email previously fell back to a single synthetic line ("Productos varios",
+ * cantidad 1, precio = total), which misrepresented the real items even though
+ * the legal document (the XML) was correct. This parser reads the actual
+ * `gCamItem` blocks back out so the PDF and email match the DTE exactly.
+ *
+ * Pure and async (xml2js). Returns null when the XML is absent, malformed, or
+ * carries no item block, so callers can keep a literal last-resort fallback for
+ * those genuinely degraded cases (never as the normal path).
+ *
+ * SIFEN DTE item shape (namespaces stripped):
+ *   gCamItem
+ *     dCodInt        -> codigo
+ *     dDesProSer     -> descripcion
+ *     dCantProSer    -> cantidad
+ *     gValorItem/dPUniProSer -> precioUnitario
+ *     gCamIVA/dTasaIVA       -> ivaRate (0 | 5 | 10)
+ */
+export async function parseFiscalLinesFromSignedXml(
+  xmlSigned: string | null | undefined,
+): Promise<FiscalLineItem[] | null> {
+  if (!xmlSigned || !xmlSigned.trim()) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = await parseStringPromise(xmlSigned, {
+      explicitArray: false,
+      ignoreAttrs: true,
+      tagNameProcessors: [(name: string) => name.replace(/.*:/, '')],
+    });
+  } catch {
+    return null;
+  }
+
+  // Walk to gCamItem regardless of the rDE/DE wrapper depth. xml2js with the
+  // namespace stripper yields plain nested objects; we locate gCamItem by a
+  // shallow recursive search to avoid coupling to the exact envelope shape.
+  const itemNodes = findItemNodes(parsed);
+  if (itemNodes.length === 0) return null;
+
+  const items: FiscalLineItem[] = [];
+  for (const node of itemNodes) {
+    const descripcion = toStr(node.dDesProSer);
+    const cantidad = toNum(node.dCantProSer);
+    const valor = asObject(node.gValorItem);
+    const precioUnitario = toNum(valor.dPUniProSer);
+    if (!descripcion || cantidad == null || precioUnitario == null) return null;
+
+    const codigo = toStr(node.dCodInt) || String(items.length + 1);
+    const iva = asObject(node.gCamIVA);
+    const ivaRate = parseIvaRate(iva.dTasaIVA);
+
+    items.push({
+      codigo,
+      descripcion,
+      cantidad,
+      precioUnitario,
+      ivaRate,
+    });
+  }
+
+  return items.length > 0 ? items : null;
+}
+
+/** Recursively collect every `gCamItem` value, flattened, from a parsed DTE. */
+function findItemNodes(root: unknown): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  const visit = (node: unknown): void => {
+    if (node == null || typeof node !== 'object') return;
+    const obj = node as Record<string, unknown>;
+    if ('gCamItem' in obj) {
+      const item = obj.gCamItem;
+      if (Array.isArray(item)) {
+        for (const it of item) if (it && typeof it === 'object') out.push(it as Record<string, unknown>);
+      } else if (item && typeof item === 'object') {
+        out.push(item as Record<string, unknown>);
+      }
+    }
+    for (const value of Object.values(obj)) {
+      if (Array.isArray(value)) value.forEach(visit);
+      else if (value && typeof value === 'object') visit(value);
+    }
+  };
+  visit(root);
+  return out;
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+}
+
+function toStr(value: unknown): string {
+  if (value == null) return '';
+  return String(value).trim();
+}
+
+function toNum(value: unknown): number | null {
+  const s = toStr(value);
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseIvaRate(value: unknown): 0 | 5 | 10 {
+  const n = toNum(value);
+  if (n === 0) return 0;
+  if (n === 5) return 5;
+  return 10;
 }

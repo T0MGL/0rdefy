@@ -415,6 +415,33 @@ invoicingRouter.post(
 );
 
 // ================================================================
+// POST /invoices/:id/resend-email - Re-send the KUDE + email for an
+// already-approved invoice (does NOT re-send to SIFEN). Used to deliver a
+// corrected KUDE to the customer after a rendering fix without touching the
+// fiscal document.
+// ================================================================
+invoicingRouter.post(
+  '/invoices/:id/resend-email',
+  validateUUIDParam('id'),
+  requirePermission(Module.INVOICING, Permission.EDIT),
+  async (req: PermissionRequest, res: Response) => {
+    try {
+      const result = await invoicingService.dispatchApprovedInvoiceEmail(
+        req.storeId!,
+        req.params.id,
+      );
+      if (!result.dispatched) {
+        return res.status(400).json({ error: `No se reenvió el email: ${result.reason}` });
+      }
+      res.json({ data: result, message: 'KUDE reenviado al cliente' });
+    } catch (err: any) {
+      logger.error('[Invoicing] POST /invoices/:id/resend-email error:', err.message);
+      res.status(400).json({ error: sanitizeErrorForClient(err) });
+    }
+  }
+);
+
+// ================================================================
 // GET /stats - Invoice statistics
 // ================================================================
 invoicingRouter.get('/stats', async (req: PermissionRequest, res: Response) => {

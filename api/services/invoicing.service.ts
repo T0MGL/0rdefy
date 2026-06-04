@@ -38,6 +38,7 @@ import { sendInvoiceEmail } from './email.service';
 import { generateKudePdf, type KudeInput, type KudeItem } from './sifen/kude-generator.service';
 import {
   buildFiscalLineItems,
+  parseFiscalLinesFromSignedXml,
   type RawInvoiceLineItem,
   type FiscalLineItem,
 } from './sifen/fiscal-lines';
@@ -2970,6 +2971,44 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
     const lineItems: RawInvoiceLineItem[] =
       (orderResult.data as any)?.order_line_items || [];
 
+    // Manual invoices (no order_id) have no order_line_items. Recover the real
+    // fiscal lines from the signed XML so the KUDE PDF and email body match the
+    // DTE instead of a synthetic "Productos varios" / qty 1 / precio = total
+    // placeholder. Falls back to the literal only if the XML is unparseable.
+    let manualFiscalLines: FiscalLineItem[] | null = null;
+    if (!invoice.order_id) {
+      manualFiscalLines = await parseFiscalLinesFromSignedXml(
+        (xmlFinal as string | null) ?? (invoice.xml_signed as string | null),
+      );
+      if (!manualFiscalLines || manualFiscalLines.length === 0) {
+        logger.warn(
+          `[Invoicing] retryInvoice: manual invoice ${invoiceId} has no order and ` +
+            `no parseable XML lines; using generic placeholder line`,
+        );
+      }
+    }
+
+    // Email-body line items: order lines for orders, recovered XML lines for
+    // manual invoices, generic placeholder as last resort.
+    const emailLineItems: Array<{ product_name: string | null; quantity: number; unit_price: number }> =
+      lineItems.length > 0
+        ? lineItems.map((li) => ({
+            product_name: li.product_name ?? null,
+            quantity: li.quantity ?? 1,
+            unit_price: li.unit_price ?? 0,
+          }))
+        : manualFiscalLines && manualFiscalLines.length > 0
+          ? manualFiscalLines.map((li) => ({
+              product_name: li.descripcion,
+              quantity: li.cantidad,
+              unit_price: li.precioUnitario,
+            }))
+          : [{
+              product_name: ctx.link.default_generic_description || 'Productos varios',
+              quantity: 1,
+              unit_price: invoice.total as number,
+            }];
+
     // Build KUDE input. Apply bundle expansion (same as the signed XML) so the
     // PDF matches the DTE, then the generic-description override.
     let kudeInputForEmail: KudeInput | null = null;
@@ -2977,13 +3016,15 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
       const { items: expanded } = buildFiscalLineItems(lineItems);
       const fallbackItems: FiscalLineItem[] = expanded.length > 0
         ? expanded
-        : [{
-            codigo: '001',
-            descripcion: ctx.link.default_generic_description || 'Productos varios',
-            cantidad: 1,
-            precioUnitario: invoice.total as number,
-            ivaRate: 10 as const,
-          }];
+        : manualFiscalLines && manualFiscalLines.length > 0
+          ? manualFiscalLines
+          : [{
+              codigo: '001',
+              descripcion: ctx.link.default_generic_description || 'Productos varios',
+              cantidad: 1,
+              precioUnitario: invoice.total as number,
+              ivaRate: 10 as const,
+            }];
       const kudeItems = applyGenericDescription<FiscalLineItem>(fallbackItems, ctx.link);
       const qrUrl = buildQrUrlForInvoice(xmlFinal as string, invoice.cdc as string, env, ctx.identity);
       kudeInputForEmail = buildKudeInput({
@@ -3019,11 +3060,7 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
       customerName: invoice.customer_name as string | null,
       documentNumber: invoice.document_number as number,
       invoiceDate: new Date().toISOString(),
-      lineItems: lineItems.map((li) => ({
-        product_name: li.product_name ?? null,
-        quantity: li.quantity ?? 1,
-        unit_price: li.unit_price ?? 0,
-      })),
+      lineItems: emailLineItems,
       subtotal: invoice.subtotal as number,
       iva10: invoice.iva_10 as number,
       total: invoice.total as number,
@@ -3137,34 +3174,62 @@ export async function dispatchApprovedInvoiceEmail(
       }
     }
 
-    // Manual invoices have no order: fall back to a synthetic line with the
-    // generic description (or "Productos varios") so the email + KUDE
-    // render something coherent.
+    // Manual invoices have no order (no order_line_items to rebuild from). The
+    // signed XML is the source of truth for what was emitted to SIFEN, so we
+    // recover the REAL lines (descripcion, cantidad, precio unitario) from it
+    // rather than the old synthetic "Productos varios" / qty 1 / precio = total
+    // placeholder that misrepresented the items in the KUDE and email.
+    let manualFiscalLines: FiscalLineItem[] | null = null;
     if (orderItems.length === 0) {
-      orderItems = [
-        {
-          product_name: ctx.link.default_generic_description || 'Productos varios',
-          sku: '001',
-          quantity: 1,
-          unit_price: Number(invoice.total) || 0,
-        },
-      ];
+      manualFiscalLines = await parseFiscalLinesFromSignedXml(
+        invoice.xml_signed as string | null,
+      );
+      if (manualFiscalLines && manualFiscalLines.length > 0) {
+        orderItems = manualFiscalLines.map((li) => ({
+          product_name: li.descripcion,
+          sku: li.codigo,
+          quantity: li.cantidad,
+          unit_price: li.precioUnitario,
+        }));
+      } else {
+        // Last resort only: XML absent or unparseable. Never the normal path.
+        logger.warn(
+          `[Invoicing] dispatchApprovedInvoiceEmail: manual invoice ${invoiceId} ` +
+            `has no order and no parseable XML lines; using generic placeholder line`,
+        );
+        orderItems = [
+          {
+            product_name: ctx.link.default_generic_description || 'Productos varios',
+            sku: '001',
+            quantity: 1,
+            unit_price: Number(invoice.total) || 0,
+          },
+        ];
+      }
     }
 
     const storeResult = await supabaseAdmin.from('stores').select('name').eq('id', storeId).single();
     const storeName = storeResult.data?.name || 'Tienda';
 
+    // KUDE lines: for orders, expand bundles from the order_line_items (matches
+    // the signed XML). For manual invoices, the recovered XML lines ARE the
+    // fiscal lines, so use them directly. Generic-description override applies
+    // on top in both cases.
     const { items: expandedKude } = buildFiscalLineItems(rawLineItems);
-    const kudeItems: FiscalLineItem[] = applyGenericDescription<FiscalLineItem>(
+    const baseKudeItems: FiscalLineItem[] =
       expandedKude.length > 0
         ? expandedKude
-        : [{
-            codigo: '001',
-            descripcion: ctx.link.default_generic_description || 'Productos varios',
-            cantidad: 1,
-            precioUnitario: Number(invoice.total) || 0,
-            ivaRate: 10 as const,
-          }],
+        : manualFiscalLines && manualFiscalLines.length > 0
+          ? manualFiscalLines
+          : [{
+              codigo: '001',
+              descripcion: ctx.link.default_generic_description || 'Productos varios',
+              cantidad: 1,
+              precioUnitario: Number(invoice.total) || 0,
+              ivaRate: 10 as const,
+            }];
+    const kudeItems: FiscalLineItem[] = applyGenericDescription<FiscalLineItem>(
+      baseKudeItems,
       ctx.link,
     );
 
@@ -3461,14 +3526,26 @@ export async function downloadKude(
     }
   }
 
+  // Manual invoice (no order, hence no order_line_items): recover the real
+  // fiscal lines from the signed XML so the downloaded PDF matches the DTE
+  // instead of a synthetic "Productos varios" / qty 1 / precio = total line.
   if (items.length === 0) {
-    items = [{
-      codigo: '001',
-      descripcion: ctx.link.default_generic_description || 'Productos varios',
-      cantidad: 1,
-      precioUnitario: invoice.total as number,
-      ivaRate: 10,
-    }];
+    const xmlLines = await parseFiscalLinesFromSignedXml(invoice.xml_signed as string | null);
+    if (xmlLines && xmlLines.length > 0) {
+      items = xmlLines;
+    } else {
+      logger.warn(
+        `[Invoicing] downloadKude: invoice ${invoiceId} has no order and no parseable ` +
+          `XML lines; using generic placeholder line`,
+      );
+      items = [{
+        codigo: '001',
+        descripcion: ctx.link.default_generic_description || 'Productos varios',
+        cantidad: 1,
+        precioUnitario: invoice.total as number,
+        ivaRate: 10,
+      }];
+    }
   }
 
   const itemsForKude = applyGenericDescription(items, ctx.link);
