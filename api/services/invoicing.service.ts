@@ -37,6 +37,11 @@ import { injectQR, SIFEN_TEST_ID_CSC, SIFEN_TEST_CSC } from './sifen/qr-generato
 import { sendInvoiceEmail } from './email.service';
 import { generateKudePdf, type KudeInput, type KudeItem } from './sifen/kude-generator.service';
 import {
+  buildFiscalLineItems,
+  type RawInvoiceLineItem,
+  type FiscalLineItem,
+} from './sifen/fiscal-lines';
+import {
   validateRucDV,
   assertReadyToEmit,
   assertInvoicingCountry,
@@ -432,29 +437,6 @@ function applyGenericDescription<T extends { descripcion: string }>(
   if (!link.use_generic_description) return items;
   const generic = (link.default_generic_description || 'Productos varios').trim();
   return items.map((it) => ({ ...it, descripcion: generic }));
-}
-
-/**
- * Resolve the fiscal description for an order line item. The invoice must
- * carry the legal/fiscal product description, NOT the commercial/marketing
- * name (e.g. "NOCTE Blue Light Blocking Glasses" is a brand label, not a
- * valid invoice line). Priority:
- *   1. products.fiscal_description (per-product fiscal name, migration 193)
- *   2. product_name (commercial fallback when fiscal one is missing)
- *   3. 'Producto'
- * The per-store generic override (applyGenericDescription) is applied ON TOP
- * of this when the store opts in, so it always wins.
- */
-function resolveItemFiscalDescription(item: {
-  product_name?: string | null;
-  products?:
-    | { fiscal_description?: string | null }
-    | Array<{ fiscal_description?: string | null }>
-    | null;
-}): string {
-  const product = Array.isArray(item.products) ? item.products[0] : item.products;
-  const fiscalDesc = product?.fiscal_description?.trim();
-  return fiscalDesc || item.product_name || 'Producto';
 }
 
 function buildQrUrlForInvoice(
@@ -1705,10 +1687,34 @@ async function buildInvoiceDteData(
   storeTimezone: string,
   customerEmail: string | null,
   opts?: { activityCode?: string; fechaEmision?: string },
-): Promise<{ xmlGenerated: string; cdc: string | undefined; subtotal: number; iva10: number; total: number }> {
-  const lineItems = order.order_line_items || [];
-  const subtotal = lineItems.reduce(
-    (sum: number, item: any) => sum + (item.unit_price || 0) * (item.quantity || 1),
+): Promise<{
+  xmlGenerated: string;
+  cdc: string | undefined;
+  subtotal: number;
+  iva10: number;
+  total: number;
+  fiscalItems: FiscalLineItem[];
+  integrityFlags: string[];
+}> {
+  const lineItems: RawInvoiceLineItem[] = order.order_line_items || [];
+
+  // Expand bundles (cantidad = Q x N, integer precioUnitario = floor(lineTotal
+  // / cantidad), with a two-line integer split absorbing any remainder) so the
+  // invoiced quantity equals delivered quantity. Per-line totals are preserved
+  // exactly, so the document subtotal is identical whether computed from raw or
+  // expanded lines. Every emitted precioUnitario is an integer (PYG has no
+  // cents): dPUniProSer never carries a decimal.
+  const { items: fiscalItems, integrityFlags } = buildFiscalLineItems(lineItems);
+  if (integrityFlags.length > 0) {
+    logger.warn(
+      `[Invoicing] Fiscal line integrity flags for order ${order.id}: ${integrityFlags.join(' | ')}`,
+    );
+  }
+
+  // Subtotal from the EXPANDED lines. round() per line matches xmlgen's
+  // dTotOpeItem (PYG 0 decimals), so the sum reconciles with the XML totals.
+  const subtotal = fiscalItems.reduce(
+    (sum: number, item: FiscalLineItem) => sum + Math.round(item.cantidad * item.precioUnitario),
     0,
   );
   const iva10 = Math.round(subtotal / 11);
@@ -1778,13 +1784,16 @@ async function buildInvoiceDteData(
           : undefined,
     },
     items: applyGenericDescription(
-      lineItems.map((item: any, index: number) => ({
-        codigo: item.sku || String(index + 1),
-        descripcion: resolveItemFiscalDescription(item),
+      fiscalItems.map((item) => ({
+        codigo: item.codigo,
+        descripcion: item.descripcion,
         observacion: '',
         unidadMedida: 77,
-        cantidad: item.quantity || 1,
-        precioUnitario: item.unit_price || 0,
+        cantidad: item.cantidad,
+        // Integer unit price (PYG has no cents). xmlgen writes it verbatim to
+        // dPUniProSer, so the XML never carries a decimal; dTotOpeItem =
+        // cantidad x precioUnitario is exact with integer operands.
+        precioUnitario: item.precioUnitario,
         cambio: 0,
         descuento: 0,
         anticipo: 0,
@@ -1806,7 +1815,7 @@ async function buildInvoiceDteData(
     xmlGenerated.match(/<dCDC>([0-9]{44})<\/dCDC>/);
   const cdc = cdcMatch ? cdcMatch[1] : undefined;
 
-  return { xmlGenerated, cdc, subtotal, iva10, total };
+  return { xmlGenerated, cdc, subtotal, iva10, total, fiscalItems, integrityFlags };
 }
 
 export async function generateInvoice(
@@ -1828,7 +1837,7 @@ export async function generateInvoice(
       .from('orders')
       .select(
         `*,
-        order_line_items(id, product_name, quantity, unit_price, sku, products(fiscal_description)),
+        order_line_items(id, product_name, quantity, unit_price, sku, variant_id, variant_type, products(fiscal_description), product_variant:product_variants!order_line_items_variant_id_fkey(variant_type, units_per_pack, uses_shared_stock)),
         customers(name, email, address)`,
       )
       .eq('id', orderId)
@@ -1888,8 +1897,9 @@ export async function generateInvoice(
   let subtotal: number;
   let iva10: number;
   let total: number;
+  let fiscalItems: FiscalLineItem[];
   try {
-    ({ xmlGenerated, cdc, subtotal, iva10, total } = await buildInvoiceDteData(
+    ({ xmlGenerated, cdc, subtotal, iva10, total, fiscalItems } = await buildInvoiceDteData(
       ctx,
       order,
       docNumber as number,
@@ -2067,23 +2077,12 @@ export async function generateInvoice(
     const customerAddress = (order.address as string | null)
       || (order.customers?.address as string | null)
       || null;
-    // Build post-override items for KUDE: bundle/variation product names
-    // are preserved unless the store opts into generic descriptions.
-    type KudeItemInput = {
-      codigo: string;
-      descripcion: string;
-      cantidad: number;
-      precioUnitario: number;
-      ivaRate: 0 | 5 | 10;
-    };
-    const kudeItems: KudeItemInput[] = applyGenericDescription<KudeItemInput>(
-      lineItems.map((item: any, index: number) => ({
-        codigo: item.sku || String(index + 1),
-        descripcion: resolveItemFiscalDescription(item),
-        cantidad: item.quantity || 1,
-        precioUnitario: item.unit_price || 0,
-        ivaRate: 10,
-      })),
+    // KUDE consumes the SAME expanded fiscal lines as the DTE (bundle
+    // quantity/unit-price expansion already applied) so the printed PDF
+    // matches the signed XML exactly. The generic-description override is
+    // applied on top when the store opts in.
+    const kudeItems: FiscalLineItem[] = applyGenericDescription<FiscalLineItem>(
+      fiscalItems,
       ctx.link,
     );
 
@@ -2817,7 +2816,7 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
         .from('orders')
         .select(
           `*,
-          order_line_items(id, product_name, quantity, unit_price, sku, products(fiscal_description)),
+          order_line_items(id, product_name, quantity, unit_price, sku, variant_id, variant_type, products(fiscal_description), product_variant:product_variants!order_line_items_variant_id_fkey(variant_type, units_per_pack, uses_shared_stock)),
           customers(name, email, address)`,
         )
         .eq('id', invoice.order_id)
@@ -2959,34 +2958,25 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
       invoice.order_id
         ? supabaseAdmin
             .from('orders')
-            .select('order_line_items(product_name, sku, quantity, unit_price)')
+            .select(
+              'order_line_items(product_name, sku, quantity, unit_price, variant_id, variant_type, products(fiscal_description), product_variant:product_variants!order_line_items_variant_id_fkey(variant_type, units_per_pack, uses_shared_stock))',
+            )
             .eq('id', invoice.order_id)
             .single()
         : Promise.resolve({ data: null }),
     ]);
 
     const storeName = storeResult.data?.name || 'Tienda';
-    const lineItems: Array<{ product_name: string | null; sku?: string | null; quantity: number; unit_price: number }> =
+    const lineItems: RawInvoiceLineItem[] =
       (orderResult.data as any)?.order_line_items || [];
 
-    // Build KUDE input. Apply generic-description override.
+    // Build KUDE input. Apply bundle expansion (same as the signed XML) so the
+    // PDF matches the DTE, then the generic-description override.
     let kudeInputForEmail: KudeInput | null = null;
     if (invoice.cdc) {
-      type KudeItemInput = {
-        codigo: string;
-        descripcion: string;
-        cantidad: number;
-        precioUnitario: number;
-        ivaRate: 0 | 5 | 10;
-      };
-      const fallbackItems: KudeItemInput[] = lineItems.length > 0
-        ? lineItems.map((li, idx) => ({
-            codigo: li.sku || String(idx + 1),
-            descripcion: li.product_name || 'Producto',
-            cantidad: li.quantity || 1,
-            precioUnitario: li.unit_price || 0,
-            ivaRate: 10 as const,
-          }))
+      const { items: expanded } = buildFiscalLineItems(lineItems);
+      const fallbackItems: FiscalLineItem[] = expanded.length > 0
+        ? expanded
         : [{
             codigo: '001',
             descripcion: ctx.link.default_generic_description || 'Productos varios',
@@ -2994,7 +2984,7 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
             precioUnitario: invoice.total as number,
             ivaRate: 10 as const,
           }];
-      const kudeItems = applyGenericDescription<KudeItemInput>(fallbackItems, ctx.link);
+      const kudeItems = applyGenericDescription<FiscalLineItem>(fallbackItems, ctx.link);
       const qrUrl = buildQrUrlForInvoice(xmlFinal as string, invoice.cdc as string, env, ctx.identity);
       kudeInputForEmail = buildKudeInput({
         ctx,
@@ -3029,7 +3019,11 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
       customerName: invoice.customer_name as string | null,
       documentNumber: invoice.document_number as number,
       invoiceDate: new Date().toISOString(),
-      lineItems,
+      lineItems: lineItems.map((li) => ({
+        product_name: li.product_name ?? null,
+        quantity: li.quantity ?? 1,
+        unit_price: li.unit_price ?? 0,
+      })),
       subtotal: invoice.subtotal as number,
       iva10: invoice.iva_10 as number,
       total: invoice.total as number,
@@ -3110,26 +3104,36 @@ export async function dispatchApprovedInvoiceEmail(
       quantity: number;
       unit_price: number;
     }> = [];
+    // Raw line items (with variant join) used to rebuild the KUDE with the
+    // SAME bundle expansion as the signed XML. `orderItems` above stays as the
+    // simple shape the email body consumes.
+    let rawLineItems: RawInvoiceLineItem[] = [];
 
     if (invoice.order_id) {
       const { data: order } = await supabaseAdmin
         .from('orders')
         .select(
-          'id, customer_id, payment_method, customers(email, name), order_line_items(product_name, sku, quantity, unit_price)',
+          'id, customer_id, payment_method, customers(email, name), order_line_items(product_name, sku, quantity, unit_price, variant_id, variant_type, products(fiscal_description), product_variant:product_variants!order_line_items_variant_id_fkey(variant_type, units_per_pack, uses_shared_stock))',
         )
         .eq('id', invoice.order_id)
         .single();
       type OrderRow = {
         payment_method: string | null;
         customers: { email: string | null; name: string | null } | Array<{ email: string | null; name: string | null }> | null;
-        order_line_items: Array<{ product_name: string | null; sku: string | null; quantity: number; unit_price: number }>;
+        order_line_items: RawInvoiceLineItem[];
       };
       const o = order as unknown as OrderRow | null;
       if (o) {
         orderPaymentMethod = o.payment_method;
         const cust = Array.isArray(o.customers) ? o.customers[0] : o.customers;
         if (!customerEmail && cust?.email) customerEmail = cust.email;
-        orderItems = o.order_line_items ?? [];
+        rawLineItems = o.order_line_items ?? [];
+        orderItems = rawLineItems.map((li) => ({
+          product_name: li.product_name ?? null,
+          sku: li.sku ?? null,
+          quantity: li.quantity ?? 1,
+          unit_price: li.unit_price ?? 0,
+        }));
       }
     }
 
@@ -3150,21 +3154,17 @@ export async function dispatchApprovedInvoiceEmail(
     const storeResult = await supabaseAdmin.from('stores').select('name').eq('id', storeId).single();
     const storeName = storeResult.data?.name || 'Tienda';
 
-    type KudeItemInput = {
-      codigo: string;
-      descripcion: string;
-      cantidad: number;
-      precioUnitario: number;
-      ivaRate: 0 | 5 | 10;
-    };
-    const kudeItems: KudeItemInput[] = applyGenericDescription<KudeItemInput>(
-      orderItems.map((it, idx) => ({
-        codigo: (it.sku || String(idx + 1)),
-        descripcion: it.product_name || 'Producto',
-        cantidad: it.quantity || 1,
-        precioUnitario: it.unit_price || 0,
-        ivaRate: 10 as const,
-      })),
+    const { items: expandedKude } = buildFiscalLineItems(rawLineItems);
+    const kudeItems: FiscalLineItem[] = applyGenericDescription<FiscalLineItem>(
+      expandedKude.length > 0
+        ? expandedKude
+        : [{
+            codigo: '001',
+            descripcion: ctx.link.default_generic_description || 'Productos varios',
+            cantidad: 1,
+            precioUnitario: Number(invoice.total) || 0,
+            ivaRate: 10 as const,
+          }],
       ctx.link,
     );
 

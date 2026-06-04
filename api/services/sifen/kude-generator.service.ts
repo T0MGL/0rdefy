@@ -122,6 +122,22 @@ function formatPyg(amount: number): string {
   }).format(Math.round(amount));
 }
 
+/**
+ * Unit-price formatter for the line table. Guaraní (PYG) has no cents, and the
+ * fiscal line builder guarantees an INTEGER precioUnitario on every line (clean
+ * divides stay one line, non-dividing prices split into two integer-priced
+ * lines). So the unit price is rendered as whole Guaraníes with the PY
+ * thousands separator '.' and no decimal part: 174500 -> "174.500",
+ * 163000 -> "163.000". round() is a defensive floor against any stray float.
+ */
+function formatUnitPrice(amount: number): string {
+  return new Intl.NumberFormat('es-PY', {
+    style: 'decimal',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Math.round(amount));
+}
+
 function formatDate(iso: string): string {
   try {
     const d = new Date(iso);
@@ -454,7 +470,7 @@ function renderItemsTable(doc: PDFKit.PDFDocument, input: KudeInput): void {
       .text(item.codigo, cols.codigo.x + 4, y, { width: cols.codigo.width - 8 })
       .text(item.descripcion, cols.descripcion.x + 4, y, { width: cols.descripcion.width - 8 })
       .text(formatPyg(item.cantidad), cols.cantidad.x, y, { width: cols.cantidad.width, align: 'center' })
-      .text(formatPyg(item.precioUnitario), cols.precio.x, y, { width: cols.precio.width - 4, align: 'right' })
+      .text(formatUnitPrice(item.precioUnitario), cols.precio.x, y, { width: cols.precio.width - 4, align: 'right' })
       .text(ivaLabel, cols.iva.x, y, { width: cols.iva.width, align: 'center' })
       .text(formatPyg(item.subtotal), cols.subtotal.x, y, { width: cols.subtotal.width - 4, align: 'right' });
 
