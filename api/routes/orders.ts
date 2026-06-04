@@ -2882,7 +2882,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             .from('orders')
             .select(`
                 sleeves_status, delivery_link_token, line_items, store_id, deleted_at,
-                order_line_items (id, product_id, quantity, product_name)
+                order_line_items (id, product_id, variant_id, variant_type, quantity, units_per_pack, product_name)
             `)
             .eq('id', id)
             .eq('store_id', effectiveStoreId)
@@ -4984,7 +4984,7 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
             .from('orders')
             .select(`
                 id, printed, printed_at, sleeves_status, line_items,
-                order_line_items (id, product_id, quantity, product_name)
+                order_line_items (id, product_id, variant_id, variant_type, quantity, units_per_pack, product_name)
             `)
             .eq('id', id)
             .eq('store_id', storeId)
@@ -5098,7 +5098,7 @@ ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permiss
             .from('orders')
             .select(`
                 id, printed, sleeves_status, line_items, order_number,
-                order_line_items (id, product_id, quantity, product_name)
+                order_line_items (id, product_id, variant_id, variant_type, quantity, units_per_pack, product_name)
             `)
             .in('id', order_ids)
             .eq('store_id', storeId);
@@ -5228,7 +5228,7 @@ ordersRouter.post('/bulk-print-and-dispatch', requirePermission(Module.ORDERS, P
             .from('orders')
             .select(`
                 id, printed, sleeves_status, line_items, order_number,
-                order_line_items (id, product_id, quantity, product_name)
+                order_line_items (id, product_id, variant_id, variant_type, quantity, units_per_pack, product_name)
             `)
             .in('id', order_ids)
             .eq('store_id', storeId);
@@ -5388,7 +5388,7 @@ ordersRouter.post('/bulk-status', requirePermission(Module.ORDERS, Permission.ED
             .select(`
                 id, sleeves_status, order_number, deleted_at, courier_id, is_pickup,
                 line_items,
-                order_line_items (id, product_id, quantity, product_name)
+                order_line_items (id, product_id, variant_id, variant_type, quantity, units_per_pack, product_name)
             `)
             .in('id', order_ids)
             .eq('store_id', storeId)
