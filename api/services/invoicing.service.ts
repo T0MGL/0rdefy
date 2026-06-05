@@ -2118,11 +2118,14 @@ export async function generateInvoice(
     customerName: (order.customer_name as string) || order.customers?.name || null,
     documentNumber: docNumber as number,
     invoiceDate: new Date().toISOString(),
-    lineItems: lineItems as Array<{
-      product_name: string | null;
-      quantity: number;
-      unit_price: number;
-    }>,
+    // Email body lines come from the SAME expanded fiscal lines as the DTE and
+    // KUDE (fiscalItems), so the customer email shows identical descripcion,
+    // cantidad (Q x units_per_pack) and integer precioUnitario for bundles.
+    lineItems: fiscalItems.map((it) => ({
+      product_name: it.descripcion,
+      quantity: it.cantidad,
+      unit_price: it.precioUnitario,
+    })),
     subtotal,
     iva10,
     total,
@@ -2988,14 +2991,19 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
       }
     }
 
-    // Email-body line items: order lines for orders, recovered XML lines for
-    // manual invoices, generic placeholder as last resort.
+    // Expand the order lines once (bundle physical-unit expansion, same as the
+    // signed XML) so the email body and the KUDE both consume identical fiscal
+    // lines for order invoices.
+    const { items: expanded } = buildFiscalLineItems(lineItems);
+
+    // Email-body line items: expanded fiscal lines for orders, recovered XML
+    // lines for manual invoices, generic placeholder as last resort.
     const emailLineItems: Array<{ product_name: string | null; quantity: number; unit_price: number }> =
-      lineItems.length > 0
-        ? lineItems.map((li) => ({
-            product_name: li.product_name ?? null,
-            quantity: li.quantity ?? 1,
-            unit_price: li.unit_price ?? 0,
+      expanded.length > 0
+        ? expanded.map((li) => ({
+            product_name: li.descripcion,
+            quantity: li.cantidad,
+            unit_price: li.precioUnitario,
           }))
         : manualFiscalLines && manualFiscalLines.length > 0
           ? manualFiscalLines.map((li) => ({
@@ -3009,11 +3017,10 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
               unit_price: invoice.total as number,
             }];
 
-    // Build KUDE input. Apply bundle expansion (same as the signed XML) so the
-    // PDF matches the DTE, then the generic-description override.
+    // Build KUDE input. Reuse the expanded fiscal lines (same as the signed XML)
+    // so the PDF matches the DTE, then the generic-description override.
     let kudeInputForEmail: KudeInput | null = null;
     if (invoice.cdc) {
-      const { items: expanded } = buildFiscalLineItems(lineItems);
       const fallbackItems: FiscalLineItem[] = expanded.length > 0
         ? expanded
         : manualFiscalLines && manualFiscalLines.length > 0
@@ -3233,6 +3240,23 @@ export async function dispatchApprovedInvoiceEmail(
       ctx.link,
     );
 
+    // Email body lines: for order invoices use the SAME expanded fiscal lines as
+    // the KUDE/DTE (expandedKude) so bundles show identical descripcion, cantidad
+    // (Q x units_per_pack) and integer precioUnitario. For manual invoices,
+    // orderItems already holds the XML-recovered lines (or the placeholder).
+    const emailLineItems: Array<{ product_name: string | null; quantity: number; unit_price: number }> =
+      expandedKude.length > 0
+        ? expandedKude.map((it) => ({
+            product_name: it.descripcion,
+            quantity: it.cantidad,
+            unit_price: it.precioUnitario,
+          }))
+        : orderItems.map((it) => ({
+            product_name: it.product_name,
+            quantity: it.quantity,
+            unit_price: it.unit_price,
+          }));
+
     const env = ctx.identity.sifen_environment;
     const qrUrl = buildQrUrlForInvoice(
       invoice.xml_signed as string | null,
@@ -3275,11 +3299,7 @@ export async function dispatchApprovedInvoiceEmail(
       customerName: (invoice.customer_name as string | null) ?? null,
       documentNumber: invoice.document_number as number,
       invoiceDate: (invoice.approved_at as string) || (invoice.created_at as string) || new Date().toISOString(),
-      lineItems: orderItems.map((it) => ({
-        product_name: it.product_name,
-        quantity: it.quantity,
-        unit_price: it.unit_price,
-      })),
+      lineItems: emailLineItems,
       subtotal: Number(invoice.subtotal) || 0,
       iva10: Number(invoice.iva_10) || 0,
       total: Number(invoice.total) || 0,
@@ -3510,19 +3530,28 @@ export async function downloadKude(
   }> = [];
 
   if (invoice.order_id) {
+    // Read the full line items with the variant join so the downloaded KUDE
+    // applies the SAME bundle physical-unit expansion as the signed XML
+    // (buildFiscalLineItems). Reading only product_name/sku/quantity/unit_price
+    // and mapping raw produced a single pack line (cantidad 1, pack price,
+    // commercial name) that contradicted the DTE for any bundle order.
     const { data: lineItems } = await supabaseAdmin
       .from('order_line_items')
-      .select('product_name, sku, quantity, unit_price')
+      .select(
+        'product_name, sku, quantity, unit_price, variant_id, variant_type, products(fiscal_description), product_variant:product_variants!order_line_items_variant_id_fkey(variant_type, units_per_pack, uses_shared_stock)',
+      )
       .eq('order_id', invoice.order_id);
 
     if (lineItems && lineItems.length > 0) {
-      items = lineItems.map((li: any, idx: number) => ({
-        codigo: li.sku || String(idx + 1),
-        descripcion: li.product_name || 'Producto',
-        cantidad: li.quantity || 1,
-        precioUnitario: li.unit_price || 0,
-        ivaRate: 10 as const,
-      }));
+      const { items: expanded, integrityFlags } = buildFiscalLineItems(
+        lineItems as RawInvoiceLineItem[],
+      );
+      if (integrityFlags.length > 0) {
+        logger.warn(
+          `[Invoicing] downloadKude fiscal line integrity flags for invoice ${invoiceId}: ${integrityFlags.join(' | ')}`,
+        );
+      }
+      items = expanded;
     }
   }
 
