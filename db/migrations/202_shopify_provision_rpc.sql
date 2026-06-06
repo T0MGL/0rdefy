@@ -1,5 +1,5 @@
 -- ================================================================
--- MIGRATION 201: Shopify provision RPC (atomic, serialized per shop)
+-- MIGRATION 202: Shopify provision RPC (atomic, serialized per shop)
 -- ================================================================
 -- Replaces the loose chain of supabaseAdmin.from().insert() calls in
 -- api/services/shopify-provision.service.ts with a single Postgres
@@ -255,5 +255,5 @@ GRANT EXECUTE ON FUNCTION provision_shopify_merchant(
 COMMIT;
 
 -- ================================================================
--- MIGRATION 201 COMPLETE
+-- MIGRATION 202 COMPLETE
 -- ================================================================
