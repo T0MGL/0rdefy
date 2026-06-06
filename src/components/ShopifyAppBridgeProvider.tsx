@@ -19,6 +19,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { config } from '@/config';
 import { decodeHostShop } from '@/utils/shopifyHost';
 
+// App Bridge ships the app instance type via the createApp return value.
+// We import it type-only because createApp is loaded lazily via dynamic
+// import() to keep it out of the standalone (non-embedded) bundle.
+type AppBridgeApp = ReturnType<typeof import('@shopify/app-bridge').default>;
+
 // API key must come from environment variables (Vite exposes only VITE_* vars)
 const API_KEY = import.meta.env.VITE_SHOPIFY_API_KEY;
 
@@ -33,6 +38,12 @@ const TOKEN_EXCHANGE_BACKOFF_MS = [1000, 2000, 4000];
 declare global {
   interface Window {
     __SHOPIFY_EMBEDDED__?: boolean;
+    // App Bridge exposes two distinct shapes on window.shopify across the
+    // app: the CDN global (with .createApp) used by useShopifyAppBridge /
+    // waitForAppBridge, and the created app instance assigned below. They
+    // share this single global slot, so it stays `any` here to match the
+    // other declaration sites and avoid a merged-declaration type clash.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     shopify?: any;
   }
 }
@@ -83,7 +94,7 @@ async function performTokenExchange(
 }
 
 export function ShopifyAppBridgeProvider({ children }: { children: React.ReactNode }) {
-  const appRef = useRef<any | null>(null);
+  const appRef = useRef<AppBridgeApp | null>(null);
   const initialized = useRef(false);
   const tokenExchangeAttempted = useRef(false);
   const { refreshUser, setShopifyAuthInProgress } = useAuth();
@@ -201,7 +212,7 @@ export function ShopifyAppBridgeProvider({ children }: { children: React.ReactNo
       setShopifyAuthInProgress(false);
     };
 
-    const generateToken = async (app: any): Promise<string | null> => {
+    const generateToken = async (app: AppBridgeApp): Promise<string | null> => {
       try {
         logger.log('🔑 [SHOPIFY] Generating session token...');
         const { getSessionToken } = await import('@shopify/app-bridge/utilities');

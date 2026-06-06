@@ -3,9 +3,15 @@ import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { supabaseAdmin } from '../db/connection';
 
+export interface ShopifyWebhookIntegration {
+  id: string;
+  store_id: string;
+  api_secret_key: string | null;
+}
+
 export interface ShopifyWebhookRequest extends Request {
   shopDomain?: string;
-  integration?: any;
+  integration?: ShopifyWebhookIntegration | null;
   rawBody?: string;
 }
 
@@ -40,9 +46,9 @@ export async function validateShopifyWebhook(
     // from env in those cases.
     const { data: integration } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('*')
+      .select('id, store_id, api_secret_key')
       .eq('shop_domain', shopDomain)
-      .maybeSingle();
+      .maybeSingle<ShopifyWebhookIntegration>();
 
     // Use rawBody for HMAC validation (set by rawBody middleware in api/index.ts)
     const rawBody = req.rawBody || JSON.stringify(req.body);
@@ -70,7 +76,7 @@ export async function validateShopifyWebhook(
     logger.info('BACKEND', `Valid webhook from: ${shopDomain}`);
     next();
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('BACKEND', '❌ Error validating webhook:', error);
     // Always return 200 to Shopify to prevent retry storms
     return res.status(200).json({ error: 'Internal error', received: true });

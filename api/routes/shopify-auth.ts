@@ -47,10 +47,17 @@ const BodySchema = z.object({
   session_token: z.string().min(20),
 });
 
+// Single source of truth for a valid shop domain. Applied both to the
+// caller-supplied ?shop param and to the value we derive from the verified
+// session token (claims.dest). The latter is defense in depth: even if the
+// signing secret leaked and an attacker forged a token, dest still cannot
+// point our Admin API calls at an arbitrary host (SSRF).
+const SHOP_DOMAIN_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/;
+
 const QuerySchema = z.object({
   shop: z
     .string()
-    .regex(/^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/, 'invalid shop domain')
+    .regex(SHOP_DOMAIN_REGEX, 'invalid shop domain')
     .optional(),
 });
 
@@ -170,6 +177,19 @@ shopifyAuthRouter.post('/token-exchange', async (req: Request, res: Response) =>
   }
 
   const shopDomain = claims.dest.replace(/^https?:\/\//, '');
+
+  // Harden the token-derived host before it ever reaches an Admin API URL.
+  if (!SHOP_DOMAIN_REGEX.test(shopDomain)) {
+    log.warn('token dest is not a valid myshopify domain', { dest: claims.dest });
+    await recordAttempt({
+      shopDomain: 'unknown',
+      phase: 'error',
+      userAgent,
+      responseStatus: 400,
+      errorMessage: 'invalid_shop_domain_from_token',
+    });
+    return res.status(400).json({ error: 'invalid_shop_domain' });
+  }
 
   // Sanity check: query.shop matches token.dest when both provided.
   if (queryParse.data.shop && queryParse.data.shop !== shopDomain) {

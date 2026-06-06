@@ -4,15 +4,15 @@
 // Auto-provisions Ordefy user + store + integration + subscription
 // when a Shopify merchant installs the app via Token Exchange.
 //
-// Three install scenarios:
-//   1. First install for a new shop_domain  -> create everything.
-//   2. Reinstall (uninstalled or inactive)   -> reactivate existing rows.
-//   3. New shop owned by an existing direct  -> link to existing user
-//      Ordefy user (matched by email)           and create new store.
-//
-// Concurrency: serialized per shop_domain via pg_advisory_xact_lock to
-// guarantee at-most-one provisioning runs for any given shop. The lock
-// auto-releases at COMMIT/ROLLBACK.
+// This module owns the two pieces that must run outside the database:
+// the Shopify Admin API call (fetchShopProfile), the Token Exchange call,
+// and signing the Ordefy JWT. The provisioning writes themselves
+// (user + store + user_stores + integration + subscription across the
+// three install scenarios) run atomically inside the Postgres function
+// provision_shopify_merchant (migration 201), invoked here via a single
+// supabaseAdmin.rpc(). That function serializes concurrent installs of
+// the same shop with pg_advisory_xact_lock and rolls back on any failure,
+// so a mid-way error can no longer orphan a half-created user/store.
 //
 // Author: Bright Idea
 // Date:   2026-05-16
@@ -152,6 +152,16 @@ function signOrdefyToken(userId: string, email: string): string {
 // Main entry: provision merchant
 // ----------------------------------------------------------------
 
+interface ProvisionRpcRow {
+  user_id: string;
+  store_id: string;
+  integration_id: string;
+  user_email: string;
+  is_new_provision: boolean;
+  is_reinstall: boolean;
+  linked_from_direct_user: boolean;
+}
+
 export async function provisionShopifyMerchant(params: {
   shopDomain: string;
   accessToken: string;
@@ -160,209 +170,59 @@ export async function provisionShopifyMerchant(params: {
 }): Promise<ProvisionResult> {
   const { shopDomain, accessToken, scope } = params;
 
-  // 1. Fetch shop profile from Shopify Admin API (we use shop owner email,
-  //    not a value the caller controlled, so an attacker cannot collide on
-  //    an arbitrary email).
+  // Fetch the shop profile from the Shopify Admin API. We key provisioning
+  // on the shop owner email returned by Shopify, never a caller-controlled
+  // value, so an attacker cannot collide on an arbitrary email.
   const shopProfile = await fetchShopProfile(shopDomain, accessToken);
 
-  // 2. Check existing integration (any status). Lookup is intentionally NOT
-  //    filtered by status='active' so we can detect reinstalls + redacted
-  //    rows (the App is the only writer; rows in 'uninstalled' or 'redacted'
-  //    state were credential-nulled by the GDPR/uninstall handlers).
-  const { data: existing, error: lookupError } = await supabaseAdmin
-    .from('shopify_integrations')
-    .select('id, user_id, store_id, status')
-    .eq('shop_domain', shopDomain)
-    .maybeSingle();
-
-  if (lookupError) {
-    logger.error('SHOPIFY_PROVISION', 'lookup failed', { shopDomain, lookupError });
-    throw new Error(`provision lookup failed: ${lookupError.message}`);
-  }
-
-  // ----------------- REINSTALL PATH -----------------
-  if (existing) {
-    const isReinstall = existing.status !== 'active';
-
-    const { error: updateError } = await supabaseAdmin
-      .from('shopify_integrations')
-      .update({
-        access_token: accessToken,
-        scope,
-        status: 'active',
-        uninstalled_at: null,
-        sync_error: null,
-        shop_email: shopProfile.email,
-        shop_name: shopProfile.name,
-        shop_currency: shopProfile.currencyCode,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', existing.id);
-
-    if (updateError) {
-      logger.error('SHOPIFY_PROVISION', 'reactivate failed', { shopDomain, updateError });
-      throw new Error(`provision reactivate failed: ${updateError.message}`);
-    }
-
-    if (!existing.user_id) {
-      throw new Error('integration row missing user_id (legacy data, manual fix required)');
-    }
-
-    // Fetch user email for JWT (do not trust client input)
-    const { data: user, error: userErr } = await supabaseAdmin
-      .from('users')
-      .select('id, email')
-      .eq('id', existing.user_id)
-      .single();
-
-    if (userErr || !user) {
-      throw new Error(`reinstall: user ${existing.user_id} not found`);
-    }
-
-    const ordefyToken = signOrdefyToken(user.id, user.email);
-
-    logger.info('SHOPIFY_PROVISION', isReinstall ? 'reinstall' : 'token_refresh', {
-      shopDomain,
-      userId: user.id,
-      storeId: existing.store_id,
-    });
-
-    return {
-      ordefyToken,
-      userId: user.id,
-      storeId: existing.store_id,
-      integrationId: existing.id,
-      isNewProvision: false,
-      isReinstall,
-      linkedFromDirectUser: false,
-    };
-  }
-
-  // ----------------- NEW INSTALL PATH -----------------
-  // Email collision: does a direct user exist with this email?
-  const { data: directUser, error: directUserErr } = await supabaseAdmin
-    .from('users')
-    .select('id, email, name')
-    .eq('email', shopProfile.email)
-    .maybeSingle();
-
-  if (directUserErr) {
-    logger.error('SHOPIFY_PROVISION', 'direct user lookup failed', { directUserErr });
-    throw new Error(`direct user lookup failed: ${directUserErr.message}`);
-  }
-
-  let userId: string;
-  let linkedFromDirectUser = false;
-
-  if (directUser) {
-    userId = directUser.id;
-    linkedFromDirectUser = true;
-    logger.info('SHOPIFY_PROVISION', 'matched existing direct user', {
-      userId,
-      shopDomain,
-      email: shopProfile.email,
-    });
-  } else {
-    // Create the user. Name fallback: shop name -> email local part.
-    const displayName = shopProfile.name?.trim() || shopProfile.email.split('@')[0];
-    const { data: newUser, error: insertUserErr } = await supabaseAdmin
-      .from('users')
-      .insert({
-        email: shopProfile.email,
-        password_hash: null,
-        name: displayName,
-        is_active: true,
-        auth_provider: 'shopify',
-        source: 'shopify',
-      })
-      .select('id')
-      .single();
-
-    if (insertUserErr || !newUser) {
-      logger.error('SHOPIFY_PROVISION', 'user insert failed', { insertUserErr });
-      throw new Error(`user insert failed: ${insertUserErr?.message ?? 'no row returned'}`);
-    }
-
-    userId = newUser.id;
-    logger.info('SHOPIFY_PROVISION', 'created new shopify user', { userId, shopDomain });
-  }
-
-  // Resolve a store: prefer existing store owned by this user, else create one.
-  let storeId: string;
-  if (linkedFromDirectUser) {
-    const { data: ownerLink } = await supabaseAdmin
-      .from('user_stores')
-      .select('store_id')
-      .eq('user_id', userId)
-      .in('role', ['owner', 'admin'])
-      .limit(1)
-      .maybeSingle();
-
-    if (ownerLink) {
-      storeId = ownerLink.store_id;
-      logger.info('SHOPIFY_PROVISION', 'reusing existing store for direct user', {
-        userId,
-        storeId,
-      });
-    } else {
-      storeId = await createStore(shopProfile);
-      await linkUserStore(userId, storeId, 'owner');
-    }
-  } else {
-    storeId = await createStore(shopProfile);
-    await linkUserStore(userId, storeId, 'owner');
-  }
-
-  // Insert integration row.
-  const { data: integration, error: integrationErr } = await supabaseAdmin
-    .from('shopify_integrations')
-    .insert({
-      store_id: storeId,
-      user_id: userId,
-      shop_domain: shopDomain,
-      shop: shopDomain,
-      api_key: process.env.SHOPIFY_API_KEY ?? '',
-      api_secret_key: '',
-      access_token: accessToken,
-      scope,
-      status: 'active',
-      auto_provisioned: true,
-      linked_from_direct_user_at: linkedFromDirectUser ? new Date().toISOString() : null,
-      shop_email: shopProfile.email,
-      shop_name: shopProfile.name,
-      shop_currency: shopProfile.currencyCode,
-      installed_at: new Date().toISOString(),
-    })
-    .select('id')
-    .single();
-
-  if (integrationErr || !integration) {
-    logger.error('SHOPIFY_PROVISION', 'integration insert failed', { integrationErr });
-    throw new Error(`integration insert failed: ${integrationErr?.message ?? 'no row returned'}`);
-  }
-
-  // Subscription: free tier, Shopify-billed. Use upsert pattern compatible
-  // with subscriptions.user_id + is_primary uniqueness.
-  await ensureFreeSubscription(userId, storeId);
-
-  const ordefyToken = signOrdefyToken(userId, shopProfile.email);
-
-  logger.info('SHOPIFY_PROVISION', 'new provision completed', {
-    shopDomain,
-    userId,
-    storeId,
-    integrationId: integration.id,
-    linkedFromDirectUser,
+  // Run the entire provisioning flow (lookup + reinstall vs new install +
+  // user/store/link/integration/subscription) atomically inside Postgres.
+  // The function serializes concurrent installs of this shop and rolls back
+  // on any failure, so a partial provision cannot orphan rows.
+  const { data, error } = await supabaseAdmin.rpc('provision_shopify_merchant', {
+    p_shop_domain: shopDomain,
+    p_access_token: accessToken,
+    p_scope: scope,
+    p_shop_email: shopProfile.email,
+    p_shop_name: shopProfile.name,
+    p_shop_currency: shopProfile.currencyCode,
+    p_country_code: shopProfile.countryCodeV2,
+    p_shopify_api_key: process.env.SHOPIFY_API_KEY ?? '',
   });
+
+  if (error) {
+    logger.error('SHOPIFY_PROVISION', 'provision rpc failed', { shopDomain, error });
+    throw new Error(`provision failed: ${error.message}`);
+  }
+
+  // The function RETURNS TABLE(...) so the client hands back a row array.
+  const row = (data as ProvisionRpcRow[] | null)?.[0];
+  if (!row) {
+    throw new Error('provision rpc returned no row');
+  }
+
+  const ordefyToken = signOrdefyToken(row.user_id, row.user_email);
+
+  logger.info(
+    'SHOPIFY_PROVISION',
+    row.is_new_provision ? 'new provision completed' : row.is_reinstall ? 'reinstall' : 'token_refresh',
+    {
+      shopDomain,
+      userId: row.user_id,
+      storeId: row.store_id,
+      integrationId: row.integration_id,
+      linkedFromDirectUser: row.linked_from_direct_user,
+    },
+  );
 
   return {
     ordefyToken,
-    userId,
-    storeId,
-    integrationId: integration.id,
-    isNewProvision: true,
-    isReinstall: false,
-    linkedFromDirectUser,
+    userId: row.user_id,
+    storeId: row.store_id,
+    integrationId: row.integration_id,
+    isNewProvision: row.is_new_provision,
+    isReinstall: row.is_reinstall,
+    linkedFromDirectUser: row.linked_from_direct_user,
   };
 }
 
@@ -379,80 +239,6 @@ export const SUPPORTED_STORE_COUNTRIES = new Set(['PY', 'AR', 'BR', 'UY', 'CL', 
 export function normalizeCountryCode(raw: string | null | undefined): string {
   const upper = (raw ?? '').toUpperCase().trim();
   return SUPPORTED_STORE_COUNTRIES.has(upper) ? upper : 'US';
-}
-
-async function createStore(shop: ShopifyShopProfile): Promise<string> {
-  const { data: store, error } = await supabaseAdmin
-    .from('stores')
-    .insert({
-      name: shop.name || shop.myshopifyDomain,
-      country: normalizeCountryCode(shop.countryCodeV2),
-    })
-    .select('id')
-    .single();
-
-  if (error || !store) {
-    logger.error('SHOPIFY_PROVISION', 'store insert failed', { error });
-    throw new Error(`store insert failed: ${error?.message ?? 'no row returned'}`);
-  }
-
-  return store.id;
-}
-
-async function linkUserStore(userId: string, storeId: string, role: string): Promise<void> {
-  const { error } = await supabaseAdmin
-    .from('user_stores')
-    .insert({
-      user_id: userId,
-      store_id: storeId,
-      role,
-      is_active: true,
-    });
-
-  // 23505 = unique_violation (link already exists, fine for idempotency)
-  if (error && error.code !== '23505') {
-    logger.error('SHOPIFY_PROVISION', 'user_stores insert failed', { error });
-    throw new Error(`user_stores insert failed: ${error.message}`);
-  }
-}
-
-async function ensureFreeSubscription(userId: string, storeId: string): Promise<void> {
-  // subscriptions has uniqueness on (user_id, is_primary). We only insert
-  // if no primary subscription exists to avoid overwriting a Stripe sub on
-  // a linked direct user.
-  const { data: existing } = await supabaseAdmin
-    .from('subscriptions')
-    .select('id, billing_source')
-    .eq('user_id', userId)
-    .eq('is_primary', true)
-    .maybeSingle();
-
-  if (existing) {
-    logger.info('SHOPIFY_PROVISION', 'subscription already present, leaving in place', {
-      userId,
-      billingSource: existing.billing_source,
-    });
-    return;
-  }
-
-  const { error } = await supabaseAdmin
-    .from('subscriptions')
-    .insert({
-      user_id: userId,
-      store_id: storeId,
-      is_primary: true,
-      plan: 'free',
-      status: 'active',
-      billing_source: 'shopify',
-      shopify_shop_domain: null,
-      shopify_charge_id: null,
-    });
-
-  if (error) {
-    logger.error('SHOPIFY_PROVISION', 'free subscription insert failed', { error });
-    // Non-fatal: provisioning still completes; user lands on free plan via
-    // default plan_limits fallback. Sentry will surface it.
-  }
 }
 
 // ----------------------------------------------------------------

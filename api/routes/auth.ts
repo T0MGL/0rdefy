@@ -1355,16 +1355,36 @@ authRouter.get('/me', verifyToken, async (req: AuthRequest, res: Response) => {
             log.error('GET /me stores fetch failed', storesError);
         }
 
-        const stores = userStoresData?.map((us: any) => ({
-            id: us.stores.id,
-            name: us.stores.name,
-            country: us.stores.country,
-            currency: us.stores.currency,
-            timezone: us.stores.timezone,
-            separate_confirmation_flow: us.stores.separate_confirmation_flow ?? false,
-            auto_assign_cheapest_carrier: us.stores.auto_assign_cheapest_carrier ?? true,
-            role: us.role,
-        })) || [];
+        type StoreRelation = {
+            id: string;
+            name: string;
+            country: string | null;
+            currency: string | null;
+            timezone: string | null;
+            separate_confirmation_flow: boolean | null;
+            auto_assign_cheapest_carrier: boolean | null;
+        };
+        type UserStoreRow = {
+            store_id: string;
+            role: string;
+            is_active: boolean;
+            stores: StoreRelation | StoreRelation[] | null;
+        };
+
+        const stores = ((userStoresData ?? []) as UserStoreRow[]).flatMap((us) => {
+            const store = Array.isArray(us.stores) ? us.stores[0] : us.stores;
+            if (!store) return [];
+            return [{
+                id: store.id,
+                name: store.name,
+                country: store.country,
+                currency: store.currency,
+                timezone: store.timezone,
+                separate_confirmation_flow: store.separate_confirmation_flow ?? false,
+                auto_assign_cheapest_carrier: store.auto_assign_cheapest_carrier ?? true,
+                role: us.role,
+            }];
+        });
 
         const supabaseToken = signSupabaseRealtimeToken({ id: user.id, email: user.email });
 
@@ -1379,7 +1399,7 @@ authRouter.get('/me', verifyToken, async (req: AuthRequest, res: Response) => {
                 stores,
             },
         });
-    } catch (error: any) {
+    } catch (error: unknown) {
         log.error('GET /me unexpected error', error);
         return res.status(500).json({ success: false, error: 'An error occurred', code: 'INTERNAL_ERROR' });
     }

@@ -233,7 +233,7 @@ ${link}`;
     const integration = (subscriptionData as
       | { integration?: { shopDomain?: string | null; createdAt?: string | null; status?: string | null } }
       | undefined)?.integration;
-    const shopDomain = integration?.shopDomain || sub?.shopifyShopDomain || '—';
+    const shopDomain = integration?.shopDomain || sub?.shopifyShopDomain || 'N/A';
     const connectedAtRaw = integration?.createdAt || null;
     const connectedAt = connectedAtRaw
       ? new Date(connectedAtRaw).toLocaleDateString(undefined, {
@@ -241,7 +241,7 @@ ${link}`;
           month: 'short',
           day: 'numeric',
         })
-      : '—';
+      : 'N/A';
     const statusActive = (integration?.status ?? 'active') === 'active';
 
     return (
