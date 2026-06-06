@@ -75,7 +75,7 @@ function verifyShopifySessionToken(token: string): any {
   }
 }
 
-export function verifyToken(req: AuthRequest, res: Response, next: NextFunction) {
+export async function verifyToken(req: AuthRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -86,7 +86,10 @@ export function verifyToken(req: AuthRequest, res: Response, next: NextFunction)
   const isShopifySession = req.headers['x-shopify-session'] === 'true';
 
   try {
-    // Si es un token de sesión de Shopify, usar validación de Shopify
+    // Shopify session token path: the embedded app sends Shopify-issued
+    // JWTs alongside `X-Shopify-Session: true`. We verify the signature
+    // with SHOPIFY_API_SECRET, then resolve the integration row by shop
+    // domain to load the Ordefy user that owns it.
     if (isShopifySession) {
       if (process.env.NODE_ENV === 'development') {
         logger.info('BACKEND', '[Auth] Verifying Shopify session token');
@@ -95,27 +98,71 @@ export function verifyToken(req: AuthRequest, res: Response, next: NextFunction)
       const decoded = verifyShopifySessionToken(token);
       req.shopifySession = decoded;
 
-      // Para tokens de Shopify, necesitamos obtener o crear el usuario en nuestra DB
-      // usando el shop domain (decoded.dest) como identificador
-      // Por ahora, extraemos la información básica
+      const shopDomain = decoded.dest;
 
-      // El 'sub' en Shopify session tokens es el user ID de Shopify
-      // El 'dest' es el shop domain (ej: mystore.myshopify.com)
+      // Lookup is intentionally NOT filtered by status. We need to
+      // distinguish "no integration row at all" (= reviewer hitting
+      // /api/* directly, before Token Exchange) from "row exists but
+      // inactive" (uninstalled / redacted). The frontend uses the
+      // 401 + `requires: token_exchange` response to kick off the
+      // exchange flow.
+      const { data: integration, error } = await supabaseAdmin
+        .from('shopify_integrations')
+        .select('id, user_id, store_id, status')
+        .eq('shop_domain', shopDomain)
+        .maybeSingle();
 
-      if (process.env.NODE_ENV === 'development') {
-        logger.info('BACKEND', '[Auth] Shopify session validated:', {
-          shop: decoded.dest,
-          userId: decoded.sub,
+      if (error) {
+        logger.error('BACKEND', '[Auth] Integration lookup error', { shopDomain, error });
+        return res.status(500).json({ error: 'Error interno del servidor' });
+      }
+
+      if (!integration || integration.status !== 'active' || !integration.user_id) {
+        if (process.env.NODE_ENV === 'development') {
+          logger.info('BACKEND', '[Auth] Shopify session valid but integration not provisioned', {
+            shopDomain,
+            integrationStatus: integration?.status ?? 'missing',
+          });
+        }
+        return res.status(401).json({
+          error: 'integration_not_provisioned',
+          requires: 'token_exchange',
+          shop: shopDomain,
         });
       }
 
-      // Aquí deberías buscar o crear el usuario en tu base de datos
-      // basándote en el shop domain. Por ahora, pasamos el token validado.
+      // Load user email so downstream handlers that read req.user.email
+      // (audit logs, notifications) don't break.
+      const { data: user } = await supabaseAdmin
+        .from('users')
+        .select('id, email, name')
+        .eq('id', integration.user_id)
+        .single();
 
-      // NOTA: Implementa la lógica para mapear el shop de Shopify a tu store_id
-      // Por ejemplo, buscando en la tabla shopify_integrations
+      req.userId = integration.user_id;
+      req.user = {
+        id: integration.user_id,
+        email: user?.email ?? '',
+        name: user?.name ?? undefined,
+        stores: [
+          {
+            id: integration.store_id,
+            name: '',
+            role: 'owner',
+          },
+        ],
+      };
+      req.storeId = integration.store_id;
 
-      next();
+      if (process.env.NODE_ENV === 'development') {
+        logger.info('BACKEND', '[Auth] Shopify session resolved to Ordefy user', {
+          shop: shopDomain,
+          userId: req.userId,
+          storeId: integration.store_id,
+        });
+      }
+
+      return next();
     } else {
       // Verificación de token JWT normal (autenticación propia)
       const decoded = jwt.verify(token, JWT_SECRET, {
@@ -157,7 +204,9 @@ export function verifyToken(req: AuthRequest, res: Response, next: NextFunction)
 }
 
 export async function extractStoreId(req: AuthRequest, res: Response, next: NextFunction) {
-  let storeId = req.headers['x-store-id'] as string;
+  // Prefer header, fall back to req.storeId already populated by verifyToken
+  // (the Shopify session path sets it inline so we avoid the double lookup).
+  let storeId = (req.headers['x-store-id'] as string) || req.storeId || '';
 
   // Si es una sesión de Shopify y no hay store_id en headers, buscarlo por shop domain
   if (!storeId && req.shopifySession) {

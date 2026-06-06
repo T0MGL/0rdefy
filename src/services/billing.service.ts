@@ -45,16 +45,6 @@ export interface Subscription {
   planDetails?: Plan;
 }
 
-export interface ShopifyBillingStatus {
-  billingSource: 'stripe' | 'shopify' | 'none';
-  plan: string;
-  status: string;
-  shopifyChargeId: string | null;
-  pendingConfirmation: boolean;
-  confirmationUrl: string | null;
-  currentPeriodEnd: string | null;
-}
-
 export interface Usage {
   orders: { used: number; limit: number; percentage: number };
   products: { used: number; limit: number; percentage: number };
@@ -172,22 +162,9 @@ export const billingService = {
     return response.data;
   },
 
-  async getShopifyBillingStatus(): Promise<ShopifyBillingStatus> {
-    const response = await apiClient.get('/shopify-billing/status');
-    return response.data;
-  },
-
-  async shopifySubscribe(params: {
-    plan: string;
-    billingCycle: 'monthly' | 'annual';
-    shopDomain: string;
-  }): Promise<{ confirmationUrl: string }> {
-    const response = await apiClient.post('/shopify-billing/subscribe', params);
-    return response.data;
-  },
-
-  async cancelShopifySubscription(reason?: string): Promise<{ success: boolean }> {
-    const response = await apiClient.post('/shopify-billing/cancel', { reason });
-    return response.data;
-  },
+  // NOTE: Shopify Billing API endpoints (/shopify-billing/status,
+  // /shopify-billing/subscribe, /shopify-billing/cancel) were removed
+  // when the Shopify listing transitioned to a free integration to
+  // comply with App Store 1.2.2 / 1.2.3 / 4.2.1. Stripe is the only
+  // billing backend for direct users; Shopify users are billed nothing.
 };

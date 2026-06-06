@@ -289,16 +289,32 @@ shopifyComplianceRouter.post(
         }
       }
 
+      // GDPR shop/redact: 48h after uninstall, Shopify requires shop data to be
+      // purged. We null all sensitive credentials and metadata on the integration
+      // record. The row itself stays as an audit stub (status='redacted') so
+      // re-installs cannot accidentally reuse stale tokens, and so we can prove
+      // compliance if Shopify audits us.
       if (integration) {
-        const { error: deleteError } = await supabaseAdmin
+        const { error: redactError } = await supabaseAdmin
           .from('shopify_integrations')
-          .delete()
+          .update({
+            access_token: null,
+            scope: null,
+            webhook_signature: null,
+            api_secret_key: null,
+            shop_email: null,
+            shop_data: null,
+            shop_name: null,
+            status: 'redacted',
+            uninstalled_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
           .eq('shop_domain', shopDomain);
 
-        if (deleteError) {
-          logger.error('GDPR', 'Failed to delete integration on shop/redact', { shopDomain, deleteError });
+        if (redactError) {
+          logger.error('GDPR', 'Failed to redact integration on shop/redact', { shopDomain, redactError });
         } else {
-          logger.info('GDPR', 'Integration deleted on shop/redact', { shopDomain });
+          logger.info('GDPR', 'Integration redacted on shop/redact', { shopDomain });
         }
       }
 

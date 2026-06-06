@@ -3,7 +3,7 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabaseAdmin } from '../db/connection';
 import { validateShopifyWebhook, ShopifyWebhookRequest } from '../middleware/shopify-webhook';
-import { parsePlanFromSubscriptionName } from '../services/shopify-billing.service';
+import { parsePlanFromSubscriptionName } from '../services/shopify-utils.service';
 
 export const shopifyMandatoryWebhooksRouter = Router();
 
@@ -28,21 +28,38 @@ shopifyMandatoryWebhooksRouter.post(
         return res.status(200).json({ received: true, message: 'Integration not found' });
       }
 
-      // Products/orders are intentionally preserved after uninstall; only the integration record and its direct dependents are removed
-      const { error: deleteError } = await supabaseAdmin
+      // SECURITY: Mark integration as uninstalled and null sensitive credentials.
+      // Per Shopify Protected Customer Data policy, app must drop access_token
+      // immediately when the app is uninstalled. We preserve the row for audit
+      // (uninstalled_at, status history) but strip the token + scope so a stale
+      // copy can never be reused. Products/orders/customers are preserved as
+      // historical data per Ordefy retention policy.
+      const { error: updateError } = await supabaseAdmin
         .from('shopify_integrations')
-        .delete()
+        .update({
+          access_token: null,
+          scope: null,
+          webhook_signature: null,
+          api_secret_key: null,
+          status: 'uninstalled',
+          uninstalled_at: new Date().toISOString(),
+          sync_error: null,
+          updated_at: new Date().toISOString(),
+        })
         .eq('shop_domain', shopDomain);
 
-      if (deleteError) {
-        logger.error('API', 'Error deleting integration', { deleteError });
+      if (updateError) {
+        logger.error('API', 'Error nullifying integration credentials on uninstall', {
+          shopDomain,
+          updateError,
+        });
         return res.status(200).json({
           received: true,
-          error: 'Error al eliminar integración',
+          error: 'Error revoking credentials',
         });
       }
 
-      logger.info('API', 'Integration deleted on app uninstall', {
+      logger.info('API', 'Integration credentials revoked on app uninstall', {
         shopDomain,
         storeId: integration.store_id,
         integrationId: integration.id,
@@ -50,7 +67,7 @@ shopifyMandatoryWebhooksRouter.post(
 
       res.status(200).json({
         received: true,
-        message: 'App uninstalled successfully',
+        message: 'App uninstalled and credentials revoked',
         shop: shopDomain,
       });
 

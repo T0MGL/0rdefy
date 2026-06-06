@@ -6,13 +6,11 @@ import {
   CreditCard,
   Check,
   X,
-  Zap,
   Users,
   Package,
   ShoppingCart,
   ArrowRight,
   Crown,
-  Sparkles,
   Gift,
   Copy,
   AlertCircle,
@@ -20,7 +18,6 @@ import {
   Clock,
   TrendingUp,
   ChevronDown,
-  ExternalLink,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -180,51 +177,17 @@ export default function Billing({ embedded = false }: BillingProps) {
     },
   });
 
-  const shopifySubscribeMutation = useMutation({
-    mutationFn: ({ plan, shopDomain }: { plan: string; shopDomain: string }) =>
-      billingService.shopifySubscribe({
-        plan,
-        billingCycle: isAnnual ? 'annual' : 'monthly',
-        shopDomain,
-      }),
-    onSuccess: (data) => {
-      if (data.confirmationUrl) {
-        window.location.href = data.confirmationUrl;
-      }
-    },
-    onError: (error: unknown) => {
-      toast.error(error instanceof Error ? error.message : 'Error al iniciar suscripcion en Shopify');
-    },
-  });
-
-  const shopifyCancelMutation = useMutation({
-    mutationFn: billingService.cancelShopifySubscription,
-    onSuccess: () => {
-      setCancelDialogOpen(false);
-      toast.success('Suscripcion de Shopify cancelada.');
-      queryClient.invalidateQueries({ queryKey: ['subscription'] });
-    },
-    onError: (error: unknown) => {
-      setCancelDialogOpen(false);
-      toast.error(error instanceof Error ? error.message : 'Error al cancelar');
-    },
-  });
-
   const handleUpgrade = (planKey: string) => {
     setSelectedPlan(planKey);
-    const sub = subscriptionData?.subscription as (Subscription & { billingSource?: 'stripe' | 'shopify'; shopifyShopDomain?: string | null }) | undefined;
-    const hasShopify = sub?.billingSource === 'shopify' && !!sub?.shopifyShopDomain;
-
-    if (hasShopify && sub?.shopifyShopDomain) {
-      shopifySubscribeMutation.mutate({ plan: planKey, shopDomain: sub.shopifyShopDomain });
-    } else {
-      checkoutMutation.mutate({
-        plan: planKey,
-        billingCycle: isAnnual ? 'annual' : 'monthly',
-        discountCode: discountCode || undefined,
-        referralCode: referralCode || undefined,
-      });
-    }
+    // Shopify-billing checkout path was removed when the app moved to a
+    // free Shopify listing (App Store 1.2.2 / 1.2.3 / 4.2.1). For Stripe
+    // users the checkout API stays the only way to upgrade.
+    checkoutMutation.mutate({
+      plan: planKey,
+      billingCycle: isAnnual ? 'annual' : 'monthly',
+      discountCode: discountCode || undefined,
+      referralCode: referralCode || undefined,
+    });
   };
 
   const handleDowngrade = (planKey: string) => {
@@ -261,43 +224,91 @@ ${link}`;
     );
   }
 
-  // When accessed from Shopify Admin, billing is managed exclusively on app.ordefy.io.
-  // This app is free on the Shopify App Store. No prices or plan CTAs are shown here.
+  // Shopify Admin embedded context. App Store rules (4.2.1) ban any
+  // external pricing/upgrade CTA, and the listing is published as Free.
+  // We render an integration status panel with no pricing, no link to
+  // app.ordefy.io, and no off-platform billing affordances.
   if (isShopifyContext) {
     const sub = subscriptionData?.subscription;
-    const planName = sub?.planDetails?.name || sub?.plan || 'Free';
+    const integration = (subscriptionData as
+      | { integration?: { shopDomain?: string | null; createdAt?: string | null; status?: string | null } }
+      | undefined)?.integration;
+    const shopDomain = integration?.shopDomain || sub?.shopifyShopDomain || 'N/A';
+    const connectedAtRaw = integration?.createdAt || null;
+    const connectedAt = connectedAtRaw
+      ? new Date(connectedAtRaw).toLocaleDateString(undefined, {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+        })
+      : 'N/A';
+    const statusActive = (integration?.status ?? 'active') === 'active';
+
     return (
       <div className={embedded ? 'space-y-4' : 'container mx-auto py-6 space-y-6'}>
         {!embedded && (
           <div>
-            <h1 className="text-3xl font-bold">Plan</h1>
-            <p className="text-muted-foreground mt-1">Estado de tu suscripcion de Ordefy</p>
+            <h1 className="text-3xl font-bold">Integración Shopify</h1>
+            <p className="text-muted-foreground mt-1">Estado de tu conexión con Shopify</p>
           </div>
         )}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Crown className="h-5 w-5 text-yellow-500" />
-              Plan actual: {planName}
-            </CardTitle>
+            <CardTitle>Integración Shopify</CardTitle>
             <CardDescription>
-              Tu suscripcion de Ordefy se gestiona desde el panel de Ordefy.
+              Tu integración con Shopify es gratuita. No hay cargos ni cambios de plan dentro
+              de Shopify.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground mb-4">
-              Esta integracion de Shopify es gratuita. Para ver o cambiar tu plan,
-              accede directamente a tu cuenta en app.ordefy.io.
-            </p>
-            <Button
-              variant="outline"
-              onClick={() => window.open('https://app.ordefy.io/settings?tab=subscription', '_blank')}
-            >
-              <ExternalLink className="h-4 w-4 mr-2" />
-              Gestionar suscripcion en Ordefy
-            </Button>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Tienda conectada</span>
+              <span className="font-medium">{shopDomain}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Estado</span>
+              {statusActive ? (
+                <Badge className="bg-green-500/15 text-green-600 border-green-500/30">Activo</Badge>
+              ) : (
+                <Badge variant="secondary">Inactivo</Badge>
+              )}
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Conectado desde</span>
+              <span>{connectedAt}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Plan</span>
+              <span>Free</span>
+            </div>
           </CardContent>
+          <CardFooter>
+            <Button
+              variant="destructive"
+              onClick={() => setCancelDialogOpen(true)}
+            >
+              Desconectar Shopify
+            </Button>
+          </CardFooter>
         </Card>
+
+        <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Desconectar Shopify</DialogTitle>
+              <DialogDescription>
+                Para desinstalar Ordefy de Shopify, abrí Shopify Admin y removelo desde
+                "Apps". Esta acción revoca los permisos otorgados a Ordefy y detiene la
+                sincronización de pedidos y productos.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setCancelDialogOpen(false)}>
+                Cerrar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
@@ -374,30 +385,7 @@ ${link}`;
                     </CardDescription>
                   </div>
                   <div className="flex gap-2">
-                    {(subscription as Subscription).billingSource === 'shopify' ? (
-                      <>
-                        <Button
-                          variant="outline"
-                          onClick={() => {
-                            const domain = (subscription as Subscription).shopifyShopDomain;
-                            if (domain) {
-                              window.open(`https://${domain}/admin/charges/shopify/subscriptions`, '_blank');
-                            }
-                          }}
-                        >
-                          <CreditCard className="h-4 w-4 mr-2" />
-                          Administrar en Shopify
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          className="text-destructive"
-                          onClick={() => setCancelDialogOpen(true)}
-                          disabled={shopifyCancelMutation.isPending}
-                        >
-                          Cancelar Plan
-                        </Button>
-                      </>
-                    ) : subscription.cancelAtPeriodEnd ? (
+                    {subscription.cancelAtPeriodEnd ? (
                       <Button
                         variant="default"
                         onClick={() => reactivateMutation.mutate()}
@@ -663,14 +651,14 @@ ${link}`;
                       ) : canUpgrade ? (
                         <button
                           onClick={() => handleUpgrade(plan.plan)}
-                          disabled={(checkoutMutation.isPending || shopifySubscribeMutation.isPending) && selectedPlan === plan.plan}
+                          disabled={checkoutMutation.isPending && selectedPlan === plan.plan}
                           className={`w-full py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-300 ${
                             isGrowth
                               ? 'bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-lg shadow-primary/25 hover:shadow-primary/40 hover:scale-[1.02]'
                               : 'bg-white/10 text-foreground border border-white/20 hover:bg-white/20 hover:border-white/30'
                           }`}
                         >
-                          {(checkoutMutation.isPending || shopifySubscribeMutation.isPending) && selectedPlan === plan.plan ? (
+                          {checkoutMutation.isPending && selectedPlan === plan.plan ? (
                             'Cargando...'
                           ) : (
                             <span className="flex items-center justify-center gap-2">
@@ -971,16 +959,10 @@ ${link}`;
             </Button>
             <Button
               variant="destructive"
-              onClick={() => {
-                if ((subscription as Subscription | undefined)?.billingSource === 'shopify') {
-                  shopifyCancelMutation.mutate(undefined);
-                } else {
-                  cancelMutation.mutate(undefined);
-                }
-              }}
-              disabled={cancelMutation.isPending || shopifyCancelMutation.isPending}
+              onClick={() => cancelMutation.mutate(undefined)}
+              disabled={cancelMutation.isPending}
             >
-              {(cancelMutation.isPending || shopifyCancelMutation.isPending) ? 'Cancelando...' : 'Confirmar cancelacion'}
+              {cancelMutation.isPending ? 'Cancelando...' : 'Confirmar cancelacion'}
             </Button>
           </DialogFooter>
         </DialogContent>

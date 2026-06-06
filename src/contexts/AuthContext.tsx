@@ -259,6 +259,12 @@ interface AuthContextType {
   currentStore: Store | null;
   stores: Store[];
   loading: boolean;
+  // Shopify embedded handshake state. While the Token Exchange flow is
+  // running we hold the route layer in a connecting screen instead of
+  // bouncing the reviewer through /login (which would surface a vanilla
+  // form inside the Shopify iframe and trigger the 2.1.1 install loop).
+  shopifyAuthInProgress: boolean;
+  setShopifyAuthInProgress: (value: boolean) => void;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signUp: (email: string, password: string, name: string, referralCode?: string) => Promise<{ error?: string }>;
   signOut: () => void;
@@ -269,6 +275,10 @@ interface AuthContextType {
   createStore: (data: { name: string; country?: string; currency?: string; taxRate?: number; adminFee?: number }) => Promise<{ success?: boolean; error?: string; storeId?: string }>;
   deleteStore: (storeId: string) => Promise<{ success?: boolean; error?: string }>;
   refreshStores: () => Promise<{ success?: boolean; error?: string }>;
+  // Repopulates `user` from the freshly-stored auth_token. Used by
+  // ShopifyAppBridgeProvider right after a successful token exchange so
+  // the dashboard can mount without a full page reload.
+  refreshUser: () => Promise<{ success?: boolean; error?: string }>;
   // Permission helpers
   permissions: PermissionHelpers;
 }
@@ -280,6 +290,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentStore, setCurrentStore] = useState<Store | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
+  // Drives the Shopify connecting screen. Initialised true when the app
+  // mounts inside the Shopify iframe with no Ordefy token so PrivateRoute
+  // does not redirect to /login before the token-exchange round-trip.
+  const [shopifyAuthInProgress, setShopifyAuthInProgress] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const inIframe = window.top !== window.self;
+      if (!inIframe) return false;
+      const params = new URLSearchParams(window.location.search);
+      const hasShopParams = !!params.get('shop') && !!params.get('host');
+      const hasOrdefyToken = !!localStorage.getItem('auth_token');
+      return hasShopParams && !hasOrdefyToken;
+    } catch {
+      return false;
+    }
+  });
 
   // Track mounted state and active requests for cleanup
   const isMountedRef = useRef(true);
@@ -1033,6 +1059,72 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [createCancellableRequest, cleanupRequest, user, currentStore]);
 
+  // Repopulate the user from /auth/me using whatever token is currently
+  // in localStorage. Used after the Shopify Token Exchange completes so
+  // the dashboard mounts immediately without forcing a hard reload that
+  // would re-trigger App Bridge and risk a flicker / lost host param.
+  const refreshUser = useCallback(async () => {
+    logger.log('🔄 [AUTH] refreshUser invoked');
+
+    const cancelSource = createCancellableRequest();
+
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        cleanupRequest(cancelSource);
+        return { error: 'missing_token' };
+      }
+
+      const response = await axios.get(`${API_URL}/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cancelToken: cancelSource.token,
+      });
+
+      cleanupRequest(cancelSource);
+
+      if (!isMountedRef.current) return { success: true };
+
+      if (!response.data?.success || !response.data?.user) {
+        return { error: response.data?.error || 'refresh_failed' };
+      }
+
+      const userData = response.data.user as User;
+      localStorage.setItem('user', JSON.stringify(userData));
+      if (response.data.supabaseToken) {
+        applySupabaseRealtimeToken(response.data.supabaseToken);
+      }
+
+      setUser(userData);
+      setStores(userData.stores || []);
+
+      const preferredStoreId =
+        localStorage.getItem('current_store_id') || userData.stores?.[0]?.id;
+      const nextStore =
+        userData.stores?.find((s) => s.id === preferredStoreId) ||
+        userData.stores?.[0] ||
+        null;
+      setCurrentStore(nextStore);
+      if (nextStore) {
+        localStorage.setItem('current_store_id', nextStore.id);
+      }
+
+      return { success: true };
+    } catch (err: unknown) {
+      cleanupRequest(cancelSource);
+
+      if (axios.isCancel(err)) {
+        return { success: true };
+      }
+
+      logger.error('💥 [AUTH] refreshUser error:', err);
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      if (axiosErr.response) {
+        return { error: axiosErr.response.data?.error || 'refresh_failed' };
+      }
+      return { error: 'refresh_failed' };
+    }
+  }, [createCancellableRequest, cleanupRequest]);
+
   // ================================================================
   // Permission System Helpers
   // ================================================================
@@ -1075,6 +1167,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     currentStore,
     stores,
     loading,
+    shopifyAuthInProgress,
+    setShopifyAuthInProgress,
     signIn,
     signUp,
     signOut,
@@ -1085,12 +1179,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     createStore,
     deleteStore,
     refreshStores,
+    refreshUser,
     permissions,
   }), [
     user,
     currentStore,
     stores,
     loading,
+    shopifyAuthInProgress,
     signIn,
     signUp,
     signOut,
@@ -1101,6 +1197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     createStore,
     deleteStore,
     refreshStores,
+    refreshUser,
     permissions,
   ]);
 
