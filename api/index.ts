@@ -25,6 +25,7 @@ import { additionalValuesRouter } from './routes/additional-values';
 import { recurringValuesRouter } from './routes/recurring-values';
 import { campaignsRouter } from './routes/campaigns';
 import { carriersRouter } from './routes/carriers';
+import { carrierIntegrationsRouter } from './routes/carrier-integrations';
 import { couriersRouter } from './routes/couriers';
 import { merchandiseRouter } from './routes/merchandise';
 import { shopifyRouter } from './routes/shopify';
@@ -658,6 +659,7 @@ app.use('/api/campaigns', campaignsRouter);
 // it has to win over the parent carriers router.
 app.use('/api/carriers/:carrierId/operators', carrierOperatorsRouter);
 app.use('/api/carriers', carriersRouter);
+app.use('/api/carrier-integrations', carrierIntegrationsRouter); // Carrier API push (Punto a Punto)
 app.use('/api/couriers', couriersRouter); // Repartidores (delivery personnel)
 app.use('/api/merchandise', merchandiseRouter); // Inbound shipments / supplier purchases
 

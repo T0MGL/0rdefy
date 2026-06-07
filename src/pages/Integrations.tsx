@@ -10,12 +10,15 @@ import { ShopifyConnectDialog } from '@/components/ShopifyConnectDialog';
 import { ExternalWebhookSetupDialog } from '@/components/ExternalWebhookSetupDialog';
 import { ExternalWebhookManagementModal } from '@/components/ExternalWebhookManagementModal';
 import { OutboundWebhookManager } from '@/components/OutboundWebhookManager';
-import { Store, Package, Clock, CheckCircle2, Settings, Webhook, Zap, Lock } from 'lucide-react';
+import { CarrierIntegrationModal } from '@/components/carriers/CarrierIntegrationModal';
+import { Store, Package, Clock, CheckCircle2, Settings, Webhook, Zap, Lock, Truck } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
 import { shopifyService } from '@/services/shopify.service';
 import { externalWebhookService } from '@/services/external-webhook.service';
 import { outboundWebhookService } from '@/services/outbound-webhook.service';
+import { carrierIntegrationsService } from '@/services/carrier-integrations.service';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { FeatureBlockedPage } from '@/components/FeatureGate';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
@@ -69,7 +72,8 @@ const integrations: Integration[] = [
 
 export default function Integrations() {
   const { hasFeature, loading: subscriptionLoading } = useSubscription();
-  const { refreshStores } = useAuth();
+  const { refreshStores, currentStore } = useAuth();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const didRefreshAfterOAuth = useRef(false);
   const { toast } = useToast();
@@ -80,6 +84,7 @@ export default function Integrations() {
   const [externalWebhookSetupOpen, setExternalWebhookSetupOpen] = useState(false);
   const [externalWebhookManagementOpen, setExternalWebhookManagementOpen] = useState(false);
   const [outboundWebhookOpen, setOutboundWebhookOpen] = useState(false);
+  const [carrierModalOpen, setCarrierModalOpen] = useState(false);
   const [connectedIntegrations, setConnectedIntegrations] = useState<string[]>([]);
   const [isLoadingIntegrations, setIsLoadingIntegrations] = useState(true);
 
@@ -97,6 +102,12 @@ export default function Integrations() {
 
   const hasShopifyImport = hasFeature('shopify_import');
   const hasCustomWebhooks = hasFeature('custom_webhooks');
+
+  // Punto a Punto is Paraguay-only. The plan feature is a second, independent gate.
+  const isParaguayStore = currentStore?.country === 'PY';
+  const hasCarrierIntegrations = hasFeature('carrier_integrations');
+  const showCarrierSection = isParaguayStore;
+  const isCarrierConnected = connectedIntegrations.includes('carrier-punto-a-punto');
 
   useEffect(() => {
     if (didRefreshAfterOAuth.current) return;
@@ -157,6 +168,21 @@ export default function Integrations() {
             // Ignore - feature may not be available
           }
         }
+
+        // Check carrier (Punto a Punto) only for PY stores on a plan that has it
+        if (isParaguayStore && hasCarrierIntegrations) {
+          try {
+            const carrierRes = await carrierIntegrationsService.getState();
+            if (!isMountedRef.current) return;
+            if (carrierRes.ok && carrierRes.data?.integration?.status === 'connected') {
+              setConnectedIntegrations(prev =>
+                prev.includes('carrier-punto-a-punto') ? prev : [...prev, 'carrier-punto-a-punto']
+              );
+            }
+          } catch {
+            // Ignore - feature may not be available
+          }
+        }
       } catch (error) {
         if (!isMountedRef.current) return;
         logger.error('Error checking existing integrations:', error);
@@ -166,7 +192,7 @@ export default function Integrations() {
     };
 
     checkExistingIntegrations();
-  }, [hasShopifyImport, hasCustomWebhooks]);
+  }, [hasShopifyImport, hasCustomWebhooks, isParaguayStore, hasCarrierIntegrations]);
 
   // Check shopify_import feature access - AFTER all hooks
   // Wait for subscription to load to prevent flash of upgrade modal
@@ -197,6 +223,26 @@ export default function Integrations() {
 
   const handleExternalWebhookDisconnect = () => {
     setConnectedIntegrations(prev => prev.filter(id => id !== 'external-webhook'));
+  };
+
+  const handleCarrierConnected = () => {
+    setConnectedIntegrations(prev =>
+      prev.includes('carrier-punto-a-punto') ? prev : [...prev, 'carrier-punto-a-punto']
+    );
+  };
+
+  const handleCarrierDisconnected = () => {
+    setConnectedIntegrations(prev => prev.filter(id => id !== 'carrier-punto-a-punto'));
+  };
+
+  const handleCarrierCardClick = () => {
+    if (!hasCarrierIntegrations) {
+      navigate('/settings', {
+        state: { openSection: 'subscription', fromFeature: 'carrier_integrations' },
+      });
+      return;
+    }
+    setCarrierModalOpen(true);
   };
 
   const handleIntegrationClick = (integration: Integration) => {
@@ -490,6 +536,86 @@ export default function Integrations() {
         </div>
       </div>
 
+      {/* Carriers / Logistics Category (Paraguay only) */}
+      {showCarrierSection && (
+        <div className="space-y-4">
+          <div className="border-l-4 border-emerald-500 pl-4">
+            <h3 className="text-lg font-semibold">Transportadoras</h3>
+            <p className="text-sm text-muted-foreground">
+              Conectá tu cuenta de la transportadora y enviamos los pedidos automáticamente cuando cambian de estado
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {isLoadingIntegrations ? (
+              <IntegrationSkeleton index={0} />
+            ) : (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <Card className="hover:shadow-lg transition-all duration-300 hover:border-primary/50 overflow-hidden">
+                  <CardHeader className="pb-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${
+                          isCarrierConnected ? 'bg-primary/20' : 'bg-primary/10'
+                        }`}>
+                          <Truck className={isCarrierConnected ? 'text-primary' : 'text-primary/70'} size={28} />
+                        </div>
+                        <div>
+                          <CardTitle className="text-xl">Punto a Punto</CardTitle>
+                          {isCarrierConnected && (
+                            <div className="flex items-center gap-1 mt-1">
+                              <CheckCircle2 size={14} className="text-primary" />
+                              <span className="text-xs text-primary font-medium">Conectada</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {!hasCarrierIntegrations && (
+                        <Badge variant="outline" className="gap-1 text-amber-600 border-amber-300">
+                          <Lock size={12} />
+                          Growth
+                        </Badge>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <CardDescription className="text-sm">
+                      Enviá tus pedidos a Punto a Punto sin generar Excel ni cargar nada a mano. Vos elegís en qué estado se despachan.
+                    </CardDescription>
+                    <Button
+                      variant={isCarrierConnected ? 'outline' : 'default'}
+                      className="w-full gap-2"
+                      onClick={handleCarrierCardClick}
+                      data-integration="carrier-punto-a-punto"
+                    >
+                      {!hasCarrierIntegrations ? (
+                        <>
+                          <Lock size={16} />
+                          Disponible en plan Growth
+                        </>
+                      ) : isCarrierConnected ? (
+                        <>
+                          <Settings size={16} />
+                          Configurar
+                        </>
+                      ) : (
+                        <>
+                          <Truck size={16} />
+                          Conectar transportadora
+                        </>
+                      )}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Custom Integrations Category */}
       <div className="space-y-4">
         <div className="border-l-4 border-purple-500 pl-4">
@@ -568,6 +694,16 @@ export default function Integrations() {
         open={outboundWebhookOpen}
         onOpenChange={handleOutboundWebhookClose}
       />
+
+      {/* Carrier Integration Modal (Punto a Punto) */}
+      {showCarrierSection && hasCarrierIntegrations && (
+        <CarrierIntegrationModal
+          open={carrierModalOpen}
+          onOpenChange={setCarrierModalOpen}
+          onConnected={handleCarrierConnected}
+          onDisconnected={handleCarrierDisconnected}
+        />
+      )}
     </div>
   );
 }

@@ -256,9 +256,13 @@ export async function getOrderShipments(
   try {
     const { data, error } = await supabaseAdmin
       .from('shipments')
-      .select('*')
+      .select('id, store_id, order_id, courier_id, shipped_at, shipped_by, notes, created_at, updated_at')
       .eq('order_id', orderId)
       .eq('store_id', storeId)
+      // Exclude carrier push bookkeeping rows that have not dispatched yet
+      // (carrier_provider set, carrier_external_id still null). Those are
+      // pending/failed push records, not real dispatched shipments.
+      .or('carrier_external_id.not.is.null,carrier_provider.is.null')
       .order('shipped_at', { ascending: false });
 
     if (error) throw error;
@@ -279,19 +283,23 @@ export async function getShipments(
   offset: number = 0
 ): Promise<{ shipments: Shipment[]; total: number }> {
   try {
-    // Get total count
+    // Get total count. Excludes carrier push bookkeeping rows (provider set,
+    // external id still null): a pending/failed push is not a real shipment and
+    // must not inflate the count or appear in history.
     const { count, error: countError } = await supabaseAdmin
       .from('shipments')
-      .select('*', { count: 'exact', head: true })
-      .eq('store_id', storeId);
+      .select('id', { count: 'exact', head: true })
+      .eq('store_id', storeId)
+      .or('carrier_external_id.not.is.null,carrier_provider.is.null');
 
     if (countError) throw countError;
 
     // Get shipments
     const { data, error } = await supabaseAdmin
       .from('shipments')
-      .select('*')
+      .select('id, store_id, order_id, courier_id, shipped_at, shipped_by, notes, created_at, updated_at')
       .eq('store_id', storeId)
+      .or('carrier_external_id.not.is.null,carrier_provider.is.null')
       .order('shipped_at', { ascending: false })
       .range(offset, offset + limit - 1);
 

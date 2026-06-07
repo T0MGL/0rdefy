@@ -39,6 +39,9 @@ console.log('[sifen-worker] boot: poller loaded');
 import { SifenRealtimeListener } from './shared/realtime-listener';
 console.log('[sifen-worker] boot: realtime-listener loaded');
 
+import { CarrierPushRetryWorker } from './carrier-push-retry';
+logger.info('[sifen-worker] boot: carrier-push-retry loaded');
+
 type WorkerRole = 'all' | 'dispatcher' | 'poller';
 
 const SHUTDOWN_TIMEOUT_MS = 15_000;
@@ -148,6 +151,12 @@ async function main(): Promise<void> {
     await poller.start();
     components.push(poller);
   }
+
+  // Carrier push retry rides in the same worker process. It is independent of
+  // SIFEN role split, so it starts whenever this process runs.
+  const carrierRetry = new CarrierPushRetryWorker();
+  await carrierRetry.start();
+  components.push(carrierRetry);
 
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {

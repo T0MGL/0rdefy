@@ -23,6 +23,7 @@ import { endOfDayIso, getStoreTimezone, getTodayInTimezone, startOfDayIso } from
 import { validate } from '../utils/validate';
 import { enrichLineItemsWithColors } from '../utils/line-item-colors';
 import { resolveOrderStore } from '../utils/resolve-order-store';
+import { pushOrderToCarrier } from '../services/carriers/carrier-push.service';
 
 // ================================================================
 // Zod Schemas
@@ -3240,6 +3241,13 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
         ).catch((err) => {
             logger.error('ORDERS', 'Outbound webhook fire failed (non-blocking):', err.message);
         });
+
+        // Carrier push: the service no-ops unless the store has an active
+        // integration whose trigger_status matches toStatus. Fire-and-forget,
+        // never blocks the response, never throws into this handler.
+        pushOrderToCarrier(effectiveStoreId, data.id, toStatus).catch((err) => {
+            logger.error('ORDERS', 'Carrier push failed (non-blocking):', err.message);
+        });
     } catch (error: any) {
         res.status(500).json({
             error: 'Error al actualizar estado del pedido',
@@ -5127,6 +5135,15 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
                 has_internal_notes: !!updatedOrder.internal_notes
             }
         });
+
+        // mark-printed is the ready_to_ship transition for the print flow.
+        // Push only when the status actually changed; the service still gates
+        // on the merchant's configured trigger_status.
+        if (updatedOrder.sleeves_status === 'ready_to_ship') {
+            pushOrderToCarrier(storeId, id, 'ready_to_ship').catch((err) => {
+                logger.error('ORDERS', 'Carrier push failed (non-blocking):', err.message);
+            });
+        }
     } catch (error: any) {
         res.status(500).json({
             error: 'Error interno del servidor',
@@ -5257,6 +5274,16 @@ ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permiss
             data: updatedOrders,
             failed: failedUpdates
         });
+
+        // Push each order that actually reached ready_to_ship. Fire-and-forget;
+        // the service gates per-store on trigger_status and is idempotent.
+        for (const updated of updatedOrders) {
+            if (updated.sleeves_status === 'ready_to_ship') {
+                pushOrderToCarrier(storeId!, updated.id, 'ready_to_ship').catch((err) => {
+                    logger.error('ORDERS', 'Carrier push failed (non-blocking):', err.message);
+                });
+            }
+        }
     } catch (error: any) {
         res.status(500).json({
             error: 'Error interno del servidor',

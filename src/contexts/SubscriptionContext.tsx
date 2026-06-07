@@ -26,7 +26,8 @@ export type PlanFeature =
   | 'custom_webhooks'
   | 'pdf_excel_reports'
   | 'revenue_intelligence'
-  | 'invoicing';
+  | 'invoicing'
+  | 'carrier_integrations';
 
 // Map sidebar paths to required features
 export const PATH_TO_FEATURE: Record<string, PlanFeature> = {
@@ -68,6 +69,7 @@ const PLAN_FEATURES: Record<string, PlanFeature[]> = {
     'pdf_excel_reports',
     'revenue_intelligence',
     'invoicing',
+    'carrier_integrations',
   ],
   professional: [
     'warehouse',
@@ -88,6 +90,7 @@ const PLAN_FEATURES: Record<string, PlanFeature[]> = {
     'pdf_excel_reports',
     'revenue_intelligence',
     'invoicing',
+    'carrier_integrations',
   ],
 };
 
@@ -111,6 +114,7 @@ export const FEATURE_MIN_PLAN: Record<PlanFeature, string> = {
   pdf_excel_reports: 'growth',
   revenue_intelligence: 'growth',
   invoicing: 'growth',
+  carrier_integrations: 'growth',
 };
 
 // Human-readable feature names
@@ -133,6 +137,7 @@ export const FEATURE_NAMES: Record<PlanFeature, string> = {
   pdf_excel_reports: 'Reportes PDF/Excel',
   revenue_intelligence: 'Inteligencia de Ingresos',
   invoicing: 'Facturación Electrónica',
+  carrier_integrations: 'Conectar Transportadora',
 };
 
 // ================================================================
