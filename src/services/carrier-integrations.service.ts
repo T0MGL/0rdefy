@@ -73,19 +73,37 @@ export interface CarrierServiceResult<T> {
   data?: T;
 }
 
-const TRIGGER_LABELS: Record<string, string> = {
+// Trigger labels are the SAME strings the Orders screen renders for each
+// sleeves_status, so the merchant reads the exact wording they already know.
+// Source of truth: statusLabels in src/pages/Orders.tsx (mirrored by
+// STATUS_LABEL in src/components/orders/OrderMobileList.tsx). Kept inline
+// rather than imported because that map is local to the page module.
+const ORDERS_STATUS_LABELS: Record<string, string> = {
   confirmed: 'Confirmado',
-  in_preparation: 'En preparación',
-  ready_to_ship: 'Listo para enviar',
-  shipped: 'Enviado',
+  in_preparation: 'En Preparación',
+  ready_to_ship: 'Preparado',
+  shipped: 'Despachado',
 };
 
+// Only the pre/during-handoff lifecycle states make sense as a "push to the
+// carrier" trigger. Terminal or post-delivery states (delivered, in_transit,
+// settled, cancelled, rejected, returned, incident) are excluded even if the
+// backend allowlist ever includes them.
+const ELIGIBLE_TRIGGER_STATUSES: readonly string[] = [
+  'confirmed',
+  'in_preparation',
+  'ready_to_ship',
+  'shipped',
+];
+
 function triggerLabel(value: string): string {
-  return TRIGGER_LABELS[value] ?? value;
+  return ORDERS_STATUS_LABELS[value] ?? value;
 }
 
 export function buildTriggerOptions(values: string[]): CarrierTriggerOption[] {
-  return values.map((value) => ({ value, label: triggerLabel(value) }));
+  return values
+    .filter((value) => ELIGIBLE_TRIGGER_STATUSES.includes(value))
+    .map((value) => ({ value, label: triggerLabel(value) }));
 }
 
 // Backend CarrierIntegrationStatus (raw, camelCase). validationStatus is

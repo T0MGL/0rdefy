@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Truck, CheckCircle2, AlertCircle, Eye, EyeOff, PlugZap } from 'lucide-react';
+import {
+  Truck,
+  CheckCircle2,
+  AlertCircle,
+  Eye,
+  EyeOff,
+  PlugZap,
+  ChevronDown,
+} from 'lucide-react';
 import {
   ResponsiveDialog,
   ResponsiveDialogContent,
@@ -35,12 +43,16 @@ const PROVIDER_LABEL = 'Punto a Punto';
 
 // Backend is the source of truth for valid trigger statuses (GET returns them).
 // These are the labels we show until the live list arrives; both stay in sync.
+// Labels match exactly what the Orders screen renders for each sleeves_status
+// (see ORDERS_STATUS_LABELS in carrier-integrations.service.ts).
 const FALLBACK_TRIGGER_OPTIONS: CarrierTriggerOption[] = [
   { value: 'confirmed', label: 'Confirmado' },
-  { value: 'in_preparation', label: 'En preparación' },
-  { value: 'ready_to_ship', label: 'Listo para enviar' },
-  { value: 'shipped', label: 'Enviado' },
+  { value: 'in_preparation', label: 'En Preparación' },
+  { value: 'ready_to_ship', label: 'Preparado' },
+  { value: 'shipped', label: 'Despachado' },
 ];
+
+const DEFAULT_TENANT_ID = '2';
 
 type TestState = 'idle' | 'testing' | 'ok' | 'error';
 
@@ -73,8 +85,9 @@ export function CarrierIntegrationModal({
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [tenantId, setTenantId] = useState('');
+  const [tenantId, setTenantId] = useState(DEFAULT_TENANT_ID);
   const [showPassword, setShowPassword] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const [autoPush, setAutoPush] = useState(true);
   const [triggerStatus, setTriggerStatus] = useState('ready_to_ship');
@@ -86,8 +99,9 @@ export function CarrierIntegrationModal({
   const abortRef = useRef<AbortController | null>(null);
 
   const isConnected = integration?.status === 'connected';
-  const credentialsComplete =
-    username.trim().length > 0 && password.length > 0 && tenantId.trim().length > 0;
+  // TenantId is no longer part of the gate: it defaults to "2" and lives behind
+  // the advanced section, so the common flow only needs user and password.
+  const credentialsComplete = username.trim().length > 0 && password.length > 0;
 
   useEffect(() => {
     if (!open) {
@@ -160,7 +174,7 @@ export function CarrierIntegrationModal({
     const res = await carrierIntegrationsService.connect(PROVIDER_KEY, {
       username: username.trim(),
       password,
-      tenantId: tenantId.trim(),
+      tenantId: tenantId.trim() || DEFAULT_TENANT_ID,
       triggerStatus,
     });
 
@@ -245,7 +259,8 @@ export function CarrierIntegrationModal({
       setIntegration(null);
       setUsername('');
       setPassword('');
-      setTenantId('');
+      setTenantId(DEFAULT_TENANT_ID);
+      setAdvancedOpen(false);
       setAutoPush(true);
       setTriggerStatus('ready_to_ship');
       setTestState('idle');
@@ -401,18 +416,49 @@ export function CarrierIntegrationModal({
                       </div>
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="carrier-tenant">TenantId</Label>
-                      <Input
-                        id="carrier-tenant"
-                        inputMode="numeric"
-                        value={tenantId}
-                        onChange={(e) => {
-                          setTenantId(e.target.value);
-                          setTestState('idle');
-                        }}
-                        placeholder="2"
-                      />
+                    <div className="rounded-lg border">
+                      <button
+                        type="button"
+                        onClick={() => setAdvancedOpen((v) => !v)}
+                        aria-expanded={advancedOpen}
+                        className="flex w-full items-center justify-between px-3 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        Configuración avanzada
+                        <motion.span
+                          animate={{ rotate: advancedOpen ? 180 : 0 }}
+                          transition={{ duration: 0.2 }}
+                        >
+                          <ChevronDown size={16} />
+                        </motion.span>
+                      </button>
+
+                      <AnimatePresence initial={false}>
+                        {advancedOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="space-y-2 border-t px-3 py-3">
+                              <Label htmlFor="carrier-tenant">TenantId</Label>
+                              <Input
+                                id="carrier-tenant"
+                                inputMode="numeric"
+                                value={tenantId}
+                                onChange={(e) => {
+                                  setTenantId(e.target.value);
+                                  setTestState('idle');
+                                }}
+                                placeholder={DEFAULT_TENANT_ID}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                Lo provee {PROVIDER_LABEL}. Si no lo sabés, dejá {DEFAULT_TENANT_ID}.
+                              </p>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
 
                     <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
