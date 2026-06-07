@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from './ui/select';
 import { Phone, MessageCircle, Eye, MapPin, Package, Calendar, Truck, ExternalLink, Star, Pencil, X, Save, Loader2, StickyNote } from 'lucide-react';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 // Helper function to calculate relative time
 function getRelativeTime(dateString: string): string {
@@ -93,6 +93,47 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
   const { toast } = useToast();
   const [currentStatus, setCurrentStatus] = useState<Order['status']>(order?.status || 'pending');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Canonical line items fetched fresh from the server when the panel opens.
+  // The order prop comes from the (optimistically merged) Orders list state,
+  // which can hold a stale/collapsed order_line_items after an edit or a direct
+  // DB correction that never round-tripped to the client. The detail view must
+  // reflect the true persisted lines (every physical unit, bundle composition,
+  // upsell), so we always re-read GET /orders/:id on open and render from that.
+  const [freshLineItems, setFreshLineItems] = useState<NonNullable<Order['order_line_items']> | null>(null);
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!open || !order?.id) {
+      setFreshLineItems(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const fresh = await ordersService.getById(order.id);
+        if (cancelled || !isMountedRef.current) return;
+        if (fresh?.order_line_items) {
+          setFreshLineItems(fresh.order_line_items);
+        }
+      } catch (error) {
+        // Non-fatal: fall back to the order prop's line items below.
+        logger.error('Error refreshing order detail line items:', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, order?.id]);
 
   // Internal notes editing state
   const [isEditingNotes, setIsEditingNotes] = useState(false);
@@ -305,7 +346,9 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
           <div className="space-y-3">
             <h4 className="font-semibold text-sm text-muted-foreground">PRODUCTO</h4>
             {(() => {
-              const lineItems = order.order_line_items || [];
+              // Prefer the canonical lines fetched on open; fall back to the
+              // (possibly stale) prop only while that request is in flight.
+              const lineItems = freshLineItems ?? order.order_line_items ?? [];
               // Degrade cleanly: when there are no normalized line items, keep
               // the legacy single product summary.
               if (lineItems.length === 0) {
@@ -322,11 +365,29 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                   </div>
                 );
               }
+              // Total physical units across all lines: bundles count by their
+              // per-color composition (sum of color quantities), every other
+              // line by its own quantity. This is what the picker must pack.
+              const totalUnits = lineItems.reduce((sum, item) => {
+                const colors = getRenderableColors(item);
+                if (colors.length > 0) {
+                  return sum + colors.reduce((s, c) => s + c.quantity, 0);
+                }
+                return sum + (item.quantity || 0);
+              }, 0);
+              // Subtotal derived from the line totals so the displayed sum always
+              // reconciles with the per-line prices shown above it.
+              const linesSubtotal = lineItems.reduce(
+                (sum, item) => sum + (Number(item.total_price) || 0),
+                0,
+              );
               return (
                 <div className="space-y-2">
                   {lineItems.map((item, idx) => {
                     const productImage = item.products?.image_url || item.image_url;
                     const colors = getRenderableColors(item);
+                    const lineTotal = Number(item.total_price)
+                      || (Number(item.unit_price) || 0) * (item.quantity || 0);
                     return (
                       <div key={item.id || idx} className="flex items-center gap-4 p-3 bg-muted rounded-lg">
                         <div className="w-12 h-12 bg-background rounded flex items-center justify-center overflow-hidden shrink-0">
@@ -337,8 +398,18 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium">{item.product_name}</p>
-                          {item.variant_title && (
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="font-medium">{item.product_name}</p>
+                            {item.is_upsell && (
+                              <Badge
+                                variant="outline"
+                                className="shrink-0 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 text-[10px] px-1.5 py-0"
+                              >
+                                Extra
+                              </Badge>
+                            )}
+                          </div>
+                          {item.variant_title && item.variant_title !== 'Upsell' && (
                             <p className="text-xs text-muted-foreground">{item.variant_title}</p>
                           )}
                           {colors.length === 0 ? (
@@ -353,11 +424,17 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                               {colors.map((c) => `${c.quantity} ${c.color}`).join(', ')}
                             </div>
                           )}
+                          <p className="text-sm font-semibold text-foreground mt-1">{formatCurrency(lineTotal)}</p>
                         </div>
                       </div>
                     );
                   })}
-                  <p className="text-sm font-semibold text-right">{formatCurrency(order.total ?? 0)}</p>
+                  {lineItems.length > 1 && (
+                    <p className="text-xs text-muted-foreground text-right">
+                      {totalUnits} unidades físicas a preparar
+                    </p>
+                  )}
+                  <p className="text-sm font-semibold text-right">{formatCurrency(linesSubtotal || order.total || 0)}</p>
                 </div>
               );
             })()}
