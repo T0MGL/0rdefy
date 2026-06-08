@@ -95,6 +95,35 @@ const MAX_DISPATCH_ATTEMPTS = 5;
 const KEY_CACHE_OPTIONS = { max: 100, ttlMs: 5 * 60 * 1_000 };
 
 // ================================================================
+// Manual-only emission switch
+// ================================================================
+
+/**
+ * Reversible kill switch para el AUTO-dispatch.
+ *
+ * Contexto (incidente fiscal 2026-06): el egress de Railway (152.55.184.63)
+ * no alcanza a SET; cada envio worker->SIFEN da timeout/socket hang up. El
+ * owner pidio explicitamente que las facturas pending/queued/rejected NO se
+ * reintenten solas. Este flag apaga el LAZO automatico (NOTIFY + sweep timer
+ * + barrido de arranque) sin tocar la logica de envio.
+ *
+ * Default: OFF. La emision y el reintento ocurren SOLO via trigger manual
+ * (script `sifen-drain.ts` o el endpoint de retry, que re-encola y deja que
+ * un humano corra el drain). Para reactivar el auto-dispatch una vez que el
+ * egress este arreglado: setear SIFEN_AUTO_DISPATCH=true en Railway. Cero
+ * cambio de codigo, cero deploy de logica.
+ *
+ * Acepta '1' o 'true' (case-insensitive) como ON. Cualquier otra cosa
+ * (incluida la ausencia de la variable) es OFF.
+ */
+export function isAutoDispatchEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const raw = (env.SIFEN_AUTO_DISPATCH ?? '').trim().toLowerCase();
+  return raw === '1' || raw === 'true';
+}
+
+// ================================================================
 // Estado interno
 // ================================================================
 
@@ -125,6 +154,20 @@ export class SifenDispatcher {
     if (this.running) return;
     this.running = true;
 
+    // Manual-only emission: si el auto-dispatch esta apagado NO conectamos
+    // el listener NOTIFY, NO armamos el sweep timer y NO hacemos el barrido
+    // de arranque. La unica forma de drenar la cola es el trigger manual
+    // (drainOnce, via script). Las invoices queued/rejected quedan quietas.
+    if (!isAutoDispatchEnabled()) {
+      logger.warn(
+        '[SifenDispatcher] AUTO-DISPATCH OFF (SIFEN_AUTO_DISPATCH!=true). ' +
+          'No NOTIFY listener, no sweep, no boot drain. La cola SIFEN solo ' +
+          'se envia con el trigger manual. Para reactivar: SIFEN_AUTO_DISPATCH=true.',
+      );
+      logger.info('[SifenDispatcher] started (manual-only mode)');
+      return;
+    }
+
     this.listener.on('sifen_invoice_queued', () => {
       this.scheduleWake();
     });
@@ -139,7 +182,37 @@ export class SifenDispatcher {
     // queued antes de que el listener se conectara.
     this.scheduleWake();
 
-    logger.info('[SifenDispatcher] started');
+    logger.info('[SifenDispatcher] started (auto-dispatch ON)');
+  }
+
+  /**
+   * Trigger MANUAL de envio. Drena la cola SIFEN una sola vez, en el caller,
+   * sin armar timers ni listeners. Es el unico camino de emision cuando
+   * SIFEN_AUTO_DISPATCH esta OFF: lo invoca un humano via el script
+   * `api/scripts/sifen-drain.ts`.
+   *
+   * Reusa exactamente la misma logica de envio que el lazo automatico
+   * (fetchQueuedInvoices -> agrupar -> sendDELote), pero corre inline y
+   * resuelve cuando termina, asi el script sabe cuando salir. No reintenta
+   * solo: una pasada y vuelve. Si quedan invoices queued (porque el egress
+   * sigue roto) el humano decide si vuelve a correrlo.
+   *
+   * NO releasa orphan-claims ni re-encola nada por su cuenta. Solo toma lo
+   * que ya esta en estado 'queued' con dispatch_key NULL.
+   */
+  async drainOnce(): Promise<void> {
+    if (this.stopped) throw new Error('Dispatcher stopped, create a new instance');
+    // Marcamos running para que processQueue/dispatchLote no aborten por el
+    // guard `if (!this.running) return`. No tocamos timers ni listeners.
+    const wasRunning = this.running;
+    this.running = true;
+    try {
+      logger.info('[SifenDispatcher] manual drain started');
+      await this.processQueue();
+      logger.info('[SifenDispatcher] manual drain finished');
+    } finally {
+      this.running = wasRunning;
+    }
   }
 
   async stop(): Promise<void> {

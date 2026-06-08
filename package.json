@@ -23,6 +23,7 @@
     "api:start": "npx tsx api/index.ts",
     "worker:sifen:dev": "tsx watch api/workers/sifen-worker.ts",
     "worker:sifen:start": "tsx api/workers/sifen-worker.ts",
+    "sifen:drain": "tsx api/scripts/sifen-drain.ts",
     "email:logo": "tsx api/scripts/generate-email-logo.tsx",
     "email:preview": "tsx api/scripts/preview-transactional-emails.ts",
     "health:check": "tsx scripts/health-check.ts",
