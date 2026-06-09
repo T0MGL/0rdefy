@@ -363,7 +363,6 @@ export class SifenDispatcher {
 
     const identityId = invoices[0].identity_id;
     const env = invoices[0].sifen_environment;
-    const tipo = invoices[0].tipo_documento;
     const signedDEs = invoices.map((i) => i.xml_signed!).filter(Boolean);
 
     if (signedDEs.length !== invoices.length) {

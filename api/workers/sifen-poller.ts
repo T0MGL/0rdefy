@@ -299,22 +299,29 @@ export class SifenPoller {
       return;
     }
 
-    // Lote inconcluso: consultLote colgo/abort (loteError), sigue 'processing',
-    // o devolvio un codigo desconocido. SET puede mantener abierta la conexion
-    // de siResultLoteDE mientras procesa, agotando el timeout sin contestar.
-    // La consulta DE por CDC contesta en ~1s y resuelve la aprobacion de forma
-    // confiable, asi que la usamos como fallback ANTES de reprogramar. Asi un
-    // lote recien enviado se resuelve a 'approved' sin quedar atascado por el
-    // hang de consultLote.
+    // Lote en 'processing' LIMPIO (0361): SET acepto la consulta y dice que el
+    // lote sigue procesando. Esto NO es ambiguo: reprogramamos con backoff y
+    // NO disparamos el fallback. Un consultDE por CDC aca no aportaria (el DE
+    // todavia no tiene estado final) y martillaria a SET con N requests por
+    // poll. Dejamos que el proximo ciclo reintente consultLote.
+    if (result && result.state === 'processing') {
+      await this.scheduleRetry(proto, 'SIFEN processing');
+      return;
+    }
+
+    // Lote INCONCLUSO por falla de transporte: consultLote colgo/abort
+    // (loteError) o devolvio un codigo desconocido. SET puede mantener abierta
+    // la conexion de siResultLoteDE mientras procesa, agotando el timeout sin
+    // contestar. La consulta DE por CDC contesta en ~1s y resuelve el estado
+    // real de forma confiable, asi que SOLO aca la usamos como fallback ANTES
+    // de reprogramar. Asi un lote cuyo consultLote cuelga se resuelve a
+    // 'approved' sin quedar atascado, sin hammerear a SET en los 'processing'
+    // legitimos.
     const resolved = await this.resolveViaConsultDE(proto, mtls);
     if (resolved) return;
 
     if (loteError) {
       await this.scheduleRetry(proto, loteError);
-      return;
-    }
-    if (result && result.state === 'processing') {
-      await this.scheduleRetry(proto, 'SIFEN processing');
       return;
     }
     // Codigo desconocido: log y reintenta (sin entrar en loop infinito; el

@@ -8,10 +8,19 @@
  * The poller thus never moved a 'sent' invoice to 'approved' and never fired
  * the approval email.
  *
- * Fix: when consultLote is inconclusive (aborts/times out, stays 'processing',
- * or returns 'not_found' while the DE actually exists), fall back to
- * consultDE-per-CDC. If SET reports the DE approved (dCodRes 0422), the poller
- * moves the invoice to 'approved' and dispatches the email.
+ * Fix: when consultLote is inconclusive because of a TRANSPORT failure (aborts/
+ * times out) or returns 'not_found' while the DE actually exists, fall back to
+ * consultDE-per-CDC. If SET reports the DE approved (dEstRes='Aprobado'), the
+ * poller moves the invoice to 'approved' and dispatches the email.
+ *
+ * IMPORTANT (two safety gates exercised here):
+ *   1. A clean 'processing' (0361) lote does NOT trigger the fallback. SET said
+ *      the lote is still processing; the poller just reschedules with backoff
+ *      so it does not hammer SeT with N consultDE calls per poll.
+ *   2. consultDE NEVER approves on dCodRes 0422 alone. 0422 only means "CDC
+ *      found"; a found-but-Rechazado/Cancelado DE also returns 0422. Approval
+ *      is gated on dEstRes='Aprobado'. A found-but-rejected DE must NOT move the
+ *      invoice to 'approved' and must NOT fire the customer email.
  *
  * Run with:
  *   npx tsx --test --experimental-test-module-mocks \
@@ -148,9 +157,51 @@ const CDC = '01801678455001001620627322026041418922542658';
 const PROTOCOL = '820580922318027570'; // 18-digit prod protocol
 
 let consultLoteBehavior: 'hang' | 'processing' | 'not_found' | 'processed' = 'hang';
-let consultDEApproved = true;
+
+/**
+ * Pre-built consultDE result the mock returns. Mirrors what the REAL
+ * parseConsultaDEResult produces: `approved` is gated on dEstRes, never on
+ * dCodRes 0422 alone. Tests pick a scenario via setConsultDEResult().
+ */
+type ConsultDEScenario = 'approved' | 'found_rejected' | 'found_no_estado' | 'not_found';
+let consultDEScenario: ConsultDEScenario = 'approved';
 let consultDECalls = 0;
 let emailDispatchCalls: string[] = [];
+
+function consultDEResultFor(scenario: ConsultDEScenario) {
+  switch (scenario) {
+    case 'approved':
+      return {
+        approved: true,
+        responseCode: '0422', // CDC found
+        responseMessage: 'CDC encontrado',
+        estado: 'Aprobado',
+        protocolNumber: PROTOCOL,
+      };
+    case 'found_rejected':
+      // 0422 (found) but the DE state is Rechazado -> NOT approved.
+      return {
+        approved: false,
+        responseCode: '0422',
+        responseMessage: 'CDC encontrado',
+        estado: 'Rechazado',
+      };
+    case 'found_no_estado':
+      // 0422 (found) but no parseable dEstRes -> INCONCLUSIVE, not approved.
+      return {
+        approved: false,
+        responseCode: '0422',
+        responseMessage: 'CDC encontrado',
+        estado: undefined,
+      };
+    case 'not_found':
+      return {
+        approved: false,
+        responseCode: '0420',
+        responseMessage: 'CDC inexistente',
+      };
+  }
+}
 
 function makeRow(): InvoiceRow {
   return {
@@ -223,19 +274,7 @@ describe('SifenPoller consultDE fallback (Bug 2)', () => {
         consultDEResult: async (cdc: string) => {
           consultDECalls += 1;
           assert.equal(cdc, CDC);
-          return consultDEApproved
-            ? {
-                approved: true,
-                responseCode: '0422',
-                responseMessage: 'DE encontrado',
-                estado: 'Aprobado',
-                protocolNumber: PROTOCOL,
-              }
-            : {
-                approved: false,
-                responseCode: '0420',
-                responseMessage: 'DE no encontrado',
-              };
+          return consultDEResultFor(consultDEScenario);
         },
       },
     });
@@ -256,7 +295,7 @@ describe('SifenPoller consultDE fallback (Bug 2)', () => {
 
   beforeEach(() => {
     consultLoteBehavior = 'hang';
-    consultDEApproved = true;
+    consultDEScenario = 'approved';
     consultDECalls = 0;
     emailDispatchCalls = [];
     db.seed([makeRow()]);
@@ -290,19 +329,25 @@ describe('SifenPoller consultDE fallback (Bug 2)', () => {
     assert.deepEqual(emailDispatchCalls, ['inv-1'], 'approval email dispatched');
   });
 
-  it('approves via consultDE when consultLote stays PROCESSING', async () => {
+  it('reschedules WITHOUT the fallback when consultLote stays PROCESSING (0361)', async () => {
+    // A clean "still processing" lote is not ambiguous: SET answered. We must
+    // NOT fire consultDE here (it would hammer SeT N times per poll and the DE
+    // has no final state yet). Just reschedule with backoff.
     consultLoteBehavior = 'processing';
     const poller = newPoller();
     await runOneCycle(poller);
 
-    assert.ok(consultDECalls >= 1);
-    assert.equal(db.rows[0].sifen_status, 'approved');
-    assert.deepEqual(emailDispatchCalls, ['inv-1']);
+    assert.equal(consultDECalls, 0, 'no fallback on a clean processing lote');
+    const inv = db.rows[0];
+    assert.equal(inv.sifen_status, 'sent', 'still sent');
+    assert.equal(inv.sifen_lote_poll_attempts, 1, 'retry scheduled');
+    assert.ok(inv.sifen_lote_next_poll_at, 'next_poll_at set for backoff');
+    assert.equal(emailDispatchCalls.length, 0, 'no email while processing');
   });
 
-  it('reschedules (does NOT approve) when consultLote hangs AND consultDE is not approved yet', { timeout: 5000 }, async () => {
+  it('reschedules (does NOT approve) when consultLote hangs AND consultDE does not find the DE', { timeout: 5000 }, async () => {
     consultLoteBehavior = 'hang';
-    consultDEApproved = false;
+    consultDEScenario = 'not_found';
     const poller = newPoller();
     await runOneCycle(poller);
 
@@ -314,9 +359,44 @@ describe('SifenPoller consultDE fallback (Bug 2)', () => {
     assert.equal(emailDispatchCalls.length, 0, 'no email on inconclusive');
   });
 
-  it('on not_found, resolves via consultDE instead of marking rejected', async () => {
+  // BLOCKER regression: a found-but-rejected DE (dCodRes 0422, dEstRes
+  // 'Rechazado') must NEVER be treated as approved. Before the fix, approving
+  // on 0422 alone shipped a false fiscal approval email for a rejected DE.
+  it('does NOT approve or email when consultDE returns 0422 found-but-Rechazado', { timeout: 5000 }, async () => {
+    consultLoteBehavior = 'hang';
+    consultDEScenario = 'found_rejected';
+    const poller = newPoller();
+    await runOneCycle(poller);
+
+    assert.ok(consultDECalls >= 1, 'fallback attempted');
+    const inv = db.rows[0];
+    assert.equal(inv.sifen_status, 'sent', 'stays sent, NOT approved on 0422+Rechazado');
+    assert.equal(inv.approved_at, null, 'approved_at stays null');
+    assert.equal(inv.sifen_lote_poll_attempts, 1, 'reschedules as inconclusive');
+    assert.ok(inv.sifen_lote_next_poll_at, 'next_poll_at set for backoff');
+    assert.equal(emailDispatchCalls.length, 0, 'no fiscal email for a non-approved DE');
+  });
+
+  // BLOCKER regression: 0422 found but dEstRes missing/unparseable is
+  // INCONCLUSIVE. Must not approve, must not reject: reschedule with backoff.
+  it('treats 0422 found-but-missing-dEstRes as inconclusive (reschedule, no email)', { timeout: 5000 }, async () => {
+    consultLoteBehavior = 'hang';
+    consultDEScenario = 'found_no_estado';
+    const poller = newPoller();
+    await runOneCycle(poller);
+
+    assert.ok(consultDECalls >= 1, 'fallback attempted');
+    const inv = db.rows[0];
+    assert.equal(inv.sifen_status, 'sent', 'stays sent on inconclusive 0422');
+    assert.equal(inv.approved_at, null, 'approved_at stays null');
+    assert.equal(inv.sifen_lote_poll_attempts, 1, 'reschedules');
+    assert.ok(inv.sifen_lote_next_poll_at, 'next_poll_at set for backoff');
+    assert.equal(emailDispatchCalls.length, 0, 'no email on inconclusive');
+  });
+
+  it('on not_found, resolves via consultDE (approved) instead of marking rejected', async () => {
     consultLoteBehavior = 'not_found';
-    consultDEApproved = true;
+    consultDEScenario = 'approved';
     const poller = newPoller();
     await runOneCycle(poller);
 

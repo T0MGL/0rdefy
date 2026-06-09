@@ -312,9 +312,17 @@ export async function consultDE(
  *
  * A diferencia de {@link SifenResponse} (que usa la banda 0260-0299 de la
  * RECEPCION sync), la CONSULTA de un DE individual responde con su propia
- * tabla de codigos. El codigo de "documento encontrado y aprobado" es 0422
- * (Manual v150 tabla de la consulta de DE), distinto de la banda de
- * recepcion. Por eso interpretamos approved aca y no reusamos `.success`.
+ * tabla de codigos. OJO: dCodRes solo indica si el CDC fue HALLADO, NO si el
+ * DE quedo aprobado:
+ *   - 0422 = CDC encontrado (el documento existe; su estado fiscal puede ser
+ *            Aprobado, Rechazado, Cancelado o Inutilizado)
+ *   - 0420 = CDC inexistente
+ *   - 0421 = RUC sin permiso para consultar ese CDC
+ * El estado fiscal real vive en rProtDe/gResProc -> dEstRes ('Aprobado',
+ * 'Aprobado con observacion', 'Rechazado', 'Cancelado', 'Inutilizado'). Por
+ * eso `approved` se deriva UNICAMENTE de dEstRes via isApprovedEstado, igual
+ * que {@link parseLoteResultResponse}. NUNCA se aprueba por dCodRes=0422 a
+ * secas: un DE hallado-pero-Rechazado tambien devuelve 0422.
  *
  * Se usa como FALLBACK del poller cuando consultLote (siResultLoteDE) cuelga
  * o queda inconcluso: la consulta por CDC contesta en ~1s desde una IP que
@@ -322,30 +330,45 @@ export async function consultDE(
  * abierta mientras el lote sigue procesando.
  */
 export interface SifenConsultaDEResult {
-  /** True si SET reporta el DE como aprobado/registrado (dCodRes 0422). */
+  /**
+   * True solo si dEstRes empieza con "Aprobado". NUNCA se deriva de
+   * dCodRes=0422 (eso solo dice que el CDC fue hallado, no que este aprobado).
+   */
   approved: boolean;
-  /** dCodRes de la consulta (0422 = encontrado/aprobado, 0420/0421 = no hallado, etc.). */
+  /** dCodRes de la consulta (0422 = CDC encontrado, 0420 = inexistente, 0421 = sin permiso). */
   responseCode: string;
   /** dMsgRes. */
   responseMessage: string;
-  /** dEstRes literal cuando SET lo incluye ('Aprobado', etc.). */
+  /**
+   * dEstRes literal cuando SET lo incluye ('Aprobado', 'Rechazado',
+   * 'Cancelado', etc.). Si la respuesta es 0422 (hallado) pero dEstRes esta
+   * ausente o no se puede parsear, queda undefined y el resultado es
+   * INCONCLUSO (ni approved ni rejected): el poller reprograma con backoff.
+   */
   estado?: string;
-  /** dProtAut: numero de transaccion/autorizacion del DE. */
+  /**
+   * dProtAut: protocolo de autorizacion. Solo presente en DEs aprobados, asi
+   * que sirve como senal corroborante, pero el gate autoritativo es dEstRes.
+   */
   protocolNumber?: string;
   rawResponse?: string;
 }
 
 /**
- * Codigo de la consulta DE que indica "documento existe y esta aprobado".
- * Manual v150 (consulta de DE / siConsDE): 0422 = "DE encontrado".
+ * Codigo de la consulta DE que indica "CDC HALLADO" (NO aprobado).
+ * Manual v150 (consulta de DE / siConsDE): 0422 = "CDC encontrado". El estado
+ * fiscal real se lee de dEstRes, NO de este codigo: un DE Rechazado o
+ * Cancelado tambien responde 0422.
  */
-const CONSULTA_DE_APPROVED_CODE = '0422';
+const CONSULTA_DE_FOUND_CODE = '0422';
 
 /**
  * Consulta un DE por CDC y devuelve un resultado estructurado con la
- * semantica de aprobacion correcta (0422). Es el fallback robusto del
- * poller: consultLote puede colgar en lotes recien enviados, pero la
- * consulta individual por CDC resuelve la aprobacion de forma confiable.
+ * semantica de aprobacion correcta: `approved` SOLO si dEstRes='Aprobado*'.
+ * Es el fallback robusto del poller: consultLote puede colgar en lotes recien
+ * enviados, pero la consulta individual por CDC resuelve el estado real de
+ * forma confiable. Un CDC hallado (0422) sin un dEstRes aprobado queda
+ * inconcluso, nunca aprobado.
  */
 export async function consultDEResult(
   cdc: string,
@@ -367,10 +390,20 @@ export async function consultDEResult(
 }
 
 /**
- * Parse de la respuesta de siConsDE. Extrae dCodRes/dMsgRes del header,
- * y el estado/protocolo del rProtDe cuando esta presente. approved se
- * deriva de dCodRes=0422 (DE encontrado) o de un dEstRes que empieza con
- * "Aprobado", lo que llegue primero.
+ * Parse de la respuesta de siConsDE. Extrae dCodRes/dMsgRes del header y el
+ * estado/protocolo del rProtDe.
+ *
+ * GATE DE APROBACION (critico): `approved` se deriva UNICAMENTE de
+ * isApprovedEstado(dEstRes), igual que {@link parseLoteResultResponse}. dCodRes
+ * NO participa del gate: 0422 solo significa "CDC hallado", y un DE
+ * Rechazado/Cancelado/Inutilizado tambien responde 0422. Aprobar por 0422 a
+ * secas despacharia el email fiscal de un DE no aprobado.
+ *
+ * Estados posibles del resultado:
+ *   - dEstRes='Aprobado*'                  -> approved=true
+ *   - dEstRes='Rechazado'/'Cancelado'/etc. -> approved=false (no aprobado)
+ *   - 0422 hallado pero dEstRes ausente    -> approved=false, estado=undefined
+ *                                             (INCONCLUSO: el poller reprograma)
  */
 async function parseConsultaDEResult(
   rawXml: string,
@@ -403,8 +436,19 @@ async function parseConsultaDEResult(
     const estado = prot.dEstRes ? String(prot.dEstRes) : undefined;
     const protocolNumber = prot.dProtAut ? String(prot.dProtAut) : undefined;
 
-    const approved =
-      responseCode === CONSULTA_DE_APPROVED_CODE || isApprovedEstado(estado);
+    // Gate autoritativo: SOLO dEstRes. responseCode (incl. 0422 = CDC hallado)
+    // nunca aprueba por si solo; un DE Rechazado/Cancelado tambien es 0422.
+    const approved = isApprovedEstado(estado);
+
+    // 0422 (CDC hallado) sin dEstRes parseable: resultado INCONCLUSO. Lo
+    // dejamos como no-aprobado/no-rechazado (estado=undefined) para que el
+    // poller reprograme con backoff en vez de aprobar a ciegas. Lo logueamos
+    // porque suele indicar un layout de respuesta no contemplado.
+    if (responseCode === CONSULTA_DE_FOUND_CODE && !estado) {
+      logger.warn(
+        `[SIFEN] consultDE 0422 (CDC hallado) sin dEstRes: resultado inconcluso, no se aprueba`,
+      );
+    }
 
     return {
       approved,
