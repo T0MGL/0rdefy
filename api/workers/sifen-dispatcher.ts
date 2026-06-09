@@ -12,9 +12,12 @@
  *   - SELECT ... FOR UPDATE SKIP LOCKED permite escalar replicas en
  *     Railway sin race conditions. Cada replica toma su propio chunk.
  *   - sifen_lote_dispatch_key UNIQUE (migration 189) protege contra
- *     doble dispatch si el worker reinicia mid-flight: el hash del lote
- *     no cambia, asi que un re-take genera el mismo key y la UNIQUE
- *     constraint hace el INSERT-equivalente del dispatch idempotente.
+ *     doble dispatch si el worker reinicia mid-flight. La key es
+ *     PER-INVOICE y deterministica (sha256 de su propio xml_signed): un
+ *     re-take regenera la misma key por fila, la UNIQUE la bloquea y el
+ *     dispatch de esa invoice queda idempotente. Per-invoice (no per-lote)
+ *     para que un lote con >1 DE de la misma identidad no colisione consigo
+ *     mismo en la UNIQUE.
  *
  * Lote layout:
  *   - Hasta 50 DEs del mismo (identity_id, tipo_documento, env)
@@ -361,7 +364,6 @@ export class SifenDispatcher {
     const identityId = invoices[0].identity_id;
     const env = invoices[0].sifen_environment;
     const tipo = invoices[0].tipo_documento;
-    const invoiceIds = invoices.map((i) => i.id);
     const signedDEs = invoices.map((i) => i.xml_signed!).filter(Boolean);
 
     if (signedDEs.length !== invoices.length) {
@@ -371,37 +373,67 @@ export class SifenDispatcher {
       return;
     }
 
-    // dispatchKey deterministico: si reintentamos el mismo lote (worker
-    // restart), el hash colisiona y la UNIQUE constraint nos protege
-    // de double-dispatch. Truncado a 40 chars para caber en VARCHAR(64).
-    const dispatchKey = crypto
+    // loteHash deterministico del contenido completo del lote. Se usa para
+    // el dispatchId (<dId>) y el logging, NO como dispatch_key persistido.
+    const loteHash = crypto
       .createHash('sha256')
       .update(signedDEs.join('|'))
       .digest('hex')
       .slice(0, 40);
 
-    // Reservar las invoices con el dispatch_key. Si otra replica ya
-    // gano la carrera, el UPDATE no afecta filas (las invoices ya
-    // tienen dispatch_key) y la UNIQUE constraint bloquea el INSERT
-    // equivalente.
-    const { data: reserved, error: reserveErr } = await supabaseAdmin
-      .from('invoices')
-      .update({
-        sifen_lote_dispatch_key: dispatchKey,
-        sifen_lote_submitted_at: new Date().toISOString(),
-      })
-      .in('id', invoiceIds)
-      .eq('sifen_status', 'queued')
-      .is('sifen_lote_dispatch_key', null)
-      .select('id');
+    // dispatch_key PER-INVOICE, no per-lote. Cada invoice deriva su propia
+    // key deterministica de su PROPIO xml_signed. Esto:
+    //   - evita la colision UNIQUE cuando un lote tiene >1 invoice de la
+    //     misma identidad (antes todas compartian el mismo hash de lote y
+    //     la segunda fila violaba uniq_invoices_sifen_lote_dispatch_key).
+    //   - preserva la idempotencia per-invoice: si el worker reinicia y
+    //     vuelve a tomar la misma invoice, regenera la misma key y la
+    //     UNIQUE bloquea el doble dispatch de esa fila.
+    // sha256(xml_signed) es estable mientras el XML firmado no cambie (la
+    // firma incluye timbrado/CDC/fecha, asi que dos invoices distintas
+    // nunca colisionan). Truncado a 40 chars para caber en VARCHAR(64).
+    const keyForInvoice = (xmlSigned: string): string =>
+      crypto.createHash('sha256').update(xmlSigned).digest('hex').slice(0, 40);
 
-    if (reserveErr) {
-      logger.error(
-        `[SifenDispatcher] reserve failed identity=${identityId}: ${reserveErr.message}`,
-      );
-      return;
+    // Reservar invoice por invoice. Un solo UPDATE bulk no sirve porque
+    // necesitamos un valor distinto por fila. El loop es chico (lote <= 50)
+    // y cada UPDATE es atomico: el guard `.is(sifen_lote_dispatch_key, null)`
+    // + la UNIQUE garantizan que dos replicas no reserven la misma invoice.
+    const submittedAt = new Date().toISOString();
+    const reservedIds: string[] = [];
+    for (const inv of invoices) {
+      const invoiceKey = keyForInvoice(inv.xml_signed!);
+      const { data: rowReserved, error: reserveErr } = await supabaseAdmin
+        .from('invoices')
+        .update({
+          sifen_lote_dispatch_key: invoiceKey,
+          sifen_lote_submitted_at: submittedAt,
+        })
+        .eq('id', inv.id)
+        .eq('sifen_status', 'queued')
+        .is('sifen_lote_dispatch_key', null)
+        .select('id');
+
+      if (reserveErr) {
+        // 23505 (unique_violation) = otra replica/un re-take ya reservo esta
+        // invoice con la misma key deterministica. Es la proteccion de
+        // doble dispatch funcionando: la salteamos, no la enviamos de nuevo.
+        if (reserveErr.code === '23505') {
+          logger.info(
+            `[SifenDispatcher] invoice ${inv.id} already claimed (idempotency), skipping identity=${identityId}`,
+          );
+          continue;
+        }
+        logger.error(
+          `[SifenDispatcher] reserve failed invoice=${inv.id} identity=${identityId}: ${reserveErr.message}`,
+        );
+        continue;
+      }
+      if ((rowReserved ?? []).length > 0) {
+        reservedIds.push(inv.id);
+      }
     }
-    const reservedIds = (reserved ?? []).map((r) => r.id as string);
+
     if (reservedIds.length === 0) {
       logger.info(
         `[SifenDispatcher] race lost, all invoices already claimed identity=${identityId}`,
@@ -414,10 +446,11 @@ export class SifenDispatcher {
     const finalSignedDEs = finalInvoices.map((i) => i.xml_signed!);
 
     // dispatchId que mandamos en <dId>. Maximo 15 digitos numericos.
-    // Tomamos los primeros 15 chars decimales del hash convertidos a
-    // numero positivo, asi es deterministico y dentro del rango.
+    // Tomamos los primeros 15 chars decimales del hash del lote convertidos
+    // a numero positivo, asi es deterministico y dentro del rango. El SEND
+    // sigue siendo un solo lote agrupado; solo la key persistida es per-row.
     const dispatchId = String(
-      BigInt('0x' + dispatchKey.slice(0, 15)) % BigInt(1_000_000_000_000_000n),
+      BigInt('0x' + loteHash.slice(0, 15)) % BigInt(1_000_000_000_000_000n),
     ).padStart(1, '0');
 
     const material = await this.getKeyMaterial(identityId);
@@ -467,7 +500,7 @@ export class SifenDispatcher {
 
       if (nextAttempts >= MAX_DISPATCH_ATTEMPTS) {
         logger.error(
-          `[SifenDispatcher] giving up dispatch=${dispatchKey} count=${finalInvoices.length} identity=${identityId} after ${nextAttempts} transient failures: ${message}`,
+          `[SifenDispatcher] giving up dispatch=${loteHash} count=${finalInvoices.length} identity=${identityId} after ${nextAttempts} transient failures: ${message}`,
         );
         await supabaseAdmin
           .from('invoices')
@@ -485,7 +518,7 @@ export class SifenDispatcher {
       }
 
       logger.warn(
-        `[SifenDispatcher] transient send failure dispatch=${dispatchKey} count=${finalInvoices.length} identity=${identityId} attempts=${nextAttempts}/${MAX_DISPATCH_ATTEMPTS}: ${message}`,
+        `[SifenDispatcher] transient send failure dispatch=${loteHash} count=${finalInvoices.length} identity=${identityId} attempts=${nextAttempts}/${MAX_DISPATCH_ATTEMPTS}: ${message}`,
       );
       // Transient: devolver al estado queued limpiando dispatch_key, asi
       // el proximo tick las vuelve a tomar. Incrementamos attempts para
@@ -528,13 +561,13 @@ export class SifenDispatcher {
 
       if (updErr) {
         logger.error(
-          `[SifenDispatcher] update sent failed dispatch=${dispatchKey}: ${updErr.message}`,
+          `[SifenDispatcher] update sent failed dispatch=${loteHash}: ${updErr.message}`,
         );
         return;
       }
 
       logger.info(
-        `[SifenDispatcher] lote sent dispatch=${dispatchKey} count=${finalInvoices.length} identity=${identityId} protocol=${response.protocolNumber} firstPoll=${firstPollDelaySecs}s`,
+        `[SifenDispatcher] lote sent dispatch=${loteHash} count=${finalInvoices.length} identity=${identityId} protocol=${response.protocolNumber} firstPoll=${firstPollDelaySecs}s`,
       );
     } else {
       // SIFEN rechazo el lote (0301 u otro). Marcar rejected, owner_alert
@@ -546,7 +579,7 @@ export class SifenDispatcher {
         response.responseMessage,
       );
       logger.warn(
-        `[SifenDispatcher] lote rejected dispatch=${dispatchKey} count=${finalInvoices.length} identity=${identityId} code=${response.responseCode} msg=${response.responseMessage}`,
+        `[SifenDispatcher] lote rejected dispatch=${loteHash} count=${finalInvoices.length} identity=${identityId} code=${response.responseCode} msg=${response.responseMessage}`,
       );
     }
   }

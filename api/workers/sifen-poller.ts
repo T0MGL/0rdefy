@@ -28,7 +28,9 @@ import { logger } from '../utils/logger';
 import { supabaseAdmin } from '../db/connection';
 import {
   consultLote,
+  consultDEResult,
   type SifenLoteResultResponse,
+  type SifenConsultaDEResult,
   type SifenMtls,
 } from '../services/sifen/sifen-client';
 import {
@@ -57,7 +59,22 @@ const SWEEP_LIMIT = 100;
  */
 const POLL_MAX_ATTEMPTS = 24;
 
-const POLL_TIMEOUT_MS = 30_000;
+/**
+ * Timeout del consultLote (siResultLoteDE). SET puede mantener la conexion
+ * abierta mientras el lote sigue procesando, asi que un valor agresivo aca
+ * dispara el abort antes de que llegue la respuesta. Lo subimos al limite
+ * del cliente HTTP (90s) y dejamos que el fallback consultDE-por-CDC resuelva
+ * la aprobacion cuando esto se agote. NO bajar de TIMEOUT_MS del cliente o el
+ * consultLote nunca llega a devolver y todo termina en "request aborted".
+ */
+const POLL_TIMEOUT_MS = 90_000;
+
+/**
+ * Timeout del fallback consultDE por CDC. La consulta individual contesta
+ * en ~1s desde una IP que alcanza a SET; 20s cubre cold-start del socket mTLS
+ * con margen sin colgar el ciclo del poller.
+ */
+const CONSULT_DE_TIMEOUT_MS = 20_000;
 
 const KEY_CACHE_OPTIONS = { max: 100, ttlMs: 5 * 60 * 1_000 };
 
@@ -242,7 +259,8 @@ export class SifenPoller {
     const onParentAbort = () => cycleAbort.abort();
     this.abortController.signal.addEventListener('abort', onParentAbort, { once: true });
 
-    let result: SifenLoteResultResponse;
+    let result: SifenLoteResultResponse | null = null;
+    let loteError: string | null = null;
     try {
       result = await consultLote(
         proto.protocolNumber,
@@ -251,46 +269,204 @@ export class SifenPoller {
         cycleAbort.signal,
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      loteError = err instanceof Error ? err.message : String(err);
       logger.warn(
-        `[SifenPoller] consultLote transient failure protocol=${proto.protocolNumber}: ${message}`,
+        `[SifenPoller] consultLote transient failure protocol=${proto.protocolNumber}: ${loteError}`,
       );
-      await this.scheduleRetry(proto, message);
-      return;
     } finally {
       clearTimeout(timeout);
       this.abortController.signal.removeEventListener('abort', onParentAbort);
     }
 
-    switch (result.state) {
-      case 'processing':
-        await this.scheduleRetry(proto, 'SIFEN processing');
-        break;
-
-      case 'processed':
-        await this.applyProcessedResult(proto, result);
-        break;
-
-      case 'not_found':
-        // SIFEN dice que el protocolo no existe. Probablemente el lote
-        // expiro de su lado o nunca se proceso. Marcar como rejected,
-        // owner_alert.
-        await this.markProtocolRejected(
-          proto,
-          result.responseCode,
-          result.responseMessage || 'Lote inexistente en SIFEN',
-        );
-        break;
-
-      default:
-        // Codigo desconocido: log y reintenta una vez (no entrar en loop
-        // infinito).
-        logger.warn(
-          `[SifenPoller] unknown state protocol=${proto.protocolNumber} code=${result.responseCode}`,
-        );
-        await this.scheduleRetry(proto, `Unknown SIFEN code ${result.responseCode}`);
-        break;
+    // consultLote concluyente: aplicar el resultado del lote tal cual.
+    if (result && result.state === 'processed') {
+      await this.applyProcessedResult(proto, result);
+      return;
     }
+    if (result && result.state === 'not_found') {
+      // SIFEN dice que el protocolo no existe. Antes de marcar rejected,
+      // consultamos por CDC: si el DE ya quedo aprobado en SET, el "lote
+      // inexistente" es solo que el lote expiro de su lado pero el documento
+      // existe. El fallback resuelve la aprobacion; si tampoco lo encuentra,
+      // recien ahi marcamos rejected.
+      const resolved = await this.resolveViaConsultDE(proto, mtls);
+      if (resolved) return;
+      await this.markProtocolRejected(
+        proto,
+        result.responseCode,
+        result.responseMessage || 'Lote inexistente en SIFEN',
+      );
+      return;
+    }
+
+    // Lote inconcluso: consultLote colgo/abort (loteError), sigue 'processing',
+    // o devolvio un codigo desconocido. SET puede mantener abierta la conexion
+    // de siResultLoteDE mientras procesa, agotando el timeout sin contestar.
+    // La consulta DE por CDC contesta en ~1s y resuelve la aprobacion de forma
+    // confiable, asi que la usamos como fallback ANTES de reprogramar. Asi un
+    // lote recien enviado se resuelve a 'approved' sin quedar atascado por el
+    // hang de consultLote.
+    const resolved = await this.resolveViaConsultDE(proto, mtls);
+    if (resolved) return;
+
+    if (loteError) {
+      await this.scheduleRetry(proto, loteError);
+      return;
+    }
+    if (result && result.state === 'processing') {
+      await this.scheduleRetry(proto, 'SIFEN processing');
+      return;
+    }
+    // Codigo desconocido: log y reintenta (sin entrar en loop infinito; el
+    // cap de attempts corta).
+    logger.warn(
+      `[SifenPoller] unknown state protocol=${proto.protocolNumber} code=${result?.responseCode ?? 'n/a'}`,
+    );
+    await this.scheduleRetry(
+      proto,
+      `Unknown SIFEN code ${result?.responseCode ?? 'n/a'}`,
+    );
+  }
+
+  /**
+   * Fallback de resolucion por CDC. Para cada invoice del lote que todavia
+   * tiene CDC y sigue en 'sent', consulta el DE individual a SET (consultDE).
+   * Si SET lo reporta aprobado (dCodRes 0422 / dEstRes "Aprobado"), aplica la
+   * aprobacion (status, owner_alert, email). Esto desatasca lotes cuyo
+   * consultLote cuelga o quedo inconcluso, porque la consulta por CDC SI
+   * responde de forma confiable.
+   *
+   * Devuelve true si resolvio (aprobo) al menos una invoice; false si ninguna
+   * pudo confirmarse aprobada (el caller reprograma con backoff).
+   */
+  private async resolveViaConsultDE(
+    proto: PendingProtocol,
+    mtls: SifenMtls,
+  ): Promise<boolean> {
+    const { data: invoiceRows, error: loadErr } = await supabaseAdmin
+      .from('invoices')
+      .select('id, cdc, store_id, document_number, order_id, sifen_status')
+      .in('id', proto.invoiceIds);
+
+    if (loadErr) {
+      logger.error(
+        `[SifenPoller] consultDE fallback: load invoices failed protocol=${proto.protocolNumber}: ${loadErr.message}`,
+      );
+      return false;
+    }
+
+    type InvoiceRow = {
+      id: string;
+      cdc: string | null;
+      store_id: string;
+      document_number: number;
+      order_id: string | null;
+      sifen_status: string;
+    };
+
+    let resolvedAny = false;
+    const nowIso = new Date().toISOString();
+
+    for (const inv of (invoiceRows ?? []) as InvoiceRow[]) {
+      if (!this.running) break;
+      // Ya resuelta por otra via: no la tocamos.
+      if (inv.sifen_status !== 'sent') continue;
+      if (!inv.cdc) continue;
+
+      const cycleAbort = new AbortController();
+      const timeout = setTimeout(() => cycleAbort.abort(), CONSULT_DE_TIMEOUT_MS);
+      timeout.unref();
+      const onParentAbort = () => cycleAbort.abort();
+      this.abortController.signal.addEventListener('abort', onParentAbort, {
+        once: true,
+      });
+
+      let deResult: SifenConsultaDEResult;
+      try {
+        deResult = await consultDEResult(inv.cdc, proto.env, mtls, cycleAbort.signal);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn(
+          `[SifenPoller] consultDE fallback transient failure cdc=${inv.cdc} protocol=${proto.protocolNumber}: ${message}`,
+        );
+        continue;
+      } finally {
+        clearTimeout(timeout);
+        this.abortController.signal.removeEventListener('abort', onParentAbort);
+      }
+
+      if (!deResult.approved) {
+        // No aprobado todavia (o no hallado): dejamos que el caller reprograme.
+        logger.info(
+          `[SifenPoller] consultDE fallback inconclusive cdc=${inv.cdc} code=${deResult.responseCode} estado=${deResult.estado ?? 'n/a'}`,
+        );
+        continue;
+      }
+
+      const { error: updErr } = await supabaseAdmin
+        .from('invoices')
+        .update({
+          sifen_status: 'approved',
+          sifen_response_code: deResult.responseCode,
+          sifen_response_message: deResult.responseMessage,
+          sifen_lote_last_error: null,
+          sifen_lote_next_poll_at: null,
+          approved_at: nowIso,
+        })
+        .eq('id', inv.id)
+        .eq('sifen_status', 'sent'); // guard: no pisar otra transicion concurrente
+
+      if (updErr) {
+        logger.error(
+          `[SifenPoller] consultDE fallback update failed invoice=${inv.id}: ${updErr.message}`,
+        );
+        continue;
+      }
+
+      resolvedAny = true;
+      logger.info(
+        `[SifenPoller] approved via consultDE fallback invoice=${inv.id} cdc=${inv.cdc} protocol=${proto.protocolNumber}`,
+      );
+
+      await logInvoiceEvent(inv.store_id, inv.id, 'approved', {
+        async: true,
+        via: 'consultDE_fallback',
+        protocol_number: proto.protocolNumber,
+        cdc: inv.cdc,
+        response_code: deResult.responseCode,
+        response_message: deResult.responseMessage,
+      });
+
+      await emitOwnerAlert({
+        storeId: inv.store_id,
+        alertType: 'invoice_approved_async',
+        severity: 'low',
+        title: 'Factura aprobada por SIFEN',
+        message: `La factura ${inv.document_number} fue aprobada por SIFEN. CDC ${inv.cdc}.`,
+        invoiceId: inv.id,
+        orderId: inv.order_id,
+        metadata: {
+          protocol_number: proto.protocolNumber,
+          cdc: inv.cdc,
+          via: 'consultDE_fallback',
+        },
+      });
+
+      // Email al cliente (PDF + QR). Fire-and-forget, nunca throws.
+      void dispatchApprovedInvoiceEmail(inv.store_id, inv.id).then((res) => {
+        if (!res.dispatched) {
+          logger.warn(
+            `[SifenPoller] email NOT dispatched for invoice ${inv.id} (reason=${res.reason})`,
+          );
+        } else {
+          logger.info(
+            `[SifenPoller] customer email dispatched for invoice ${inv.id}`,
+          );
+        }
+      });
+    }
+
+    return resolvedAny;
   }
 
   /**

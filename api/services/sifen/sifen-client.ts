@@ -308,6 +308,124 @@ export async function consultDE(
 }
 
 /**
+ * Resultado estructurado de una consulta DE por CDC (siConsDE).
+ *
+ * A diferencia de {@link SifenResponse} (que usa la banda 0260-0299 de la
+ * RECEPCION sync), la CONSULTA de un DE individual responde con su propia
+ * tabla de codigos. El codigo de "documento encontrado y aprobado" es 0422
+ * (Manual v150 tabla de la consulta de DE), distinto de la banda de
+ * recepcion. Por eso interpretamos approved aca y no reusamos `.success`.
+ *
+ * Se usa como FALLBACK del poller cuando consultLote (siResultLoteDE) cuelga
+ * o queda inconcluso: la consulta por CDC contesta en ~1s desde una IP que
+ * alcanza a SET, mientras que el resultado de lote puede mantener la conexion
+ * abierta mientras el lote sigue procesando.
+ */
+export interface SifenConsultaDEResult {
+  /** True si SET reporta el DE como aprobado/registrado (dCodRes 0422). */
+  approved: boolean;
+  /** dCodRes de la consulta (0422 = encontrado/aprobado, 0420/0421 = no hallado, etc.). */
+  responseCode: string;
+  /** dMsgRes. */
+  responseMessage: string;
+  /** dEstRes literal cuando SET lo incluye ('Aprobado', etc.). */
+  estado?: string;
+  /** dProtAut: numero de transaccion/autorizacion del DE. */
+  protocolNumber?: string;
+  rawResponse?: string;
+}
+
+/**
+ * Codigo de la consulta DE que indica "documento existe y esta aprobado".
+ * Manual v150 (consulta de DE / siConsDE): 0422 = "DE encontrado".
+ */
+const CONSULTA_DE_APPROVED_CODE = '0422';
+
+/**
+ * Consulta un DE por CDC y devuelve un resultado estructurado con la
+ * semantica de aprobacion correcta (0422). Es el fallback robusto del
+ * poller: consultLote puede colgar en lotes recien enviados, pero la
+ * consulta individual por CDC resuelve la aprobacion de forma confiable.
+ */
+export async function consultDEResult(
+  cdc: string,
+  env: Exclude<SifenEnv, 'demo'>,
+  mtls: SifenMtls,
+  signal?: AbortSignal,
+): Promise<SifenConsultaDEResult> {
+  validateCDC(cdc);
+
+  const url = `${ENDPOINTS[env]}consultas/consulta.wsdl`;
+  const body = `<rEnviConsDeRequest xmlns="${SIFEN_XSD_NS}">
+    <dId>${Date.now() % 1_000_000_000}</dId>
+    <dCDC>${cdc}</dCDC>
+  </rEnviConsDeRequest>`;
+
+  logger.info(`[SIFEN] Consulting DE result by CDC env=${env}`);
+  const rawResponse = await soapRequestMtls(url, body, mtls, signal);
+  return parseConsultaDEResult(rawResponse);
+}
+
+/**
+ * Parse de la respuesta de siConsDE. Extrae dCodRes/dMsgRes del header,
+ * y el estado/protocolo del rProtDe cuando esta presente. approved se
+ * deriva de dCodRes=0422 (DE encontrado) o de un dEstRes que empieza con
+ * "Aprobado", lo que llegue primero.
+ */
+async function parseConsultaDEResult(
+  rawXml: string,
+): Promise<SifenConsultaDEResult> {
+  try {
+    const parsed = await parseStringPromise(rawXml, {
+      explicitArray: false,
+      ignoreAttrs: false,
+      tagNameProcessors: [(name: string) => name.replace(/.*:/, '')],
+    });
+
+    const body = parsed?.Envelope?.Body;
+    if (!body) {
+      return {
+        approved: false,
+        responseCode: 'PARSE_ERROR',
+        responseMessage: 'SOAP body missing in SIFEN consulta DE result',
+        rawResponse: rawXml,
+      };
+    }
+
+    const result = body.rEnviConsDeResponse || body.rRetConsDe || body.rResEnviConsDe || {};
+    const prot = result.rProtDe || {};
+    const gResProc = prot.gResProc || result.gResProc || {};
+
+    const responseCode = String(gResProc.dCodRes ?? result.dCodRes ?? 'UNKNOWN');
+    const responseMessage = String(
+      gResProc.dMsgRes ?? result.dMsgRes ?? 'No message',
+    );
+    const estado = prot.dEstRes ? String(prot.dEstRes) : undefined;
+    const protocolNumber = prot.dProtAut ? String(prot.dProtAut) : undefined;
+
+    const approved =
+      responseCode === CONSULTA_DE_APPROVED_CODE || isApprovedEstado(estado);
+
+    return {
+      approved,
+      responseCode,
+      responseMessage,
+      estado,
+      protocolNumber,
+      rawResponse: rawXml,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown parse error';
+    return {
+      approved: false,
+      responseCode: 'PARSE_ERROR',
+      responseMessage: `Failed to parse SIFEN consulta DE result: ${message}`,
+      rawResponse: rawXml,
+    };
+  }
+}
+
+/**
  * Send a SIFEN event (cancellation, etc.).
  */
 export async function sendEvent(
