@@ -35,9 +35,39 @@
  */
 
 import https from 'https';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 import { parseStringPromise } from 'xml2js';
 import JSZip from 'jszip';
 import { logger } from '../../utils/logger';
+
+/**
+ * Optional outbound egress proxy for ALL SeT traffic.
+ *
+ * Incident 2026-06: Railway's shared/rotating egress IPv4s (152.55.184.x,
+ * AS400940) are reputation-flagged and the F5 in front of SIFEN silently
+ * drops them. Every payload (incl. a content-free consultLote probe) times
+ * out at 90s. The durable fix is to tunnel SeT traffic through ONE fixed,
+ * clean, dedicated IPv4 via an HTTP CONNECT proxy, keeping everything else
+ * on Railway.
+ *
+ * When SIFEN_EGRESS_PROXY is set (e.g. http://user:pass@host:port), the agent
+ * opens a CONNECT tunnel to the proxy and then performs the TLS/mTLS handshake
+ * END TO END worker<->SeT through that tunnel. The proxy never terminates TLS,
+ * so our client certificate is presented to SeT (not the proxy). This is the
+ * critical correctness property and is verified by:
+ *   1) https-proxy-agent's connect() calls tls.connect({...opts, socket}) to the
+ *      destination, spreading the cert/key/rejectUnauthorized we pass below
+ *      (it only strips host/path/port), so the client identity terminates at
+ *      SeT through the tunnel.
+ *   2) the unit test in __tests__/sifen-client-proxy.test.ts asserting the
+ *      built agent carries the same cert/key and rejectUnauthorized:true.
+ *
+ * When unset, behavior is unchanged: a fresh direct https.Agent per request.
+ */
+function getEgressProxyUrl(): string | undefined {
+  const raw = process.env.SIFEN_EGRESS_PROXY?.trim();
+  return raw ? raw : undefined;
+}
 
 // Per-request agent: keep-alive sockets to sifen.set.gov.py end up in a
 // weird state on the F5 load balancer in front of SIFEN; reused sockets
@@ -46,8 +76,60 @@ import { logger } from '../../utils/logger';
 // against the same endpoint, cert, and payload. Until we have a working
 // keep-alive setup, use a fresh agent per request: TLS handshake cost
 // per call (~200-500ms) is fine for our volume.
-function freshAgent(): https.Agent {
-  return new https.Agent({ keepAlive: false });
+//
+// The agent is built per request so that:
+//   - direct mode: a clean fresh socket every call (no F5 keep-alive trap).
+//   - proxy mode: the CONNECT tunnel + destination TLS carry the client cert.
+// The mTLS material is attached to the AGENT (so it reaches the destination
+// TLS handshake through the tunnel) AND mirrored on the per-request options
+// in soapRequestMtls (direct path), so neither path can drop the cert.
+export function buildEgressAgent(mtls: SifenMtls): https.Agent {
+  const proxyUrl = getEgressProxyUrl();
+  if (!proxyUrl) {
+    return new https.Agent({ keepAlive: false });
+  }
+  // HttpsProxyAgent spreads these options into tls.connect() for the
+  // DESTINATION socket (after the CONNECT tunnel), so cert/key terminate at
+  // SeT, not at the proxy. rejectUnauthorized stays true: we still verify the
+  // SeT server certificate end to end.
+  return new HttpsProxyAgent(proxyUrl, {
+    cert: mtls.certPem,
+    key: mtls.privateKeyPem,
+    rejectUnauthorized: true,
+    keepAlive: false,
+  });
+}
+
+/**
+ * Disambiguate a socket error between "the egress proxy is the problem" and
+ * "SeT is the problem", so the cutover/runbook reads logs unambiguously.
+ *
+ * When tunneling, https-proxy-agent surfaces a failed CONNECT as either a
+ * connection error to the proxy host (ECONNREFUSED / EHOSTUNREACH / ETIMEDOUT
+ * / ENOTFOUND on the proxy) or a thrown error whose message starts with the
+ * proxy's non-2xx CONNECT status. We prefix those so the operator knows the
+ * worker never reached SeT because the PROXY failed, vs SeT itself being
+ * unreachable.
+ */
+function classifyEgressError(err: unknown, viaProxy: boolean): Error {
+  const base = err instanceof Error ? err : new Error(String(err));
+  if (!viaProxy) return base;
+
+  const code = (err as NodeJS.ErrnoException | undefined)?.code ?? '';
+  const msg = base.message || '';
+  const looksLikeProxyConnect =
+    /A?\d{3}\s+status code/i.test(msg) || // e.g. "407 status code while connecting"
+    /proxy/i.test(msg) ||
+    ['ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH', 'ENOTFOUND', 'EPROTO'].includes(
+      code,
+    );
+
+  if (looksLikeProxyConnect) {
+    return new Error(
+      `SIFEN egress proxy unreachable or rejected CONNECT (proxy fault, not SeT): ${msg}`,
+    );
+  }
+  return base;
 }
 
 export type SifenEnv = 'demo' | 'test' | 'prod';
@@ -137,12 +219,16 @@ async function soapRequestMtls(
 
     const urlObj = new URL(url);
     const envelope = buildSoapEnvelope(body);
+    const viaProxy = Boolean(getEgressProxyUrl());
 
     const options: https.RequestOptions = {
       hostname: urlObj.hostname,
       port: 443,
       path: urlObj.pathname + urlObj.search,
       method: 'POST',
+      // cert/key are ALSO set on the request options so the direct path keeps
+      // working unchanged. In proxy mode they additionally live on the agent
+      // (buildEgressAgent) so they survive the CONNECT tunnel to SeT.
       cert: mtls.certPem,
       key: mtls.privateKeyPem,
       rejectUnauthorized: true,
@@ -151,7 +237,7 @@ async function soapRequestMtls(
         'Content-Length': Buffer.byteLength(envelope),
       },
       timeout: TIMEOUT_MS,
-      agent: freshAgent(),
+      agent: buildEgressAgent(mtls),
     };
 
     const req = https.request(options, (res) => {
@@ -187,10 +273,16 @@ async function soapRequestMtls(
     signal?.addEventListener('abort', onAbort, { once: true });
 
     req.on('close', () => signal?.removeEventListener('abort', onAbort));
-    req.on('error', (err) => reject(err));
+    req.on('error', (err) => reject(classifyEgressError(err, viaProxy)));
     req.on('timeout', () => {
       req.destroy();
-      reject(new Error(`SIFEN request timeout after ${TIMEOUT_MS}ms`));
+      // A timeout in proxy mode is ambiguous between "proxy never answered"
+      // and "proxy tunneled us but SeT hung". The CONNECT tunnel establishes
+      // fast, so a 90s timeout overwhelmingly means SeT (not the proxy) hung;
+      // proxy-unreachable surfaces as a synchronous connect error above. We
+      // still tag the mode so logs are unambiguous during cutover.
+      const where = viaProxy ? 'via egress proxy' : 'direct';
+      reject(new Error(`SIFEN request timeout after ${TIMEOUT_MS}ms (${where})`));
     });
 
     req.write(envelope);
