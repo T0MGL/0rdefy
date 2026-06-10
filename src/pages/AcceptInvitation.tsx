@@ -193,9 +193,12 @@ export default function AcceptInvitation() {
       localStorage.setItem('auth_token', data.token);
       setActiveStoreId(data.storeId);
 
-      // Save user data for AuthContext (must include stores array)
+      // Save user data for AuthContext (must include stores array). Collaborators
+      // (and couriers) skip store-setup onboarding, so stamp the durable flag on
+      // the user object to keep the AuthContext derive rule consistent across
+      // cold starts, not just the standalone key.
       if (data.user) {
-        localStorage.setItem('user', JSON.stringify(data.user));
+        localStorage.setItem('user', JSON.stringify({ ...data.user, onboardingCompleted: true }));
       }
 
       // Mark onboarding as completed for collaborators (they skip the onboarding flow)

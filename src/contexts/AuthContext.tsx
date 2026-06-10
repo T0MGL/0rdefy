@@ -6,6 +6,7 @@ import { logger } from '@/utils/logger';
 import { supabase } from '@/lib/supabase';
 import { getActiveStoreId, setActiveStoreId, clearActiveStore } from '@/lib/activeStore';
 import { resetStoreQueryClients } from '@/lib/queryClients';
+import { deriveOnboardingCompleted, isCourierOnly } from '@/lib/onboarding';
 
 // Bridges the custom Express JWT to Supabase Realtime. The backend mints a
 // second token signed with SUPABASE_JWT_SECRET on login/register/profile-update.
@@ -223,7 +224,7 @@ const API_URL = `${BASE_API_URL}/auth`;
 // Token validation is handled in API interceptor (api.client.ts)
 // No need for duplicate validation here - saves resources
 
-interface Store {
+export interface Store {
   id: string;
   name: string;
   country: string;
@@ -244,7 +245,18 @@ interface User {
   name: string;
   phone?: string;
   stores: Store[];
+  // Durable onboarding flag. The backend is the single source of truth: it
+  // returns `onboardingCompleted` at login (api/routes/auth.ts). We persist it
+  // ON the user object so it survives cold starts (reload, new tab, PWA
+  // relaunch) instead of relying on a separate localStorage key that may be
+  // absent. Optional so pre-deploy cached `user` payloads stay type-safe; the
+  // restore path backfills it. See `deriveOnboardingCompleted`.
+  onboardingCompleted?: boolean;
 }
+
+// Onboarding-completion logic lives in a pure, React-free module so it is the
+// single testable source of truth shared with OnboardingGuard. See
+// `src/lib/onboarding.ts`.
 
 // Permission helper interface
 interface PermissionHelpers {
@@ -259,6 +271,9 @@ interface AuthContextType {
   currentStore: Store | null;
   stores: Store[];
   loading: boolean;
+  // Derived, durable onboarding state. OnboardingGuard reads THIS instead of a
+  // fragile standalone localStorage flag. See `deriveOnboardingCompleted`.
+  onboardingCompleted: boolean;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signUp: (email: string, password: string, name: string, referralCode?: string) => Promise<{ error?: string }>;
   signOut: () => void;
@@ -383,8 +398,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           applySupabaseRealtimeToken(savedSupabaseToken);
         }
 
-        setUser(parsedUser);
-        setStores(parsedUser.stores || []);
+        // Backfill the durable onboarding flag on session restore. A cold start
+        // (page reload, new tab, PWA relaunch, bookmarked /portal URL) rehydrates
+        // the user from localStorage. Older cached payloads (and the standalone
+        // `onboarding_completed` key) may be missing, which previously made
+        // OnboardingGuard bounce a fully-onboarded user — owner OR courier — back
+        // into the store-setup form. We derive completion from durable user state
+        // (backend flag, courier role, or the same rule the backend uses) and
+        // stamp it onto the user object so the derived context value is stable.
+        const restoredUser: User = {
+          ...parsedUser,
+          onboardingCompleted: deriveOnboardingCompleted(parsedUser),
+        };
+        setUser(restoredUser);
+        setStores(restoredUser.stores || []);
+
+        // Keep the user object and the legacy standalone key consistent so any
+        // code still reading the key during the transition agrees with context.
+        localStorage.setItem('user', JSON.stringify(restoredUser));
+        if (restoredUser.onboardingCompleted) {
+          localStorage.setItem('onboarding_completed', 'true');
+        } else {
+          localStorage.removeItem('onboarding_completed');
+        }
 
         if (savedStoreId && parsedUser.stores) {
           const store = parsedUser.stores.find((s: Store) => s.id === savedStoreId);
@@ -496,19 +532,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logger.log('✅ [AUTH] Login response:', response.data);
 
       if (response.data.success) {
-        const userData = response.data.user;
+        // Stamp the backend's onboarding verdict onto the durable user object
+        // so it survives cold starts. Couriers are exempt regardless. The
+        // standalone key is kept in sync only for backward compatibility.
+        const serverOnboarding = response.data.onboardingCompleted === true;
+        const userData: User = {
+          ...response.data.user,
+          onboardingCompleted: serverOnboarding || isCourierOnly(response.data.user?.stores),
+        };
 
         localStorage.setItem('auth_token', response.data.token);
         localStorage.setItem('user', JSON.stringify(userData));
         applySupabaseRealtimeToken(response.data.supabaseToken ?? null);
 
-        // Save onboarding completion status based on server response
-        if (response.data.onboardingCompleted) {
+        if (userData.onboardingCompleted) {
           localStorage.setItem('onboarding_completed', 'true');
           logger.log('✅ [AUTH] User has already completed onboarding');
         } else {
-          // Clear onboarding_completed if server says it's not done
-          // This handles cases where old localStorage data might be stale
           localStorage.removeItem('onboarding_completed');
           logger.log('⚠️ [AUTH] User needs to complete onboarding');
         }
@@ -579,7 +619,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logger.log('✅ [AUTH] Registration response:', response.data);
 
       if (response.data.success) {
-        const userData = response.data.user;
+        // A freshly registered user has NOT completed store setup. Stamp the
+        // durable flag false explicitly so the restore-path derive rule can't
+        // later mistake "has a default store + name" for "onboarded". The
+        // Onboarding page flips this to true on completion.
+        const userData: User = {
+          ...response.data.user,
+          onboardingCompleted: false,
+        };
 
         localStorage.setItem('auth_token', response.data.token);
         localStorage.setItem('user', JSON.stringify(userData));
@@ -587,6 +634,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // DON'T set onboarding_completed here - user needs to complete onboarding first!
         // The onboarding will be set after the user completes the onboarding form
+        localStorage.removeItem('onboarding_completed');
 
         if (userData.stores && userData.stores.length > 0) {
           setActiveStoreId(userData.stores[0].id);
@@ -1070,11 +1118,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [currentRole]);
 
+  const onboardingCompleted = useMemo(
+    () => deriveOnboardingCompleted(user),
+    [user]
+  );
+
   const value = useMemo(() => ({
     user,
     currentStore,
     stores,
     loading,
+    onboardingCompleted,
     signIn,
     signUp,
     signOut,
@@ -1091,6 +1145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     currentStore,
     stores,
     loading,
+    onboardingCompleted,
     signIn,
     signUp,
     signOut,
