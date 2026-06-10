@@ -2154,16 +2154,34 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
 
       const result = await ordersService.bulkStatusChange(selectedIds, targetStatus);
 
-      // Refresh local orders state preserving current filters, date range, and pagination
-      const isSearching = !!serverFiltersRef.current.search;
-      const updatedOrdersResponse = await ordersService.getAll({
-        ...(isSearching ? {} : dateParamsRef.current),
-        ...serverFiltersRef.current,
-        limit: paginationLimitRef.current,
-      });
-      setOrders(updatedOrdersResponse.data || []);
-
       const targetLabel = statusLabels[targetStatus] || targetStatus;
+      const newStatus = targetStatus as Order['status'];
+
+      // OPTIMISTIC BATCH UPDATE: apply the new status to every order the backend
+      // confirmed in ONE state mutation, so the whole batch updates at once instead
+      // of disappearing one row at a time. Only orders in `successes` are touched;
+      // failures/skips are left untouched and reconciled by the refetch below.
+      const succeededIds = new Set(result.data.successes.map(s => s.order_id));
+      if (succeededIds.size > 0) {
+        const activeStatusFilter = serverFiltersRef.current.status;
+        setOrders(prev =>
+          activeStatusFilter && activeStatusFilter !== newStatus
+            // A status filter is active and the new status falls outside it:
+            // drop the moved orders from the current view in a single pass.
+            ? prev.filter(o => !succeededIds.has(o.id))
+            // No filter (or new status still matches): update in place.
+            : prev.map(o => (succeededIds.has(o.id) ? { ...o, status: newStatus } : o)));
+      }
+
+      // Clear selection for the orders that succeeded (keep failed ones selected so
+      // the user can retry them). Done immediately, before the background refetch.
+      if (succeededIds.size > 0) {
+        setSelectedOrderIds(prev => {
+          const next = new Set(prev);
+          for (const id of succeededIds) next.delete(id);
+          return next;
+        });
+      }
 
       if (!result.success || result.data.failed > 0) {
         const { succeeded, failed, skipped, failures } = result.data;
@@ -2184,10 +2202,18 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         });
       }
 
-      // Clear selection on full success
-      if (result.success && result.data.failed === 0) {
-        setSelectedOrderIds(new Set());
-      }
+      // Background reconcile: refetch canonical state preserving filters/date/pagination
+      // (picks up trigger-driven side effects like stock and any server-side ordering).
+      // Not awaited for the UI transition; the optimistic update already rendered.
+      const isSearching = !!serverFiltersRef.current.search;
+      ordersService
+        .getAll({
+          ...(isSearching ? {} : dateParamsRef.current),
+          ...serverFiltersRef.current,
+          limit: paginationLimitRef.current,
+        })
+        .then(updatedOrdersResponse => setOrders(updatedOrdersResponse.data || []))
+        .catch(() => { /* optimistic state stands; next manual refresh reconciles */ });
     } catch (error) {
       showErrorToast(toast, error, {
         module: 'orders',

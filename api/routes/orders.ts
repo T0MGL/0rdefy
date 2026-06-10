@@ -24,6 +24,7 @@ import { validate } from '../utils/validate';
 import { enrichLineItemsWithColors } from '../utils/line-item-colors';
 import { resolveOrderStore } from '../utils/resolve-order-store';
 import { pushOrderToCarrier } from '../services/carriers/carrier-push.service';
+import { withRetry, DATABASE_RETRY_OPTIONS } from '../utils/retry';
 
 // ================================================================
 // Zod Schemas
@@ -5605,55 +5606,63 @@ ordersRouter.post('/bulk-status', requirePermission(Module.ORDERS, Permission.ED
             ordersToUpdate.push({ order, orderNumber, fromStatus, updateData });
         }
 
-        // Parallelize DB updates in chunks of 25 to stay conservative with connection pool
-        const CHUNK_SIZE = 25;
-        for (let i = 0; i < ordersToUpdate.length; i += CHUNK_SIZE) {
-            const chunk = ordersToUpdate.slice(i, i + CHUNK_SIZE);
+        // Process updates SEQUENTIALLY in a deterministic order (by order id).
+        //
+        // Why sequential + ordered, not parallel:
+        // Each UPDATE fires trigger_update_stock_on_order_status, which locks rows
+        // in products / product_variants / inventory_movements. When two updates run
+        // concurrently and touch the SAME product (common: a batch of orders sharing
+        // SKUs) Postgres can acquire those row locks in inconsistent order across the
+        // two transactions, producing `40P01 deadlock detected`. Running one order at
+        // a time, ordered by id, gives a single stable lock-acquisition order and
+        // makes intra-batch deadlocks impossible.
+        //
+        // The withRetry wrapper handles residual deadlocks/serialization failures
+        // caused by OTHER concurrent writers (Shopify webhooks, a second user) hitting
+        // the same product rows. Idempotency is preserved: same-status orders were
+        // already filtered into `skipped` above, and re-running a retried UPDATE with
+        // identical updateData is a no-op beyond the status it already set.
+        const sortedUpdates = [...ordersToUpdate].sort((a, b) =>
+            a.order.id < b.order.id ? -1 : a.order.id > b.order.id ? 1 : 0
+        );
 
-            const settled = await Promise.allSettled(
-                chunk.map(async ({ order, orderNumber, fromStatus, updateData }) => {
-                    const { data: updated, error: updateError } = await supabaseAdmin
-                        .from('orders')
-                        .update(updateData)
-                        .eq('id', order.id)
-                        .eq('store_id', storeId)
-                        .select('id, order_number, sleeves_status')
-                        .single();
+        for (const { order, orderNumber, fromStatus, updateData } of sortedUpdates) {
+            try {
+                const updated = await withRetry(
+                    async () => {
+                        const { data, error: updateError } = await supabaseAdmin
+                            .from('orders')
+                            .update(updateData)
+                            .eq('id', order.id)
+                            .eq('store_id', storeId)
+                            .select('id, order_number, sleeves_status')
+                            .single();
 
-                    if (updateError) {
-                        return { ok: false as const, order_id: order.id, order_number: orderNumber, error: updateError.message || 'Error desconocido' };
-                    }
-                    if (updated) {
-                        return { ok: true as const, order_id: updated.id, order_number: updated.order_number || updated.id.slice(0, 8), from_status: fromStatus, to_status: targetStatus };
-                    }
-                    return { ok: false as const, order_id: order.id, order_number: orderNumber, error: 'No data returned' };
-                })
-            );
+                        // Supabase returns errors on the object, not as throws. Throw so
+                        // withRetry can inspect the Postgres code (40P01 / 40001) and retry.
+                        if (updateError) {
+                            const err = new Error(updateError.message || 'Error desconocido') as Error & { code?: string };
+                            err.code = (updateError as { code?: string }).code;
+                            throw err;
+                        }
+                        return data;
+                    },
+                    { ...DATABASE_RETRY_OPTIONS, context: 'BULK_STATUS' }
+                );
 
-            for (const outcome of settled) {
-                if (outcome.status === 'rejected') {
-                    const reason = outcome.reason;
-                    const errorMessage =
-                        reason instanceof Error
-                            ? reason.message
-                            : typeof reason === 'object' && reason !== null && 'message' in reason
-                                ? String((reason as Record<string, unknown>).message)
-                                : 'Error desconocido';
-                    results.failures.push({ order_id: 'unknown', order_number: 'unknown', error: errorMessage });
-                } else if (outcome.value.ok) {
+                if (updated) {
                     results.successes.push({
-                        order_id: outcome.value.order_id,
-                        order_number: outcome.value.order_number,
-                        from_status: outcome.value.from_status,
-                        to_status: outcome.value.to_status,
+                        order_id: updated.id,
+                        order_number: updated.order_number || updated.id.slice(0, 8),
+                        from_status: fromStatus,
+                        to_status: targetStatus,
                     });
                 } else {
-                    results.failures.push({
-                        order_id: outcome.value.order_id,
-                        order_number: outcome.value.order_number,
-                        error: outcome.value.error,
-                    });
+                    results.failures.push({ order_id: order.id, order_number: orderNumber, error: 'No data returned' });
                 }
+            } catch (err: unknown) {
+                const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
+                results.failures.push({ order_id: order.id, order_number: orderNumber, error: errorMessage });
             }
         }
 
