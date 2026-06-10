@@ -188,8 +188,10 @@ export default function Onboarding() {
         throw new Error('Respuesta inválida del servidor');
       }
 
-      // Update user and store info in localStorage
-      localStorage.setItem('user', JSON.stringify(data.user));
+      // Update user and store info in localStorage. Stamp the durable
+      // onboarding flag ON the user object so it survives cold starts and the
+      // AuthContext derive rule reads `true` (not just the standalone key).
+      localStorage.setItem('user', JSON.stringify({ ...data.user, onboardingCompleted: true }));
       setActiveStoreId(data.store.id);
       localStorage.setItem('onboarding_completed', 'true');
 
