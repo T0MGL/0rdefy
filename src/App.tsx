@@ -14,6 +14,7 @@ import { AuthProvider, useAuth, Module } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { DateRangeProvider } from "@/contexts/DateRangeContext";
 import { SubscriptionProvider } from "@/contexts/SubscriptionContext";
+import { NotificationProvider } from "@/contexts/NotificationContext";
 import { GlobalViewProvider } from "@/contexts/GlobalViewContext";
 // OnboardingTourProvider removed - using DemoTourProvider only
 import { DemoTourProvider } from "@/components/demo-tour/DemoTourProvider";
@@ -186,6 +187,7 @@ const App = () => {
                   <StoreScopedQueryProvider>
                   <SubscriptionProvider>
                     <PlanLimitHandler />
+                    <NotificationProvider>
                     <DateRangeProvider>
                       <GlobalViewProvider>
                         <DemoTourProvider>
@@ -300,6 +302,7 @@ const App = () => {
                         </DemoTourProvider>
                       </GlobalViewProvider>
                     </DateRangeProvider>
+                    </NotificationProvider>
                   </SubscriptionProvider>
                   </StoreScopedQueryProvider>
                 </AuthProvider>

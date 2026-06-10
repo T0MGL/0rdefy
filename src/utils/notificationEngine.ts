@@ -1,21 +1,69 @@
 import { Notification, NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '@/types/notification';
 import type { Order, Product, Ad } from '@/types';
 import type { Carrier } from '@/services/carriers.service';
-import { isOlderThan, getHoursDifference, formatTimeAgo, getNow } from './timeUtils';
+import { isOlderThan, getHoursDifference, formatTimeAgo, getNow, getISOWeekKey } from './timeUtils';
 import { isConfirmed, isPending, isReadyToShip } from '@/lib/status';
 import { logger } from '@/utils/logger';
+import { hashItemIds } from './notificationIds';
 
 interface NotificationEngineData {
   orders: Order[];
   products: Product[];
   ads: Ad[];
   carriers: Carrier[];
+  /**
+   * True when ad spend was already logged for the current week (computed
+   * server-side). When false (or undefined for a store that has ad data),
+   * the weekly ad-spend reminder is eligible to fire.
+   */
+  adSpendLoggedThisWeek?: boolean;
+  /**
+   * IANA store timezone. Used to compute the weekly ad-spend reminder week key
+   * in the same timezone as the server-side gate that sets adSpendLoggedThisWeek.
+   * Without it the browser timezone is used, which can disagree at the
+   * Sunday/Monday border for stores in a different offset (e.g. Asuncion).
+   */
+  storeTimezone?: string;
+}
+
+/**
+ * Per-feature gate flags. Each maps to a plan feature checked via
+ * SubscriptionContext.hasFeature. Operational notifications (orders, stock) are
+ * never gated. Optional-module notifications are only generated when the plan
+ * includes the module:
+ *   - ads / weekly ad-spend reminder -> campaign_tracking
+ *   - carrier performance            -> carrier_integrations
+ *
+ * Undefined means "unknown" and is treated as enabled, so a store whose plan is
+ * still loading never loses its operational notifications. The caller is
+ * responsible for passing the resolved flags once the subscription is known.
+ */
+export interface NotificationFeatureFlags {
+  ads?: boolean;
+  carriers?: boolean;
 }
 
 interface NotificationEngineOptions {
   preferences?: NotificationPreferences;
   dismissedIds?: Set<string>;
+  /**
+   * Week keys ("YYYY-Www") the user already dismissed the weekly ad-spend
+   * reminder for. Persisted separately from the 24h dismiss list so a dismiss
+   * sticks for the whole week instead of reappearing the next day.
+   */
+  dismissedWeeklyReminders?: Set<string>;
+  /**
+   * Plan-feature gates. When omitted, every gate defaults to enabled so a store
+   * with an unknown plan still receives operational notifications.
+   */
+  featureFlags?: NotificationFeatureFlags;
 }
+
+// Content-fingerprint helper for notification ids. Lives in a Vite-free module
+// (./notificationIds) so it is unit-testable under the Node runner. It is
+// imported above for internal use and re-exported here for callers that already
+// import id helpers from the engine.
+export { hashItemIds };
 
 /**
  * Safely get a string value, returning fallback if null/undefined
@@ -109,6 +157,12 @@ export function generateNotifications(
 
     const preferences = options.preferences || DEFAULT_NOTIFICATION_PREFERENCES;
     const dismissedIds = options.dismissedIds || new Set<string>();
+    const dismissedWeeklyReminders = options.dismissedWeeklyReminders || new Set<string>();
+    // Per-feature gates. Undefined defaults to enabled (see NotificationFeatureFlags)
+    // so operational notifications never disappear while the plan is loading.
+    const flags = options.featureFlags || {};
+    const adsFeatureEnabled = flags.ads !== false;
+    const carriersFeatureEnabled = flags.carriers !== false;
     const notifications: Notification[] = [];
 
     // Check quiet hours for non-critical notifications
@@ -127,7 +181,8 @@ export function generateNotifications(
         }
       });
 
-      if (criticalPending.length > 0 && !dismissedIds.has('notif-orders-critical-pending')) {
+      const criticalPendingId = `notif-orders-critical-pending-${hashItemIds(criticalPending.map(o => o.id))}`;
+      if (criticalPending.length > 0 && !dismissedIds.has(criticalPendingId)) {
         try {
           const oldestOrder = criticalPending.reduce((oldest, o) => {
             try {
@@ -137,19 +192,22 @@ export function generateNotifications(
             }
           });
 
-          const customerName = safeString(criticalPending[0]?.customer, 'Cliente');
+          // Use the oldest order as the headline so the single-order copy names
+          // the most overdue customer, not just whatever happened to be first.
+          const headlineName = safeString(oldestOrder?.customer, 'Cliente');
 
           notifications.push({
-            id: 'notif-orders-critical-pending',
+            id: criticalPendingId,
             type: 'order',
             category: 'urgent',
             priority: 'high',
+            live: true,
             message: criticalPending.length === 1
-              ? `Pedido de ${customerName} lleva ${formatTimeAgo(criticalPending[0].date)} sin confirmar`
+              ? `Pedido de ${headlineName} lleva ${formatTimeAgo(oldestOrder.date)} sin confirmar`
               : `${criticalPending.length} pedidos llevan más de 48 horas sin confirmar`,
             actionLabel: criticalPending.length === 1 ? 'Ver pedido' : 'Confirmar pedidos',
             actionUrl: criticalPending.length === 1
-              ? `/orders?filter=pending&highlight=${criticalPending[0].id}`
+              ? `/orders?filter=pending&highlight=${oldestOrder.id}`
               : '/orders?filter=pending',
             timestamp: getNow().toISOString(),
             read: false,
@@ -178,12 +236,14 @@ export function generateNotifications(
         }
       });
 
-      if (warningPending.length > 0 && !isQuietHours && !dismissedIds.has('notif-orders-warning-pending')) {
+      const warningPendingId = `notif-orders-warning-pending-${hashItemIds(warningPending.map(o => o.id))}`;
+      if (warningPending.length > 0 && !isQuietHours && !dismissedIds.has(warningPendingId)) {
         notifications.push({
-          id: 'notif-orders-warning-pending',
+          id: warningPendingId,
           type: 'order',
           category: 'action_required',
           priority: 'medium',
+          live: true,
           message: `${warningPending.length} pedido${warningPending.length > 1 ? 's pendientes' : ' pendiente'} de confirmación`,
           actionLabel: 'Revisar pedidos',
           actionUrl: '/orders?filter=pending',
@@ -207,12 +267,14 @@ export function generateNotifications(
         }
       });
 
-      if (awaitingCarrier.length > 0 && !dismissedIds.has('notif-orders-awaiting-carrier')) {
+      const awaitingCarrierId = `notif-orders-awaiting-carrier-${hashItemIds(awaitingCarrier.map(o => o.id))}`;
+      if (awaitingCarrier.length > 0 && !dismissedIds.has(awaitingCarrierId)) {
         notifications.push({
-          id: 'notif-orders-awaiting-carrier',
+          id: awaitingCarrierId,
           type: 'order',
           category: 'action_required',
           priority: 'medium',
+          live: true,
           message: `${awaitingCarrier.length} pedido${awaitingCarrier.length > 1 ? 's esperan' : ' espera'} asignación de repartidor`,
           actionLabel: 'Asignar repartidores',
           actionUrl: '/orders?filter=awaiting_carrier',
@@ -246,9 +308,10 @@ export function generateNotifications(
           }
         });
 
-        if (tomorrowDeliveries.length > 0 && !isQuietHours && !dismissedIds.has('notif-deliveries-tomorrow')) {
+        const tomorrowDeliveriesId = `notif-deliveries-tomorrow-${hashItemIds(tomorrowDeliveries.map(o => o.id))}`;
+        if (tomorrowDeliveries.length > 0 && !isQuietHours && !dismissedIds.has(tomorrowDeliveriesId)) {
           notifications.push({
-            id: 'notif-deliveries-tomorrow',
+            id: tomorrowDeliveriesId,
             type: 'order',
             category: 'informational',
             priority: 'low',
@@ -275,14 +338,16 @@ export function generateNotifications(
       // Critical: Products completely out of stock
       const outOfStock = products.filter(p => safeNumber(p.stock) === 0);
 
-      if (outOfStock.length > 0 && !dismissedIds.has('notif-stock-out')) {
+      const outOfStockId = `notif-stock-out-${hashItemIds(outOfStock.map(p => p.id))}`;
+      if (outOfStock.length > 0 && !dismissedIds.has(outOfStockId)) {
         const productName = safeString(outOfStock[0]?.name, 'Producto');
 
         notifications.push({
-          id: 'notif-stock-out',
+          id: outOfStockId,
           type: 'stock',
           category: 'urgent',
           priority: 'high',
+          live: true,
           message: outOfStock.length === 1
             ? `"${productName}" está agotado`
             : `${outOfStock.length} productos agotados`,
@@ -305,12 +370,14 @@ export function generateNotifications(
         return stock > 0 && stock < preferences.stockThreshold;
       });
 
-      if (lowStock.length > 0 && !isQuietHours && !dismissedIds.has('notif-stock-low')) {
+      const lowStockId = `notif-stock-low-${hashItemIds(lowStock.map(p => p.id))}`;
+      if (lowStock.length > 0 && !isQuietHours && !dismissedIds.has(lowStockId)) {
         notifications.push({
-          id: 'notif-stock-low',
+          id: lowStockId,
           type: 'stock',
           category: 'action_required',
           priority: 'medium',
+          live: true,
           message: `${lowStock.length} producto${lowStock.length > 1 ? 's con' : ' con'} stock bajo`,
           actionLabel: 'Ver productos',
           actionUrl: '/products?filter=low-stock',
@@ -327,7 +394,10 @@ export function generateNotifications(
     // ═══════════════════════════════════════════════════════════════════════════
     // CARRIER NOTIFICATIONS
     // ═══════════════════════════════════════════════════════════════════════════
-    if (preferences.enableCarrierNotifications && carriers.length > 0) {
+    // Carrier performance notifications are gated to the carrier_integrations
+    // feature: a store without the carriers module has no actionable surface for
+    // these, so they are not generated (not shown as a locked teaser).
+    if (preferences.enableCarrierNotifications && carriersFeatureEnabled && carriers.length > 0) {
       // Only alert on carriers with significant delivery history (>10 deliveries)
       const carriersWithHistory = carriers.filter(c => {
         const deliveries = safeNumber(c.total_deliveries) || safeNumber(c.totalShipments);
@@ -339,15 +409,18 @@ export function generateNotifications(
         safeNumber(c.delivery_rate) < 60
       );
 
-      if (criticalCarriers.length > 0 && !dismissedIds.has('notif-carriers-critical')) {
+      const criticalCarriersId = `notif-carriers-critical-${hashItemIds(criticalCarriers.map(c => c.id))}`;
+      if (criticalCarriers.length > 0 && !dismissedIds.has(criticalCarriersId)) {
         const carrierName = safeString(criticalCarriers[0]?.name, 'Transportadora');
         const deliveryRate = safeNumber(criticalCarriers[0]?.delivery_rate);
 
         notifications.push({
-          id: 'notif-carriers-critical',
+          id: criticalCarriersId,
           type: 'carrier',
           category: 'urgent',
           priority: 'high',
+          live: true,
+          featureKey: 'carrier_integrations',
           message: criticalCarriers.length === 1
             ? `"${carrierName}" tiene ${deliveryRate}% de entregas exitosas`
             : `${criticalCarriers.length} transportadoras con rendimiento crítico`,
@@ -370,12 +443,15 @@ export function generateNotifications(
         return rate >= 60 && rate < 80;
       });
 
-      if (warningCarriers.length > 0 && criticalCarriers.length === 0 && !isQuietHours && !dismissedIds.has('notif-carriers-warning')) {
+      const warningCarriersId = `notif-carriers-warning-${hashItemIds(warningCarriers.map(c => c.id))}`;
+      if (warningCarriers.length > 0 && criticalCarriers.length === 0 && !isQuietHours && !dismissedIds.has(warningCarriersId)) {
         notifications.push({
-          id: 'notif-carriers-warning',
+          id: warningCarriersId,
           type: 'carrier',
           category: 'action_required',
           priority: 'medium',
+          live: true,
+          featureKey: 'carrier_integrations',
           message: `${warningCarriers.length} transportadora${warningCarriers.length > 1 ? 's' : ''} con rendimiento mejorable`,
           actionLabel: 'Ver métricas',
           actionUrl: '/carriers?filter=poor-performance',
@@ -392,7 +468,9 @@ export function generateNotifications(
     // ═══════════════════════════════════════════════════════════════════════════
     // ADS/CAMPAIGN NOTIFICATIONS
     // ═══════════════════════════════════════════════════════════════════════════
-    if (preferences.enableAdsNotifications && ads.length > 0) {
+    // Ads/ROAS notifications are gated to the campaign_tracking feature. A store
+    // without the campaigns module cannot act on these, so they are not generated.
+    if (preferences.enableAdsNotifications && adsFeatureEnabled && ads.length > 0) {
       const activeAds = ads.filter(ad => ad.status === 'active');
 
       // Critical: Campaigns losing money (ROAS < 1.5)
@@ -401,15 +479,18 @@ export function generateNotifications(
         return roas > 0 && roas < 1.5; // Only if ROAS is set and low
       });
 
-      if (criticalAds.length > 0 && !dismissedIds.has('notif-ads-critical')) {
+      const criticalAdsId = `notif-ads-critical-${hashItemIds(criticalAds.map(ad => ad.id))}`;
+      if (criticalAds.length > 0 && !dismissedIds.has(criticalAdsId)) {
         const adName = safeString(criticalAds[0]?.name, 'Campaña');
         const roas = safeNumber(criticalAds[0]?.roas);
 
         notifications.push({
-          id: 'notif-ads-critical',
+          id: criticalAdsId,
           type: 'ads',
           category: 'urgent',
           priority: 'high',
+          live: true,
+          featureKey: 'campaign_tracking',
           message: criticalAds.length === 1
             ? `"${adName}" tiene ROAS de ${roas.toFixed(1)}x`
             : `${criticalAds.length} campañas con ROAS crítico`,
@@ -430,12 +511,15 @@ export function generateNotifications(
         return roas >= 1.5 && roas < 2.5;
       });
 
-      if (warningAds.length > 0 && criticalAds.length === 0 && !isQuietHours && !dismissedIds.has('notif-ads-warning')) {
+      const warningAdsId = `notif-ads-warning-${hashItemIds(warningAds.map(ad => ad.id))}`;
+      if (warningAds.length > 0 && criticalAds.length === 0 && !isQuietHours && !dismissedIds.has(warningAdsId)) {
         notifications.push({
-          id: 'notif-ads-warning',
+          id: warningAdsId,
           type: 'ads',
           category: 'action_required',
           priority: 'medium',
+          live: true,
+          featureKey: 'campaign_tracking',
           message: `${warningAds.length} campaña${warningAds.length > 1 ? 's' : ''} con ROAS mejorable`,
           actionLabel: 'Optimizar campañas',
           actionUrl: '/dashboard',
@@ -446,6 +530,59 @@ export function generateNotifications(
             itemIds: warningAds.map(ad => ad.id),
           },
         });
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // WEEKLY AD-SPEND REMINDER
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Recurring nudge to keep marketing spend current so analytics (ROI, net
+    // profit, margin) stays accurate. Product rules, not a blind timer:
+    //   1. Only fires when spend has NOT been logged this week. If the user
+    //      already entered it, we stay silent.
+    //   2. The id is week-scoped, so it is a distinct notification each week and
+    //      the read/dismiss state of last week never suppresses this week.
+    //   3. A dismiss is persisted per week (dismissedWeeklyReminders), so it does
+    //      not bounce back the next day like the 24h dismiss list would allow.
+    //   4. Medium priority, respects quiet hours, timezone-aware week key.
+    if (
+      preferences.enableWeeklyReminders &&
+      preferences.enableAdsNotifications &&
+      adsFeatureEnabled &&
+      data.adSpendLoggedThisWeek === false &&
+      !isQuietHours
+    ) {
+      try {
+        // Compute the week key in the store timezone so it lines up with the
+        // server gate (adSpendLoggedThisWeek). Falls back to browser tz only if
+        // the store tz was not supplied.
+        const weekKey = getISOWeekKey(undefined, data.storeTimezone);
+        const weeklyReminderId = `notif-ads-weekly-spend-${weekKey}`;
+
+        if (
+          !dismissedIds.has(weeklyReminderId) &&
+          !dismissedWeeklyReminders.has(weekKey)
+        ) {
+          notifications.push({
+            id: weeklyReminderId,
+            type: 'ads',
+            category: 'action_required',
+            priority: 'medium',
+            live: true,
+            featureKey: 'campaign_tracking',
+            message: 'Cargaste tus gastos de ads de esta semana? Mantenelos al dia para que tu rentabilidad sea exacta',
+            actionLabel: 'Cargar gastos',
+            actionUrl: '/ads',
+            timestamp: getNow().toISOString(),
+            read: false,
+            metadata: {
+              count: 1,
+              timeReference: weekKey,
+            },
+          });
+        }
+      } catch (error) {
+        logger.warn('Error generating weekly ad-spend reminder:', error);
       }
     }
 

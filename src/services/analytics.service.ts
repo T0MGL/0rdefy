@@ -350,6 +350,12 @@ export interface NotificationData {
     id: string;
     name: string;
   }>;
+  // True when a campaign with positive investment was created or updated in the
+  // current ISO week (store timezone). Drives the weekly ad-spend reminder.
+  adSpendLoggedThisWeek?: boolean;
+  // IANA store timezone. The client uses it to compute the week key for the
+  // weekly ad-spend reminder so it matches the server-side gate exactly.
+  storeTimezone?: string;
 }
 
 export interface ShippingCostsMetrics {

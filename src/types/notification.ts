@@ -24,6 +24,25 @@ export interface Notification {
     timeReference?: string; // Original time for accurate "time ago" display
   };
 
+  /**
+   * True when the underlying condition is currently active (e.g. there is still
+   * a pending order older than the threshold, a product is still out of stock).
+   * Drives the red "live signal" badge independently of read state: a condition
+   * the operator already saw but has not resolved keeps signalling. Set by the
+   * engine on every generation pass.
+   */
+  live?: boolean;
+
+  /**
+   * Plan feature that gates this notification. Operational notifications (orders,
+   * stock) leave this undefined and always apply. Notifications tied to an
+   * optional module (ads -> campaign_tracking, carrier performance ->
+   * carrier_integrations) carry the feature key so the engine can suppress them
+   * when the plan does not include the module. This is NOT an upsell teaser:
+   * a gated-out notification is simply not generated.
+   */
+  featureKey?: string;
+
   // UX improvements
   snoozedUntil?: string; // ISO date - if set, notification is hidden until this time
   dismissedAt?: string; // ISO date - when user dismissed (won't show again for same issue)
@@ -39,6 +58,9 @@ export interface NotificationPreferences {
   enableStockNotifications: boolean;
   enableCarrierNotifications: boolean;
   enableAdsNotifications: boolean;
+
+  // Recurring operational reminders (e.g. weekly ad spend logging prompt)
+  enableWeeklyReminders: boolean;
 
   // Thresholds
   stockThreshold: number; // Default 10, user can adjust
@@ -61,6 +83,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   enableStockNotifications: true,
   enableCarrierNotifications: true,
   enableAdsNotifications: true,
+  enableWeeklyReminders: true,
   stockThreshold: 10,
   pendingOrderHoursThreshold: 24,
   quietHoursEnabled: false,

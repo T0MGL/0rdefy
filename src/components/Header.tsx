@@ -1,11 +1,9 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { generateAlerts } from '@/utils/alertEngine';
-import { useAuth, Module } from '@/contexts/AuthContext';
-import { useSubscription } from '@/contexts/SubscriptionContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNotifications } from '@/contexts/NotificationContext';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { useGlobalView } from '@/contexts/GlobalViewContext';
-import { formatTimeAgo } from '@/utils/timeUtils';
 import { preserveShopifyParams, isShopifyEmbedded } from '@/utils/shopifyNavigation';
 import { Bell, ChevronDown, ChevronLeft, Calendar, ListChecks } from 'lucide-react';
 import { Button } from './ui/button';
@@ -20,12 +18,8 @@ import {
   SheetTitle,
   SheetTrigger,
 } from './ui/sheet';
-import { analyticsService } from '@/services/analytics.service';
 import { notificationsService } from '@/services/notifications.service';
-import type { Order, DashboardOverview } from '@/types';
-import type { Carrier } from '@/services/carriers.service';
 import type { Notification } from '@/types/notification';
-import { logger } from '@/utils/logger';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,9 +54,7 @@ const dateRanges = [
 export function Header() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { signOut, user, stores, permissions } = useAuth();
-  const hasAnalyticsAccess = permissions.canAccessModule(Module.ANALYTICS);
-  const { hasFeature } = useSubscription();
+  const { signOut, user, stores } = useAuth();
   const { selectedRange, setSelectedRange, customRange, setCustomRange, getDateRange } = useDateRange();
   const { globalViewEnabled, setGlobalViewEnabled } = useGlobalView();
 
@@ -73,14 +65,11 @@ export function Header() {
   const hasMultipleStores = (stores?.length || 0) >= 2;
   const showGlobalViewToggle = isDashboard && hasMultipleStores;
 
-  // Check if user has smart alerts feature (Growth+ plan)
-  const hasSmartAlerts = hasFeature('smart_alerts');
+  // Notification generation + polling lives in NotificationProvider (app level)
+  // so it runs on every page. The Header is a pure renderer of the derived view.
+  const { notifications, unreadCount, liveCount, hasUrgentLive } = useNotifications();
+
   const [notifOpen, setNotifOpen] = useState(false);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [carriers, setCarriers] = useState<Carrier[]>([]);
-  const [overview, setOverview] = useState<DashboardOverview | null>(null);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [datePopoverOpen, setDatePopoverOpen] = useState(false);
   const [showCalendarView, setShowCalendarView] = useState(false);
   const [customSelection, setCustomSelection] = useState<CalendarDateRange | undefined>(undefined);
@@ -96,149 +85,6 @@ export function Header() {
     !onboardingProgress.hasDismissed &&
     onboardingProgress.totalCount > 0;
 
-  // Subscribe to cross-tab notification updates
-  useEffect(() => {
-    const unsubscribe = notificationsService.subscribe(() => {
-      // Another tab updated notifications - refresh our state
-      setNotifications(notificationsService.getAll());
-      setUnreadCount(notificationsService.getUnreadCount());
-    });
-    return unsubscribe;
-  }, []);
-
-  // Track if a request is in flight to prevent concurrent requests
-  const isLoadingRef = useRef(false);
-  // Track current AbortController for cleanup
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  // Load data for notifications and alerts - with abort support
-  const loadData = useCallback(async (signal?: AbortSignal) => {
-    // Skip analytics loading for users without analytics access
-    if (!hasAnalyticsAccess) {
-      setNotifications([]);
-      setUnreadCount(0);
-      return;
-    }
-
-    // Prevent concurrent requests
-    if (isLoadingRef.current) {
-      return;
-    }
-
-    isLoadingRef.current = true;
-
-    try {
-      // Use new lightweight notification data endpoint + overview for alerts
-      const [notificationData, overviewData] = await Promise.all([
-        analyticsService.getNotificationData(signal),
-        analyticsService.getOverview(undefined, signal),
-      ]);
-
-      // Check if aborted before updating state
-      if (signal?.aborted) {
-        return;
-      }
-
-      setOverview(overviewData);
-
-      // Update notifications service with new data (only if user has smart_alerts feature)
-      if (hasSmartAlerts && notificationData) {
-        // Store orders and carriers for alert generation
-        setOrders(notificationData.orders as any);
-        setCarriers(notificationData.carriers as any);
-
-        notificationsService.updateNotifications({
-          orders: notificationData.orders as any,
-          products: notificationData.products as any,
-          ads: notificationData.ads as any,
-          carriers: notificationData.carriers as any,
-        });
-
-        // Get updated notifications
-        setNotifications(notificationsService.getAll());
-        setUnreadCount(notificationsService.getUnreadCount());
-      } else {
-        // Clear notifications for users without smart_alerts
-        setNotifications([]);
-        setUnreadCount(0);
-      }
-    } catch (error) {
-      // Ignore abort errors - they're expected on cleanup
-      if (error instanceof Error && error.name === 'AbortError') {
-        return;
-      }
-      logger.error('Error loading header data:', error);
-    } finally {
-      isLoadingRef.current = false;
-    }
-  }, [hasSmartAlerts, hasAnalyticsAccess]);
-
-  // Load data on mount and every 30 minutes with proper cleanup. Polling is
-  // gated by tab visibility: a backgrounded tab does not hit the API. When
-  // the user returns to a tab that has been hidden longer than the interval,
-  // a single catch-up fetch runs immediately. This is cosmetic header data
-  // (notification badge, alert counters), not order-critical state, so a
-  // 30-minute cadence is intentional.
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-
-    const POLL_INTERVAL_MS = 30 * 60 * 1000;
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-
-    let interval: ReturnType<typeof setInterval> | null = null;
-    let lastFetchAt = 0;
-
-    const safeLoad = () => {
-      if (abortController.signal.aborted) return;
-      if (document.visibilityState !== 'visible') return;
-      lastFetchAt = Date.now();
-      loadData(abortController.signal);
-    };
-
-    const startInterval = () => {
-      if (interval !== null) return;
-      interval = setInterval(safeLoad, POLL_INTERVAL_MS);
-    };
-
-    const stopInterval = () => {
-      if (interval === null) return;
-      clearInterval(interval);
-      interval = null;
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        // Catch-up if the tab was hidden longer than the polling window.
-        if (Date.now() - lastFetchAt >= POLL_INTERVAL_MS) {
-          safeLoad();
-        }
-        startInterval();
-      } else {
-        stopInterval();
-      }
-    };
-
-    if (document.visibilityState === 'visible') {
-      safeLoad();
-      startInterval();
-    }
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      abortController.abort();
-      abortControllerRef.current = null;
-      stopInterval();
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [loadData]);
-
-  // Only generate alerts if user has smart_alerts feature
-  const alerts = useMemo(() => (hasSmartAlerts && overview)
-    ? generateAlerts({ orders, overview, carriers })
-    : [], [hasSmartAlerts, overview, orders, carriers]);
-  const criticalAlerts = useMemo(() => hasSmartAlerts ? alerts.filter(a => a.severity === 'critical').length : 0, [hasSmartAlerts, alerts]);
-
   const handleSignOut = async () => {
     await signOut();
     // Preserve Shopify query parameters when navigating to login
@@ -246,26 +92,20 @@ export function Header() {
     navigate(pathWithShopifyParams);
   };
 
-  // Mark all notifications as read when dropdown opens
+  // Opening the panel no longer marks everything read. "Seen" (unread) and
+  // "resolved" (live) are separate signals: bulk-reading on open would wipe the
+  // blue "new" indicator without the operator actually acting on anything, and
+  // it never touched the live signal anyway. Read state is set per notification
+  // on click, or explicitly via "Marcar todo leido".
   const handleNotificationOpen = (open: boolean) => {
     setNotifOpen(open);
-    if (open && unreadCount > 0) {
-      // Mark all visible unread notifications as read
-      const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
-      notificationsService.markMultipleAsRead(unreadIds);
-
-      // Update state
-      setNotifications(notificationsService.getAll());
-      setUnreadCount(0);
-    }
   };
 
   const handleNotificationClick = (notif: Notification) => {
-    // Mark this specific notification as read if not already
+    // Mark this specific notification as read if not already. The service
+    // notifies listeners, so the provider re-derives the badge state.
     if (!notif.read) {
       notificationsService.markAsRead(notif.id);
-      setNotifications(notificationsService.getAll());
-      setUnreadCount(notificationsService.getUnreadCount());
     }
 
     // Navigate to action URL
@@ -281,8 +121,6 @@ export function Header() {
 
   const handleMarkAllRead = () => {
     notificationsService.markAllAsRead();
-    setNotifications(notificationsService.getAll());
-    setUnreadCount(0);
   };
 
   const handleDatePopoverChange = (open: boolean) => {
@@ -535,7 +373,6 @@ export function Header() {
             onOpenChange={handleNotificationOpen}
             notifications={notifications}
             unreadCount={unreadCount}
-            hasSmartAlerts={hasSmartAlerts}
             onClickNotification={handleNotificationClick}
             onMarkAllRead={handleMarkAllRead}
             trigger={
@@ -543,18 +380,35 @@ export function Header() {
                 variant="ghost"
                 size="icon"
                 className="relative h-10 w-10 min-h-[44px] min-w-[44px]"
-                aria-label={`Notificaciones${unreadCount > 0 ? `, ${unreadCount} sin leer` : ''}`}
+                aria-label={
+                  liveCount > 0
+                    ? `Notificaciones, ${liveCount} sin resolver${unreadCount > 0 ? `, ${unreadCount} nuevas` : ''}`
+                    : unreadCount > 0
+                      ? `Notificaciones, ${unreadCount} nuevas`
+                      : 'Notificaciones'
+                }
               >
                 <Bell size={20} className="text-muted-foreground" />
-                {(unreadCount > 0 || criticalAlerts > 0) && (
+                {/* Live-signal badge: counts conditions currently active and
+                    unresolved (red when any is urgent, amber otherwise). Stays
+                    visible even after the operator has seen the notification, so
+                    a 53h pending order keeps signalling until acted on. */}
+                {liveCount > 0 && (
                   <Badge className={cn(
                     "absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-[10px] border-2 border-card tabular-nums",
-                    notifications.some(n => !n.read && n.category === 'urgent') || criticalAlerts > 0
-                      ? "bg-red-600"
-                      : "bg-orange-500"
+                    hasUrgentLive ? "bg-red-600" : "bg-orange-500"
                   )}>
-                    {unreadCount + criticalAlerts}
+                    {liveCount > 9 ? '9+' : liveCount}
                   </Badge>
+                )}
+                {/* New-since-last-seen indicator: a small blue dot, distinct from
+                    the live badge. Only shown on its own when there is no live
+                    badge occupying the corner, to avoid stacking two markers. */}
+                {liveCount === 0 && unreadCount > 0 && (
+                  <span
+                    className="absolute top-0 right-0 h-2.5 w-2.5 rounded-full bg-blue-500 border-2 border-card"
+                    aria-hidden="true"
+                  />
                 )}
               </Button>
             }

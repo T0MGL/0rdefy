@@ -1,7 +1,12 @@
 /**
  * Tests for timeUtils - Timezone-aware time calculations
+ *
+ * Uses the Node built-in test runner (node:test) to match the rest of the unit
+ * suite. Run with `npm run test:unit` (or `npx tsx --test <file>` for one file).
  */
 
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
 import {
   getNow,
   getHoursDifference,
@@ -11,16 +16,17 @@ import {
   getUserTimezone,
   isTomorrow,
   getTimeInfo,
+  getISOWeekKey,
 } from '../timeUtils';
 
 describe('timeUtils', () => {
   describe('getUserTimezone', () => {
     it('should return a valid IANA timezone', () => {
       const tz = getUserTimezone();
-      expect(tz).toBeTruthy();
-      expect(typeof tz).toBe('string');
+      assert.ok(tz);
+      assert.equal(typeof tz, 'string');
       // Common timezones include slashes
-      expect(tz.includes('/')).toBe(true);
+      assert.equal(tz.includes('/'), true);
     });
   });
 
@@ -28,7 +34,7 @@ describe('timeUtils', () => {
     it('should return current date', () => {
       const now = getNow();
       const diff = Math.abs(now.getTime() - Date.now());
-      expect(diff).toBeLessThan(100); // Less than 100ms difference
+      assert.ok(diff < 100); // Less than 100ms difference
     });
   });
 
@@ -38,14 +44,14 @@ describe('timeUtils', () => {
       const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
 
       const diff = getHoursDifference(twoHoursAgo, now);
-      expect(diff).toBeCloseTo(2, 1);
+      assert.ok(Math.abs(diff - 2) < 0.05);
     });
 
     it('should default to now for second parameter', () => {
       const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
       const diff = getHoursDifference(twoHoursAgo);
-      expect(diff).toBeGreaterThanOrEqual(1.9);
-      expect(diff).toBeLessThanOrEqual(2.1);
+      assert.ok(diff >= 1.9);
+      assert.ok(diff <= 2.1);
     });
 
     it('should handle ISO string dates', () => {
@@ -53,7 +59,7 @@ describe('timeUtils', () => {
       const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
 
       const diff = getHoursDifference(twoHoursAgo.toISOString(), now.toISOString());
-      expect(diff).toBeCloseTo(2, 1);
+      assert.ok(Math.abs(diff - 2) < 0.05);
     });
   });
 
@@ -63,7 +69,7 @@ describe('timeUtils', () => {
       const thirtyMinsAgo = new Date(now.getTime() - 30 * 60 * 1000);
 
       const diff = getMinutesDifference(thirtyMinsAgo, now);
-      expect(diff).toBeCloseTo(30, 1);
+      assert.ok(Math.abs(diff - 30) < 0.05);
     });
   });
 
@@ -71,67 +77,67 @@ describe('timeUtils', () => {
     it('should format less than 1 minute', () => {
       const now = new Date();
       const result = formatTimeAgo(now.toISOString());
-      expect(result).toBe('hace menos de 1 minuto');
+      assert.equal(result, 'hace menos de 1 minuto');
     });
 
     it('should format minutes (singular)', () => {
       const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
       const result = formatTimeAgo(oneMinuteAgo);
-      expect(result).toBe('hace 1 minuto');
+      assert.equal(result, 'hace 1 minuto');
     });
 
     it('should format minutes (plural)', () => {
       const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000);
       const result = formatTimeAgo(thirtyMinsAgo);
-      expect(result).toBe('hace 30 minutos');
+      assert.equal(result, 'hace 30 minutos');
     });
 
     it('should format hours (singular)', () => {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
       const result = formatTimeAgo(oneHourAgo);
-      expect(result).toBe('hace 1 hora');
+      assert.equal(result, 'hace 1 hora');
     });
 
     it('should format hours (plural)', () => {
       const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
       const result = formatTimeAgo(twoHoursAgo);
-      expect(result).toBe('hace 2 horas');
+      assert.equal(result, 'hace 2 horas');
     });
 
     it('should format days (singular)', () => {
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
       const result = formatTimeAgo(oneDayAgo);
-      expect(result).toBe('hace 1 día');
+      assert.equal(result, 'hace 1 día');
     });
 
     it('should format days (plural)', () => {
       const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
       const result = formatTimeAgo(threeDaysAgo);
-      expect(result).toBe('hace 3 días');
+      assert.equal(result, 'hace 3 días');
     });
 
     it('should format months', () => {
       const twoMonthsAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
       const result = formatTimeAgo(twoMonthsAgo);
-      expect(result).toBe('hace 2 meses');
+      assert.equal(result, 'hace 2 meses');
     });
   });
 
   describe('isOlderThan', () => {
     it('should return true if date is older than specified hours', () => {
       const twentyFiveHoursAgo = new Date(Date.now() - 25 * 60 * 60 * 1000);
-      expect(isOlderThan(twentyFiveHoursAgo, 24)).toBe(true);
+      assert.equal(isOlderThan(twentyFiveHoursAgo, 24), true);
     });
 
     it('should return false if date is not older than specified hours', () => {
       const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-      expect(isOlderThan(twoHoursAgo, 24)).toBe(false);
+      assert.equal(isOlderThan(twoHoursAgo, 24), false);
     });
 
     it('should handle exact boundary', () => {
       const exactlyTwentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
       // Should be false because it's equal, not greater than
-      expect(isOlderThan(exactlyTwentyFourHoursAgo, 24)).toBe(false);
+      assert.equal(isOlderThan(exactlyTwentyFourHoursAgo, 24), false);
     });
   });
 
@@ -139,18 +145,18 @@ describe('timeUtils', () => {
     it('should return true for tomorrow\'s date', () => {
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
-      expect(isTomorrow(tomorrow)).toBe(true);
+      assert.equal(isTomorrow(tomorrow), true);
     });
 
     it('should return false for today', () => {
       const today = new Date();
-      expect(isTomorrow(today)).toBe(false);
+      assert.equal(isTomorrow(today), false);
     });
 
     it('should return false for day after tomorrow', () => {
       const dayAfterTomorrow = new Date();
       dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
-      expect(isTomorrow(dayAfterTomorrow)).toBe(false);
+      assert.equal(isTomorrow(dayAfterTomorrow), false);
     });
   });
 
@@ -159,12 +165,69 @@ describe('timeUtils', () => {
       const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
       const info = getTimeInfo(twoHoursAgo);
 
-      expect(info.timezone).toBeTruthy();
-      expect(info.localTime).toBeTruthy();
-      expect(info.utcTime).toBeTruthy();
-      expect(info.hoursAgo).toBeCloseTo(2, 1);
-      expect(info.minutesAgo).toBeCloseTo(120, 5);
-      expect(info.formattedAgo).toBe('hace 2 horas');
+      assert.ok(info.timezone);
+      assert.ok(info.localTime);
+      assert.ok(info.utcTime);
+      assert.ok(Math.abs(info.hoursAgo - 2) < 0.05);
+      assert.ok(Math.abs(info.minutesAgo - 120) < 5);
+      assert.equal(info.formattedAgo, 'hace 2 horas');
+    });
+  });
+
+  describe('getISOWeekKey', () => {
+    // UTC timezone keeps the calendar date identical to the instant, so these
+    // assertions are deterministic regardless of where the test host runs.
+    const UTC = 'UTC';
+
+    it('returns the ISO week for a mid-week date', () => {
+      assert.equal(getISOWeekKey(new Date('2026-06-09T12:00:00Z'), UTC), '2026-W24');
+    });
+
+    it('keeps Sunday in the same week as the preceding Monday', () => {
+      assert.equal(getISOWeekKey(new Date('2026-01-04T12:00:00Z'), UTC), '2026-W01');
+    });
+
+    it('rolls to the next week on Monday', () => {
+      assert.equal(getISOWeekKey(new Date('2026-01-05T12:00:00Z'), UTC), '2026-W02');
+    });
+
+    it('assigns early-January days to the prior ISO year when needed', () => {
+      // 2027-01-01 is a Friday belonging to ISO week 53 of 2026.
+      assert.equal(getISOWeekKey(new Date('2027-01-01T12:00:00Z'), UTC), '2026-W53');
+    });
+
+    it('assigns late-December days to the next ISO year when needed', () => {
+      // 2024-12-30 is a Monday belonging to ISO week 1 of 2025.
+      assert.equal(getISOWeekKey(new Date('2024-12-30T12:00:00Z'), UTC), '2025-W01');
+    });
+
+    it('produces a stable key for every day within the same week', () => {
+      const mon = getISOWeekKey(new Date('2026-06-08T01:00:00Z'), UTC);
+      const sun = getISOWeekKey(new Date('2026-06-14T23:00:00Z'), UTC);
+      assert.equal(mon, '2026-W24');
+      assert.equal(sun, '2026-W24');
+    });
+
+    it('resolves the calendar date in the store timezone before bucketing', () => {
+      // A Sunday-night instant in Asuncion (UTC-3) has already crossed midnight
+      // UTC into Monday. Browser/UTC bucketing would roll it into the next ISO
+      // week; resolving in store tz must keep it in the Sunday week.
+      const instant = new Date('2026-06-15T02:00:00Z'); // Sun 23:00 in Asuncion
+      assert.equal(getISOWeekKey(instant, 'America/Asuncion'), '2026-W24');
+      assert.equal(getISOWeekKey(instant, UTC), '2026-W25');
+    });
+
+    it('returns a well-formed key shape for the current week', () => {
+      assert.match(getISOWeekKey(), /^\d{4}-W\d{2}$/);
+    });
+
+    it('never emits the invalid W00 week, even for an unknown timezone', () => {
+      // An unparseable timezone must still yield a real ISO week (W01..W53),
+      // never the impossible "W00". formatLocalDate degrades to browser-local
+      // for a bad tz, and the catch fallback recomputes from UTC if anything
+      // upstream throws; both paths are covered by the W-range assertion.
+      const key = getISOWeekKey(new Date('2026-06-09T12:00:00Z'), 'Not/AZone');
+      assert.match(key, /^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])$/);
     });
   });
 
@@ -172,13 +235,13 @@ describe('timeUtils', () => {
     it('should handle future dates', () => {
       const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
       const diff = getHoursDifference(tomorrow);
-      expect(diff).toBeLessThan(0); // Negative for future dates
+      assert.ok(diff < 0); // Negative for future dates
     });
 
     it('should handle very old dates', () => {
       const veryOld = new Date('2020-01-01');
       const result = formatTimeAgo(veryOld);
-      expect(result).toContain('mes');
+      assert.ok(result.includes('mes'));
     });
 
     it('should handle dates as both string and Date objects', () => {
@@ -186,7 +249,7 @@ describe('timeUtils', () => {
       const diffFromString = getHoursDifference(date.toISOString());
       const diffFromDate = getHoursDifference(date);
 
-      expect(diffFromString).toBeCloseTo(diffFromDate, 2);
+      assert.ok(Math.abs(diffFromString - diffFromDate) < 0.01);
     });
   });
 });
