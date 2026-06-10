@@ -1,11 +1,24 @@
 import { Notification, NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '@/types/notification';
-import { generateNotifications } from '@/utils/notificationEngine';
+import { generateNotifications, type NotificationFeatureFlags } from '@/utils/notificationEngine';
+import {
+  countLiveNotifications,
+  hasUrgentLiveNotification,
+  countUnreadNotifications,
+} from '@/utils/notificationSignals';
+import { getISOWeekKey } from '@/utils/timeUtils';
 import type { Order, Product, Ad } from '@/types';
 import type { Carrier } from '@/services/carriers.service';
 
 const STORAGE_KEY = 'ordefy_notifications';
 const PREFERENCES_KEY = 'ordefy_notification_preferences';
 const DISMISSED_KEY = 'ordefy_dismissed_notifications';
+// Week-scoped dismissals for recurring weekly reminders. Kept separate from the
+// 24h DISMISSED_KEY so dismissing a weekly reminder sticks for the whole week
+// rather than reappearing the next day.
+const DISMISSED_WEEKLY_KEY = 'ordefy_dismissed_weekly_reminders';
+// Week id prefix used by the weekly ad-spend reminder. Must stay in sync with
+// the id built in notificationEngine.ts.
+const WEEKLY_AD_SPEND_PREFIX = 'notif-ads-weekly-spend-';
 const STORAGE_VERSION = '2.0'; // Bumped for new notification system
 const BROADCAST_CHANNEL_NAME = 'ordefy_notifications_sync';
 
@@ -20,6 +33,16 @@ interface NotificationEngineData {
   products: Product[];
   ads: Ad[];
   carriers: Carrier[];
+  adSpendLoggedThisWeek?: boolean;
+  storeTimezone?: string;
+  /**
+   * Per-feature gates resolved from the current plan. Operational notifications
+   * (orders, stock) are never gated; ads and carrier notifications are only
+   * generated when the plan includes the matching module. Optional: when omitted
+   * the engine defaults every gate to enabled so a store with an unknown plan
+   * still gets operational notifications.
+   */
+  featureFlags?: NotificationFeatureFlags;
 }
 
 type BroadcastMessage =
@@ -37,13 +60,22 @@ class NotificationsService {
   private notifications: Notification[] = [];
   private preferences: NotificationPreferences = DEFAULT_NOTIFICATION_PREFERENCES;
   private dismissedIds: Set<string> = new Set();
+  private dismissedWeeklyReminders: Set<string> = new Set();
   private channel: BroadcastChannel | null = null;
   private listeners: Set<NotificationListener> = new Set();
+  // Last store timezone seen via updateNotifications(). The weekly dismiss keys
+  // are written in store tz (id suffix from notificationEngine), so the pruner
+  // must use the same tz to avoid dropping a still-valid dismiss at the
+  // Sunday/Monday border. Undefined until the first store-scoped update arrives;
+  // until then the pruner keeps every key (prunes nothing) so it cannot drop a
+  // valid dismiss using the wrong (browser) timezone.
+  private storeTimezone: string | undefined;
 
   constructor() {
     this.loadFromStorage();
     this.loadPreferences();
     this.loadDismissed();
+    this.loadDismissedWeekly();
     this.initBroadcastChannel();
     this.setupCleanupListeners();
   }
@@ -105,6 +137,8 @@ class NotificationsService {
         break;
       case 'DISMISSED_UPDATED':
         this.loadDismissed();
+        this.loadDismissedWeekly();
+        this.loadFromStorage();
         this.notifyListeners();
         break;
     }
@@ -299,12 +333,89 @@ class NotificationsService {
   }
 
   /**
+   * Load week-scoped reminder dismissals from localStorage.
+   * Entries are keyed by ISO week ("YYYY-Www"). We prune anything older than
+   * the previous week so the store stays small while keeping the current and
+   * prior week (the prior week guards against a cron/clock edge at week roll).
+   *
+   * Pruning MUST use the store timezone, because the dismiss key is written in
+   * store tz (the id suffix produced by notificationEngine). Using the browser
+   * tz here would, at the Sunday/Monday border for a store in a different
+   * offset, compute a different "current week" than the one that was dismissed
+   * and drop a still-valid dismiss, making the reminder reappear once.
+   *
+   * Until the store timezone is known (before the first updateNotifications),
+   * we keep every key untouched rather than prune with the wrong tz.
+   */
+  private loadDismissedWeekly(): void {
+    try {
+      const stored = localStorage.getItem(DISMISSED_WEEKLY_KEY);
+      if (!stored) {
+        this.dismissedWeeklyReminders = new Set();
+        return;
+      }
+
+      const weeks: string[] = JSON.parse(stored);
+      if (!Array.isArray(weeks)) {
+        this.dismissedWeeklyReminders = new Set();
+        return;
+      }
+
+      // Store tz not yet known: load all keys, defer pruning to avoid dropping
+      // a valid dismiss using the browser timezone.
+      if (!this.storeTimezone) {
+        this.dismissedWeeklyReminders = new Set(weeks);
+        return;
+      }
+
+      const currentWeek = getISOWeekKey(undefined, this.storeTimezone);
+      const lastWeek = getISOWeekKey(
+        new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        this.storeTimezone
+      );
+      const valid = weeks.filter(w => w === currentWeek || w === lastWeek);
+      this.dismissedWeeklyReminders = new Set(valid);
+
+      if (valid.length !== weeks.length) {
+        this.saveDismissedWeekly();
+      }
+    } catch (error) {
+      console.error('Error loading weekly dismissed reminders:', error);
+      this.dismissedWeeklyReminders = new Set();
+    }
+  }
+
+  /**
+   * Persist week-scoped reminder dismissals to localStorage.
+   */
+  private saveDismissedWeekly(): void {
+    try {
+      localStorage.setItem(
+        DISMISSED_WEEKLY_KEY,
+        JSON.stringify(Array.from(this.dismissedWeeklyReminders))
+      );
+    } catch (error) {
+      console.error('Error saving weekly dismissed reminders:', error);
+    }
+  }
+
+  /**
    * Generate and merge new notifications with existing ones
    */
   updateNotifications(data: NotificationEngineData): void {
+    // Capture the store timezone so the weekly dismiss pruner uses the same tz
+    // the dismiss keys were written in. Re-prune when it first becomes known or
+    // changes, since the constructor-time load deferred pruning (no tz yet).
+    if (data.storeTimezone && data.storeTimezone !== this.storeTimezone) {
+      this.storeTimezone = data.storeTimezone;
+      this.loadDismissedWeekly();
+    }
+
     const newNotifications = generateNotifications(data, {
       preferences: this.preferences,
       dismissedIds: this.dismissedIds,
+      dismissedWeeklyReminders: this.dismissedWeeklyReminders,
+      featureFlags: data.featureFlags,
     });
 
     // Create a map of existing notifications by ID
@@ -339,7 +450,11 @@ class NotificationsService {
       if (!existingIds.has(oldNotif.id) && oldNotif.read) {
         const notifDate = new Date(oldNotif.timestamp);
         if (notifDate >= yesterday) {
-          mergedNotifications.push(oldNotif);
+          // This notification was not regenerated this pass, so its underlying
+          // condition is no longer active (order confirmed, stock replenished,
+          // affected set changed -> new id). Force live=false so the red
+          // live-signal badge does not keep counting a resolved condition.
+          mergedNotifications.push({ ...oldNotif, live: false });
         }
       }
     });
@@ -390,7 +505,7 @@ class NotificationsService {
    * Get unread count
    */
   getUnreadCount(): number {
-    return this.notifications.filter(n => !n.read).length;
+    return countUnreadNotifications(this.notifications);
   }
 
   /**
@@ -398,6 +513,26 @@ class NotificationsService {
    */
   getUrgentCount(): number {
     return this.notifications.filter(n => !n.read && n.category === 'urgent').length;
+  }
+
+  /**
+   * Count of notifications whose underlying condition is currently active and
+   * actionable (urgent or action_required). This is independent of read state:
+   * a pending order the operator already saw but has not confirmed keeps
+   * counting. Drives the red live-signal badge. Informational notifications
+   * (e.g. tomorrow's deliveries) are excluded: they are heads-ups, not
+   * unresolved problems.
+   */
+  getLiveCount(): number {
+    return countLiveNotifications(this.notifications);
+  }
+
+  /**
+   * True when at least one live condition is urgent. Lets the badge pick red
+   * (urgent live) vs amber (action-required live) without recomputing in the UI.
+   */
+  hasUrgentLive(): boolean {
+    return hasUrgentLiveNotification(this.notifications);
   }
 
   /**
@@ -409,6 +544,9 @@ class NotificationsService {
       notification.read = true;
       this.saveToStorage();
       this.broadcast({ type: 'MARK_READ', ids: [id] });
+      // Same-tab listeners (NotificationProvider) only react to notifyListeners;
+      // broadcast reaches other tabs. Fire both so the local badge updates.
+      this.notifyListeners();
     }
   }
 
@@ -429,6 +567,7 @@ class NotificationsService {
     if (changed) {
       this.saveToStorage();
       this.broadcast({ type: 'MARK_READ', ids: changedIds });
+      this.notifyListeners();
     }
   }
 
@@ -446,6 +585,7 @@ class NotificationsService {
     if (changed) {
       this.saveToStorage();
       this.broadcast({ type: 'MARK_ALL_READ' });
+      this.notifyListeners();
     }
   }
 
@@ -455,6 +595,16 @@ class NotificationsService {
   dismiss(id: string): void {
     this.dismissedIds.add(id);
     this.saveDismissed();
+
+    // Weekly reminders need a week-scoped dismissal so they do not bounce back
+    // once the 24h dismiss window expires. The week key is the id suffix.
+    if (id.startsWith(WEEKLY_AD_SPEND_PREFIX)) {
+      const weekKey = id.slice(WEEKLY_AD_SPEND_PREFIX.length);
+      if (weekKey) {
+        this.dismissedWeeklyReminders.add(weekKey);
+        this.saveDismissedWeekly();
+      }
+    }
 
     // Also remove from current notifications
     const index = this.notifications.findIndex(n => n.id === id);
@@ -486,6 +636,7 @@ class NotificationsService {
     this.notifications = [];
     this.saveToStorage();
     this.broadcast({ type: 'CLEAR_ALL' });
+    this.notifyListeners();
   }
 
   /**
@@ -527,7 +678,9 @@ class NotificationsService {
    */
   clearDismissed(): void {
     this.dismissedIds.clear();
+    this.dismissedWeeklyReminders.clear();
     this.saveDismissed();
+    this.saveDismissedWeekly();
     this.broadcast({ type: 'DISMISSED_UPDATED' });
   }
 

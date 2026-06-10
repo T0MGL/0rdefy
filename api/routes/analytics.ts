@@ -17,6 +17,7 @@ import {
     endOfDayIso,
     formatDateInTimezone,
     getStartOfDayInTimezone,
+    getStartOfWeekInTimezone,
     getStoreTimezone,
     getTodayInTimezone,
     startOfDayIso,
@@ -2575,17 +2576,23 @@ analyticsRouter.get('/notification-data', async (req: AuthRequest, res: Response
         // deep-link metadata. Each query is intentionally narrow so the wire
         // payload stays in the low double-digit kilobytes even for busy stores.
         //
-        // Orders: only records that can produce an alert in the last 7 days
+        // Orders: only records that can produce an alert in the last 30 days
         // (pending + awaiting_carrier + tomorrow's confirmed/ready_to_ship).
-        // The shape only carries the columns the engine reads. Hard-capped
-        // at 100 rows so a single noisy store does not balloon the response.
+        // The window is 30 days, not 7: a pending order forgotten for ten days
+        // is MORE urgent than one from yesterday, and a 7-day window let it fall
+        // silent. The shape only carries the columns the engine reads. Hard-
+        // capped at 100 rows so a single noisy store does not balloon the
+        // response; rows are ordered oldest-first so that when the cap bites it
+        // keeps the most overdue orders (the ones that actually need alerting),
+        // not the freshest. Tomorrow's-delivery filtering is done client-side by
+        // delivery_date, so it is unaffected by this ordering.
         //
         // Products: low/out-of-stock only (stock <= threshold). The engine
         // partitions this into out-of-stock and warning buckets locally.
         //
         // Ads + carriers: lightweight, both already small per store.
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
         const tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
@@ -2598,14 +2605,22 @@ analyticsRouter.get('/notification-data', async (req: AuthRequest, res: Response
         const ORDERS_LIMIT = 100;
         const PRODUCTS_LIMIT = 100;
 
-        const [ordersRes, productsRes, adsRes, carriersRes] = await Promise.all([
+        // Weekly ad-spend reminder gate. We consider spend "logged this week" if
+        // any campaign carrying a positive investment was created or touched since
+        // the start of the current ISO week (Monday) in the store timezone. Two
+        // head-only count queries (created vs updated) keep this cheap; we only
+        // need to know whether the count is greater than zero, not the rows.
+        const storeTz = await getStoreTimezone(supabaseAdmin, storeId!);
+        const startOfWeekIso = getStartOfWeekInTimezone(storeTz);
+
+        const [ordersRes, productsRes, adsRes, carriersRes, spendCreatedRes, spendUpdatedRes] = await Promise.all([
             supabaseAdmin
                 .from('orders')
                 .select('id, sleeves_status, created_at, customer_first_name, customer_last_name, delivery_preferences')
                 .eq('store_id', storeId)
                 .in('sleeves_status', ALERT_STATUSES)
-                .gte('created_at', sevenDaysAgo.toISOString())
-                .order('created_at', { ascending: false })
+                .gte('created_at', thirtyDaysAgo.toISOString())
+                .order('created_at', { ascending: true })
                 .limit(ORDERS_LIMIT),
             supabaseAdmin
                 .from('products')
@@ -2625,6 +2640,26 @@ analyticsRouter.get('/notification-data', async (req: AuthRequest, res: Response
                 .select('id, name')
                 .eq('store_id', storeId)
                 .eq('is_active', true),
+            supabaseAdmin
+                .from('campaigns')
+                .select('id', { count: 'exact', head: true })
+                .eq('store_id', storeId)
+                .gt('investment', 0)
+                .gte('created_at', startOfWeekIso),
+            // NOTE: updated_at is bumped by trigger_update_campaigns_timestamp on
+            // ANY campaign update (rename, toggle active, etc.), not only when
+            // investment changes. So this gate detects "a campaign with spend was
+            // touched this week", not strictly "spend was changed this week". That
+            // makes the weekly reminder a conservative false-negative: it may stay
+            // silent after an unrelated edit, but it never nags a user who has not
+            // touched the campaign at all. Acceptable; revisit with a dedicated
+            // spend_logged_at column if false negatives become a complaint.
+            supabaseAdmin
+                .from('campaigns')
+                .select('id', { count: 'exact', head: true })
+                .eq('store_id', storeId)
+                .gt('investment', 0)
+                .gte('updated_at', startOfWeekIso),
         ]);
 
         if (ordersRes.error) {
@@ -2643,6 +2678,17 @@ analyticsRouter.get('/notification-data', async (req: AuthRequest, res: Response
             logger.error('SERVER', '[GET /api/analytics/notification-data] Carriers error:', carriersRes.error);
             throw carriersRes.error;
         }
+        if (spendCreatedRes.error) {
+            logger.error('SERVER', '[GET /api/analytics/notification-data] Ad spend (created) error:', spendCreatedRes.error);
+            throw spendCreatedRes.error;
+        }
+        if (spendUpdatedRes.error) {
+            logger.error('SERVER', '[GET /api/analytics/notification-data] Ad spend (updated) error:', spendUpdatedRes.error);
+            throw spendUpdatedRes.error;
+        }
+
+        const adSpendLoggedThisWeek =
+            (spendCreatedRes.count ?? 0) > 0 || (spendUpdatedRes.count ?? 0) > 0;
 
         const transformedOrders = (ordersRes.data || []).map(o => {
             const prefs = o.delivery_preferences as { not_before_date?: string } | null;
@@ -2685,6 +2731,11 @@ analyticsRouter.get('/notification-data', async (req: AuthRequest, res: Response
                 products: transformedProducts,
                 ads: transformedAds,
                 carriers: transformedCarriers,
+                adSpendLoggedThisWeek,
+                // Echo the store timezone so the client week-key (weekly ad-spend
+                // reminder id) is computed in the same tz as the gate above,
+                // avoiding a Sunday/Monday-border mismatch with adSpendLoggedThisWeek.
+                storeTimezone: storeTz,
             }
         });
     } catch (error: any) {

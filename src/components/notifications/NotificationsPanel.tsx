@@ -46,7 +46,6 @@ interface NotificationsPanelProps {
   onOpenChange: (open: boolean) => void;
   notifications: Notification[];
   unreadCount: number;
-  hasSmartAlerts: boolean;
   onClickNotification: (n: Notification) => void;
   onMarkAllRead: () => void;
 }
@@ -128,18 +127,13 @@ function NotificationRow({
   );
 }
 
-function EmptyOrUpsell({ hasSmartAlerts }: { hasSmartAlerts: boolean }) {
-  if (!hasSmartAlerts) {
-    return (
-      <div className="py-12 text-center" role="status">
-        <Bell size={48} className="mx-auto mb-3 opacity-30" aria-hidden="true" />
-        <p className="text-base font-semibold">Alertas Inteligentes</p>
-        <p className="text-[13px] text-muted-foreground mt-1">
-          Disponible en plan Growth
-        </p>
-      </div>
-    );
-  }
+/**
+ * Empty state. Notifications are now gated per-feature inside the engine, so an
+ * empty panel means there is genuinely nothing to act on, on every plan. We do
+ * NOT show a plan-upsell teaser here (operational alerts ship on all plans);
+ * the panel is a single honest "all clear" state.
+ */
+function EmptyState() {
   return (
     <div className="py-12 text-center" role="status">
       <Bell size={48} className="mx-auto mb-3 opacity-30" aria-hidden="true" />
@@ -157,7 +151,6 @@ export function NotificationsPanel({
   onOpenChange,
   notifications,
   unreadCount,
-  hasSmartAlerts,
   onClickNotification,
   onMarkAllRead,
 }: NotificationsPanelProps) {
@@ -209,8 +202,8 @@ export function NotificationsPanel({
           </div>
           <DropdownMenuSeparator />
           <div className="max-h-[420px] overflow-y-auto p-1">
-            {!hasSmartAlerts || notifications.length === 0 ? (
-              <EmptyOrUpsell hasSmartAlerts={hasSmartAlerts} />
+            {notifications.length === 0 ? (
+              <EmptyState />
             ) : (
               notifications.map((notif) => (
                 <DropdownMenuItem
@@ -253,7 +246,7 @@ export function NotificationsPanel({
           </ResponsiveDialogHeader>
 
           {/* Filter chips */}
-          {hasSmartAlerts && notifications.length > 0 && (
+          {notifications.length > 0 && (
             <div className="px-5 pb-2 -mt-1">
               <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
                 {FILTERS.map((f) => {
@@ -297,8 +290,8 @@ export function NotificationsPanel({
           )}
 
           <ResponsiveDialogBody className="pt-1">
-            {!hasSmartAlerts || notifications.length === 0 ? (
-              <EmptyOrUpsell hasSmartAlerts={hasSmartAlerts} />
+            {notifications.length === 0 ? (
+              <EmptyState />
             ) : filtered.length === 0 ? (
               <div className="py-12 text-center" role="status">
                 <p className="text-[15px] text-muted-foreground">
@@ -318,7 +311,7 @@ export function NotificationsPanel({
             )}
           </ResponsiveDialogBody>
 
-          {hasSmartAlerts && unreadCount > 0 && (
+          {unreadCount > 0 && (
             <ResponsiveDialogFooter>
               <Button
                 onClick={() => {

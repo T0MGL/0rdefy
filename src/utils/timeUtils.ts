@@ -50,7 +50,7 @@ export function formatLocalDate(date: Date, timezone?: string): string {
       return `${year}-${month}-${day}`;
     }
   } catch {
-    // Invalid timezone — fall through to browser local
+    // Invalid timezone, fall through to browser local
   }
 
   // Fallback: browser's local timezone
@@ -275,6 +275,61 @@ export function isTomorrow(date: string | Date): boolean {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   return isSameDay(date, tomorrow);
+}
+
+/**
+ * Get the ISO-8601 week key for a date in a given IANA timezone (e.g. "2026-W24").
+ *
+ * Weeks start on Monday and the first week of the year is the one containing the
+ * first Thursday. This is the same scheme used by date pickers and most reporting
+ * tools, so "this week" lines up with what the user sees in the Anuncios module.
+ *
+ * Timezone matters: a Sunday-night entry in Asuncion (UTC-3) must not roll into
+ * the next ISO week just because UTC already crossed midnight. We resolve the
+ * calendar date in the store timezone first, then compute the week number from
+ * that local date.
+ *
+ * @param date - The instant to bucket (defaults to now)
+ * @param timezone - IANA timezone (defaults to the browser timezone)
+ * @returns Week key formatted as "YYYY-Www", or a safe fallback on error
+ */
+export function getISOWeekKey(date?: Date, timezone?: string): string {
+  try {
+    const tz = timezone || getUserTimezone();
+    const localDateStr = formatLocalDate(date || getNow(), tz); // "YYYY-MM-DD" in store TZ
+    const [year, month, day] = localDateStr.split('-').map(n => parseInt(n, 10));
+
+    // Build a UTC date from the local calendar parts so week math is offset-free.
+    const target = new Date(Date.UTC(year, month - 1, day));
+
+    // ISO weekday: Monday = 1 ... Sunday = 7
+    const dayNum = target.getUTCDay() === 0 ? 7 : target.getUTCDay();
+
+    // Shift to the Thursday of the current ISO week (Thursday determines the year).
+    target.setUTCDate(target.getUTCDate() + 4 - dayNum);
+
+    const isoYear = target.getUTCFullYear();
+    const yearStart = new Date(Date.UTC(isoYear, 0, 1));
+    const weekNumber = Math.ceil(
+      ((target.getTime() - yearStart.getTime()) / 86400000 + 1) / 7
+    );
+
+    return `${isoYear}-W${String(weekNumber).padStart(2, '0')}`;
+  } catch {
+    // Timezone resolution failed. Recompute the ISO week from the instant in
+    // pure UTC so the key is still a valid week (never the impossible "W00").
+    // This mirrors the main path's math, just without the local-date step.
+    const now = date || new Date();
+    const utc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const dayNum = utc.getUTCDay() === 0 ? 7 : utc.getUTCDay();
+    utc.setUTCDate(utc.getUTCDate() + 4 - dayNum);
+    const isoYear = utc.getUTCFullYear();
+    const yearStart = new Date(Date.UTC(isoYear, 0, 1));
+    const weekNumber = Math.ceil(
+      ((utc.getTime() - yearStart.getTime()) / 86400000 + 1) / 7
+    );
+    return `${isoYear}-W${String(weekNumber).padStart(2, '0')}`;
+  }
 }
 
 /**

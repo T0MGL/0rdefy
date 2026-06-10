@@ -113,6 +113,37 @@ export function getEndOfDayInTimezone(timezone: string = DEFAULT_TIMEZONE): Date
 }
 
 /**
+ * Start of the current ISO week (Monday 00:00:00 local) as a UTC ISO string.
+ *
+ * ISO weeks start on Monday. We resolve "today" in the store timezone, walk
+ * back to Monday using the local weekday, then anchor midnight in that same
+ * timezone. Returning the UTC instant lets it be used directly as a `gte`
+ * bound against UTC timestamp columns (created_at / updated_at).
+ */
+export function getStartOfWeekInTimezone(timezone: string = DEFAULT_TIMEZONE): string {
+  try {
+    const todayStr = getTodayInTimezone(timezone); // YYYY-MM-DD in store TZ
+    const [year, month, day] = todayStr.split('-').map((n) => parseInt(n, 10));
+
+    // Weekday of the local date, computed offset-free via a UTC anchor.
+    const anchor = new Date(Date.UTC(year, month - 1, day));
+    const weekday = anchor.getUTCDay(); // 0 = Sunday ... 6 = Saturday
+    const daysSinceMonday = (weekday + 6) % 7; // Monday -> 0, Sunday -> 6
+
+    anchor.setUTCDate(anchor.getUTCDate() - daysSinceMonday);
+    const mondayStr = anchor.toISOString().split('T')[0];
+
+    return fromZonedTime(`${mondayStr} 00:00:00.000`, timezone).toISOString();
+  } catch (error) {
+    logger.error('BACKEND', `getStartOfWeekInTimezone failed for ${timezone}`, error);
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    d.setUTCHours(0, 0, 0, 0);
+    return d.toISOString();
+  }
+}
+
+/**
  * Start-of-day ISO string for a given YYYY-MM-DD in the timezone.
  * Use as `gte` bound when querying UTC timestamp columns by a local date.
  */
