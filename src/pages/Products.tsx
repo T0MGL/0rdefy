@@ -337,7 +337,7 @@ export default function Products() {
         await productsService.update(selectedProduct.id, {
           ...data,
           cost: data.cost ?? 0,
-          profitability: data.price > 0 ? Number(((data.price - totalCost) / data.price * 100).toFixed(1)) : 0,
+          profitability: data.price > 0 ? Number(((data.price - totalCost) / data.price * 100).toFixed(1)) : null,
           sales: selectedProduct.sales,
         });
 
@@ -361,7 +361,7 @@ export default function Products() {
         await productsService.create({
           ...data,
           cost: data.cost ?? 0,
-          profitability: data.price > 0 ? Number(((data.price - totalCost) / data.price * 100).toFixed(1)) : 0,
+          profitability: data.price > 0 ? Number(((data.price - totalCost) / data.price * 100).toFixed(1)) : null,
           sales: 0,
         });
 

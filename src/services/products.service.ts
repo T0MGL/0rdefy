@@ -24,20 +24,19 @@ const getHeaders = () => {
 };
 
 /**
- * Safely calculate profitability percentage
- * Returns "0.0" if price is 0 or invalid to prevent division by zero
+ * Safely calculate profitability percentage.
+ * Returns null when not computable (price missing, zero or invalid),
+ * so the UI renders N/A instead of a fake 0.
  */
-const calculateProfitability = (price: number, cost: number): string => {
-  // Guard against division by zero and invalid numbers
+const calculateProfitability = (price: number, cost: number): number | null => {
   if (!price || price <= 0 || !Number.isFinite(price)) {
-    return '0.0';
+    return null;
   }
   const profitMargin = ((price - (cost || 0)) / price) * 100;
-  // Guard against NaN or Infinity results
   if (!Number.isFinite(profitMargin)) {
-    return '0.0';
+    return null;
   }
-  return profitMargin.toFixed(1);
+  return Number(profitMargin.toFixed(1));
 };
 
 export interface ProductsResponse {
@@ -194,7 +193,7 @@ export const productsService = {
         cost: result.data.cost,
         packaging_cost: result.data.packaging_cost || 0,
         additional_costs: result.data.additional_costs || 0,
-        profitability: product.profitability || 0,
+        profitability: product.profitability ?? null,
         sales: product.sales || 0,
         shopify_product_id: result.data.shopify_product_id || null,
         shopify_variant_id: result.data.shopify_variant_id || null,
@@ -250,7 +249,7 @@ export const productsService = {
         cost: result.data.cost,
         packaging_cost: result.data.packaging_cost || 0,
         additional_costs: result.data.additional_costs || 0,
-        profitability: data.profitability || 0,
+        profitability: data.profitability ?? null,
         sales: data.sales || 0,
         shopify_product_id: result.data.shopify_product_id || null,
         shopify_variant_id: result.data.shopify_variant_id || null,
@@ -342,7 +341,7 @@ export const productsService = {
         cost: result.data.cost,
         packaging_cost: result.data.packaging_cost || 0,
         additional_costs: result.data.additional_costs || 0,
-        profitability: 0,
+        profitability: calculateProfitability(result.data.price, result.data.cost),
         sales: 0,
         shopify_product_id: result.data.shopify_product_id || null,
         shopify_variant_id: result.data.shopify_variant_id || null,
