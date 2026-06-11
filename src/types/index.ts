@@ -556,7 +556,7 @@ export interface MetricCardProps {
 export interface ConfirmationMetrics {
   totalPending: number;
   totalConfirmed: number;
-  confirmationRate: number;
+  confirmationRate: number | null;
   avgConfirmationTime: number;
   avgDeliveryTime?: number;
   confirmationsToday: number;

@@ -155,18 +155,20 @@ export default function DashboardLogistics() {
         const confirmedOrders = orders.filter((o: any) => ['confirmed', 'in_preparation', 'ready_to_ship', 'shipped', 'delivered'].includes(o.status)).length;
         const pendingOrders = orders.filter((o: any) => isPending(o.status)).length;
         const shippedOrders = orders.filter((o: any) => ['shipped', 'delivered'].includes(o.status)).length;
-        const deliveryRate = shippedOrders > 0 ? Math.round((deliveredOrders / shippedOrders) * 100) : 0;
-        const confirmationRate = totalOrders > 0 ? Math.round((confirmedOrders / totalOrders) * 100) : 0;
+        // Rates over an empty denominator are null (no computable), not 0.
+        const deliveryRate = shippedOrders > 0 ? Math.round((deliveredOrders / shippedOrders) * 100) : null;
+        const confirmationRate = totalOrders > 0 ? Math.round((confirmedOrders / totalOrders) * 100) : null;
 
-        // Create basic overview
-        const basicOverview: DashboardOverview = {
+        // Create basic overview. Revenue/profit are unavailable on this
+        // simplified path: null renders Sin datos, never a fake 0.
+        const basicOverview = {
           totalOrders,
           deliveryRate,
-          revenue: 0,
-          netProfit: 0,
-          profitMargin: 0,
+          revenue: null,
+          netProfit: null,
+          profitMargin: null,
           changes: null,
-        } as DashboardOverview;
+        } as unknown as DashboardOverview;
 
         // Create basic confirmation metrics
         const basicConfirmation: ConfirmationMetrics = {

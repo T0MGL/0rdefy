@@ -1083,13 +1083,13 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
 
         const currentConfirmRate = currentWeekOrders.length > 0
             ? (currentWeekConfirmed / currentWeekOrders.length) * 100
-            : 0;
+            : null;
 
         const previousConfirmRate = previousWeekOrders.length > 0
             ? (previousWeekConfirmed / previousWeekOrders.length) * 100
-            : 0;
+            : null;
 
-        const confirmationRateChange = previousConfirmRate > 0
+        const confirmationRateChange = currentConfirmRate !== null && previousConfirmRate !== null && previousConfirmRate > 0
             ? parseFloat((((currentConfirmRate - previousConfirmRate) / previousConfirmRate) * 100).toFixed(1))
             : null;
 
@@ -1097,7 +1097,7 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
             data: {
                 totalPending: pendingOrders,
                 totalConfirmed: confirmedOrders,
-                confirmationRate: totalOrders > 0 ? parseFloat(((confirmedOrders / totalOrders) * 100).toFixed(1)) : 0,
+                confirmationRate: totalOrders > 0 ? parseFloat(((confirmedOrders / totalOrders) * 100).toFixed(1)) : null,
                 avgConfirmationTime: parseFloat(avgConfirmationTime.toFixed(1)),
                 avgDeliveryTime: parseFloat(avgDeliveryTime.toFixed(1)),
                 confirmationsToday: todayConfirmed,
@@ -2098,7 +2098,7 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
         const totalDeliveredAndReturned = deliveredOrders.length + returnedOrders.length;
         const returnRate = totalDeliveredAndReturned > 0
             ? parseFloat(((returnedOrders.length / totalDeliveredAndReturned) * 100).toFixed(1))
-            : 0;
+            : null;
 
         // Valor de devoluciones
         const returnedValue = returnedOrders.reduce((sum, o) =>
@@ -2141,7 +2141,7 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
 
         const acceptanceRate = totalItems > 0
             ? parseFloat(((totalAccepted / totalItems) * 100).toFixed(1))
-            : 0;
+            : null;
 
         // Rejection reasons breakdown
         const rejectionReasons: Record<string, number> = {};
@@ -2237,12 +2237,12 @@ analyticsRouter.get('/incidents-metrics', async (req: AuthRequest, res: Response
         // Resolución exitosa = entregados después de incidencia
         const successRate = resolvedIncidents.length > 0
             ? parseFloat(((deliveredResolutions.length / resolvedIncidents.length) * 100).toFixed(1))
-            : 0;
+            : null;
 
         // ===== REINTENTOS PROMEDIO =====
         const avgRetries = incidents.length > 0
             ? parseFloat((incidents.reduce((sum, i) => sum + (i.current_retry_count || 0), 0) / incidents.length).toFixed(1))
-            : 0;
+            : null;
 
         res.json({
             data: {

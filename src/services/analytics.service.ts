@@ -299,7 +299,7 @@ export interface LogisticsMetrics {
 }
 
 export interface ReturnsMetrics {
-  returnRate: number;
+  returnRate: number | null;
   returnedOrders: number;
   returnedValue: number;
   deliveredOrders: number;
@@ -309,7 +309,7 @@ export interface ReturnsMetrics {
   totalItemsProcessed: number;
   itemsAccepted: number;
   itemsRejected: number;
-  acceptanceRate: number;
+  acceptanceRate: number | null;
   rejectionReasons: Record<string, number>;
   totalOrders: number;
 }
@@ -322,8 +322,8 @@ export interface IncidentsMetrics {
   deliveredAfterIncident: number;
   cancelledIncidents: number;
   customerRejectedIncidents: number;
-  successRate: number;
-  avgRetries: number;
+  successRate: number | null;
+  avgRetries: number | null;
 }
 
 export interface NotificationData {

@@ -115,7 +115,9 @@ carrierAccountsRouter.get('/movements/unsettled', requireModule(Module.CARRIERS)
         };
       }
       acc[m.carrier_id].movements.push(m);
-      acc[m.carrier_id].total_amount += m.amount;
+      // Coerce defensively: a numeric column serialized as string would
+      // concatenate here and the carrier total would render as NaN.
+      acc[m.carrier_id].total_amount += Number(m.amount) || 0;
       acc[m.carrier_id].movement_count++;
       return acc;
     }, {} as Record<string, any>);
