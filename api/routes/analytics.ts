@@ -112,6 +112,10 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         if (storeError) {
             logger.error('SERVER', '[GET /api/analytics/overview] Store query error:', storeError);
+            // tax_rate/timezone/currency drive every money figure below. A
+            // silent fallback here would render the whole overview with fake
+            // defaults, so surface the failure instead.
+            throw storeError;
         }
 
         const taxRate = Number(storeData?.tax_rate) || 0;
@@ -215,6 +219,9 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         if (marketingExpensesError) {
             logger.error('SERVER', '[GET /api/analytics/overview] Marketing expenses query error:', marketingExpensesError);
+            // Marketing spend feeds netProfit, ROAS and costPerOrder. Treating
+            // a failed query as "0 spend" inflates every profit metric.
+            throw marketingExpensesError;
         }
 
         const marketingExpenses = marketingExpensesData || [];
@@ -346,7 +353,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             // any orders that left pending and ended in returned / delivery_failed.
             // For projection symmetry we account for delivered + (in_transit weighted).
             const confirmedOrders = ordersList.filter(o =>
-                !['pending', 'cancelled', 'rejected'].includes(o.sleeves_status)
+                isPostPending(o.sleeves_status)
             );
             const realConfirmedOrders = ordersList.filter(o =>
                 isDeliveredOrSettled(o.sleeves_status)
@@ -553,7 +560,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         // Count only confirmed orders (exclude pending, cancelled, rejected)
         const confirmedOrders = currentPeriodOrders.filter(o =>
-            !['pending', 'cancelled', 'rejected'].includes(o.sleeves_status)
+            isPostPending(o.sleeves_status)
         );
         const confirmedOrdersCount = confirmedOrders.length;
 
@@ -580,6 +587,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
         const calculateChange = (current: number | null, previous: number | null): number | null => {
             // No comparison when either side is not computable or previous is 0.
             if (current === null || previous === null || previous === 0) return null;
+            if (!Number.isFinite(current) || !Number.isFinite(previous)) return null;
             return parseFloat((((current - previous) / previous) * 100).toFixed(1));
         };
 
@@ -588,7 +596,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         // Count confirmed orders in previous period (exclude pending, cancelled, rejected)
         const previousConfirmedOrders = previousPeriodOrders.filter(o =>
-            !['pending', 'cancelled', 'rejected'].includes(o.sleeves_status)
+            isPostPending(o.sleeves_status)
         );
         const previousConfirmedOrdersCount = previousConfirmedOrders.length;
 
@@ -805,6 +813,7 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
 
         if (marketingExpensesError) {
             logger.error('SERVER', '[GET /api/analytics/chart] Marketing expenses query error:', marketingExpensesError);
+            throw marketingExpensesError;
         }
 
         const marketingExpenses = marketingExpensesData || [];
@@ -1285,9 +1294,11 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
             const packagingCost = Number(product.packaging_cost) || 0;
             const additionalCosts = Number(product.additional_costs) || 0;
             const totalCost = baseCost + packagingCost + additionalCosts;
+            // Ratio: null when price is 0 (placeholder/service product), a
+            // literal "0% margin" would read as a measured figure.
             const profitability = price > 0
                 ? parseFloat((((price - totalCost) / price) * 100).toFixed(1))
-                : 0;
+                : null;
 
             return {
                 id: product.id,
@@ -1374,9 +1385,14 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
         // projection across the board.
         const dispatchedOrders = historical.filter(o => isDispatched(o.sleeves_status, o.shipped_at)).length;
         const deliveredOrders = historical.filter(o => isDeliveredOrSettled(o.sleeves_status)).length;
-        const historicalDeliveryRate = dispatchedOrders > 0
+        // measuredDeliveryRate is what we can honestly display: null when the
+        // store has no dispatch history. historicalDeliveryRate keeps the 0.85
+        // fallback ONLY as a projection weighting default (deliberate, see
+        // plan); it must never be shown as if it were measured data.
+        const measuredDeliveryRate = dispatchedOrders > 0
             ? (deliveredOrders / dispatchedOrders)
-            : 0.85;
+            : null;
+        const historicalDeliveryRate = measuredDeliveryRate ?? 0.85;
 
         // Cash already in: delivered + settled.
         const deliveredRevenue = active
@@ -1498,7 +1514,9 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
                 },
 
                 // Metrics
-                historicalDeliveryRate: parseFloat((historicalDeliveryRate * 100).toFixed(1)),
+                historicalDeliveryRate: measuredDeliveryRate === null
+                    ? null
+                    : parseFloat((measuredDeliveryRate * 100).toFixed(1)),
                 avgDailyRevenue: Math.round(avgDailyRevenue),
                 lookbackDays: parseInt(lookbackDays as string, 10),
             }
@@ -2115,6 +2133,7 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
 
         if (sessionsError) {
             logger.error('SERVER', '[GET /api/analytics/returns-metrics] Sessions query error:', sessionsError);
+            throw sessionsError;
         }
 
         const sessions = returnSessions || [];
@@ -2130,6 +2149,7 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
 
             if (itemsError) {
                 logger.error('SERVER', '[GET /api/analytics/returns-metrics] Items query error:', itemsError);
+                throw itemsError;
             }
             items = returnItems || [];
         }

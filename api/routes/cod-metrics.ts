@@ -367,7 +367,7 @@ codMetricsRouter.get('/by-carrier', async (req: AuthRequest, res: Response) => {
                 failed,
                 in_delivery: inDelivery,
                 total_attempts: totalAttempts,
-                success_rate: successRate === null ? 0 : Math.round(successRate),
+                success_rate: successRate === null ? null : Math.round(successRate),
                 avg_attempts:
                     g.orders.length > 0
                         ? Number((totalAttempts / g.orders.length).toFixed(1))

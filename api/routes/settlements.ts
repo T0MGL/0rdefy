@@ -149,6 +149,9 @@ settlementsRouter.get('/today', async (req: AuthRequest, res: Response) => {
 
     if (ordersError) {
       logger.error('SETTLEMENTS', 'Error fetching delivered orders', ordersError);
+      // expected_cash computed over an empty list after a failed query would
+      // report "0 to collect" to the operator. Fail loud instead.
+      return res.status(500).json({ error: 'Error al obtener pedidos entregados' });
     }
 
     const list = (deliveredOrders || []).filter(o => isTerminalSuccess(o.sleeves_status));
@@ -1455,6 +1458,7 @@ settlementsRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, 
 
     if (ordersError) {
       logger.error('⚠️ [SETTLEMENTS] Error fetching orders:', ordersError);
+      return res.status(500).json({ error: 'Error al obtener las órdenes de la liquidación' });
     }
 
     res.json({
