@@ -200,7 +200,7 @@ export function createPlanillaTransportadoraColumns(storeName: string): ExportCo
       header: 'IMPORTE',
       key: 'total',
       width: 14,
-      // Plain number — carriers need it for calculations, no currency symbol.
+      // Plain number, carriers need it for calculations, no currency symbol.
       // Guard against NaN in case value is null/undefined/non-numeric.
       format: (value) => {
         const n = Number(value);
@@ -267,7 +267,7 @@ export const productsExportColumns: ExportColumn[] = [
     header: 'Rentabilidad (%)',
     key: 'profitability',
     width: 15,
-    format: (value) => `${value || 0}%`
+    format: (value) => (value === null || value === undefined ? 'N/A' : `${value}%`)
   },
   {
     header: 'Ventas Totales',

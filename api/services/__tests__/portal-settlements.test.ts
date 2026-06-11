@@ -30,6 +30,17 @@ import {
 const VALID_ORDER_ID = '44444444-4444-4444-4444-444444444444';
 const SMALL_JPEG_BUFFER = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
 
+// Minimal valid magic-byte headers per supported mime type. validateProof
+// sniffs content and rejects declared mimes that do not match the bytes.
+const MAGIC_BYTES: Record<string, Buffer> = {
+  'image/jpeg': SMALL_JPEG_BUFFER,
+  'image/png': Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  'image/webp': Buffer.from([
+    0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
+  ]),
+  'application/pdf': Buffer.from('%PDF-1.4\n'),
+};
+
 function baseProof(): { buffer: Buffer; mimetype: string } {
   return { buffer: SMALL_JPEG_BUFFER, mimetype: 'image/jpeg' };
 }
@@ -117,16 +128,24 @@ describe('validateProof: file validation', () => {
 
   it('accepts a file at exactly 5 MB', () => {
     const proof = baseProof();
-    proof.buffer = Buffer.alloc(PROOF_MAX_BYTES);
+    proof.buffer = Buffer.concat([
+      SMALL_JPEG_BUFFER,
+      Buffer.alloc(PROOF_MAX_BYTES - SMALL_JPEG_BUFFER.length),
+    ]);
     proof.mimetype = 'image/jpeg';
     assert.doesNotThrow(() => validateProof(proof));
   });
 
   it('accepts the 4 supported mime types', () => {
     for (const mime of ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']) {
-      const proof = { buffer: SMALL_JPEG_BUFFER, mimetype: mime };
+      const proof = { buffer: MAGIC_BYTES[mime], mimetype: mime };
       assert.doesNotThrow(() => validateProof(proof), `expected ${mime} to pass`);
     }
+  });
+
+  it('rejects declared mime that does not match file content', () => {
+    const proof = { buffer: SMALL_JPEG_BUFFER, mimetype: 'image/png' };
+    expectError(() => validateProof(proof), 400, 'MIME_CONTENT_MISMATCH');
   });
 });
 

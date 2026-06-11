@@ -7,10 +7,10 @@
  *   Req 1.2.3: Charges appear in the application charge history page
  *
  * Flow:
- *   1. POST /subscribe — creates AppSubscription, returns confirmationUrl
+ *   1. POST /subscribe, creates AppSubscription, returns confirmationUrl
  *   2. Merchant visits confirmationUrl in Shopify admin
- *   3. GET  /confirm   — Shopify redirects here after merchant approves
- *   4. POST /cancel    — cancel active Shopify subscription
+ *   3. GET  /confirm  , Shopify redirects here after merchant approves
+ *   4. POST /cancel   , cancel active Shopify subscription
  *
  * Webhook app/subscriptions/update is handled in shopify-mandatory-webhooks.ts
  */
@@ -163,7 +163,7 @@ shopifyBillingRouter.get('/confirm', async (req: Request, res: Response) => {
 
     logger.info('SHOPIFY_BILLING', 'Merchant confirmed billing', { charge_id, store_id });
 
-    // Redirect to settings — the app/subscriptions/update webhook will activate the subscription
+    // Redirect to settings, the app/subscriptions/update webhook will activate the subscription
     res.redirect(`${APP_URL}/settings?tab=subscription&billing=confirmed`);
   } catch (error: unknown) {
     if (error instanceof z.ZodError) {

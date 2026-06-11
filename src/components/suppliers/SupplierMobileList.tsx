@@ -8,6 +8,7 @@
  * sheet that opens on tap, matching the spec ("table -> cards" and "row
  * actions hidden behind detail").
  */
+import { formatDecimal } from '@/utils/currency';
 import { memo } from 'react';
 import { Edit, Star, Trash2, Mail, Phone } from 'lucide-react';
 import { Card } from '@/components/ui/card';
@@ -78,7 +79,7 @@ const SupplierCard = memo(function SupplierCard({
           <div className="shrink-0 inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1">
             <Star size={14} className="fill-primary text-primary" />
             <span className="text-[13px] font-semibold tabular-nums">
-              {supplier.rating.toFixed(1)}
+              {formatDecimal(supplier.rating, 1)}
             </span>
           </div>
         ) : null}

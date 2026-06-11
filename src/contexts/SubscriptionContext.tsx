@@ -319,35 +319,41 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   // ================================================================
 
   const canCreateOrder = useMemo(() => {
-    if (!usage) return true; // Allow by default when loading
+    // Allow by default while loading or when the API returned a partial
+    // usage payload: a missing bucket must not crash the provider.
+    if (!usage?.orders) return true;
     const { orders } = usage;
     if (orders.limit === -1) return true; // Unlimited
     return orders.used < orders.limit;
   }, [usage]);
 
   const canCreateProduct = useMemo(() => {
-    if (!usage) return true; // Allow by default when loading
+    // Allow by default while loading or when the API returned a partial
+    // usage payload: a missing bucket must not crash the provider.
+    if (!usage?.products) return true;
     const { products } = usage;
     if (products.limit === -1) return true; // Unlimited
     return products.used < products.limit;
   }, [usage]);
 
   const canCreateUser = useMemo(() => {
-    if (!usage) return true; // Allow by default when loading
+    // Allow by default while loading or when the API returned a partial
+    // usage payload: a missing bucket must not crash the provider.
+    if (!usage?.users) return true;
     const { users } = usage;
     if (users.limit === -1) return true; // Unlimited
     return users.used < users.limit;
   }, [usage]);
 
   const getRemainingOrders = useCallback((): number => {
-    if (!usage) return 0;
+    if (!usage?.orders) return 0;
     const { orders } = usage;
     if (orders.limit === -1) return Infinity;
     return Math.max(0, orders.limit - orders.used);
   }, [usage]);
 
   const getRemainingProducts = useCallback((): number => {
-    if (!usage) return 0;
+    if (!usage?.products) return 0;
     const { products } = usage;
     if (products.limit === -1) return Infinity;
     return Math.max(0, products.limit - products.used);

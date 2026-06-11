@@ -5,7 +5,7 @@ import { supabaseAdmin } from '../db/connection';
 const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || '2025-10';
 const API_URL = process.env.API_URL || 'https://api.ordefy.io';
 
-// Plan prices in USD — must match PLANS in stripe.service.ts
+// Plan prices in USD, must match PLANS in stripe.service.ts
 const SHOPIFY_PLAN_PRICES: Record<string, { monthly: number; annual: number; name: string; trialDays: number }> = {
   starter:      { monthly: 29,  annual: 288,  name: 'Starter',      trialDays: 14 },
   growth:       { monthly: 79,  annual: 792,  name: 'Growth',       trialDays: 14 },

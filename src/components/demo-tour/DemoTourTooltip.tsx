@@ -114,7 +114,7 @@ export function DemoTourTooltip() {
   useEffect(() => {
     if (!isActive || !currentStep) return;
 
-    // Center placement — shift down by half the progress bar height (28px)
+    // Center placement, shift down by half the progress bar height (28px)
     // so the modal doesn't render behind the fixed top progress bar
     if (currentStep.placement === 'center' || !currentStep.target) {
       setTooltipPosition({

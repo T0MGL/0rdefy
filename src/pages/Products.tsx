@@ -337,7 +337,7 @@ export default function Products() {
         await productsService.update(selectedProduct.id, {
           ...data,
           cost: data.cost ?? 0,
-          profitability: data.price > 0 ? Number(((data.price - totalCost) / data.price * 100).toFixed(1)) : 0,
+          profitability: data.price > 0 ? Number(((data.price - totalCost) / data.price * 100).toFixed(1)) : null,
           sales: selectedProduct.sales,
         });
 
@@ -361,7 +361,7 @@ export default function Products() {
         await productsService.create({
           ...data,
           cost: data.cost ?? 0,
-          profitability: data.price > 0 ? Number(((data.price - totalCost) / data.price * 100).toFixed(1)) : 0,
+          profitability: data.price > 0 ? Number(((data.price - totalCost) / data.price * 100).toFixed(1)) : null,
           sales: 0,
         });
 
@@ -665,7 +665,7 @@ export default function Products() {
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Rentabilidad:</span>
                       <span className="font-semibold text-primary">
-                        {product.profitability}%
+                        {product.profitability == null ? 'N/A' : `${product.profitability}%`}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">

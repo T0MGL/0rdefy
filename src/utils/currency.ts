@@ -100,6 +100,13 @@ export function getCurrencyConfig() {
  * @returns Formatted currency string
  */
 export function formatCurrency(value: number, currencyCode?: string): string {
+  // A non-finite amount means the caller computed garbage (NaN division,
+  // Infinity overflow) or passed through a failed fetch. Rendering
+  // "Gs. NaN" misleads operators into reading it as a real figure.
+  if (!Number.isFinite(value)) {
+    return 'N/A';
+  }
+
   const currency = currencyCode || getCurrentCurrency();
   const config = CURRENCY_CONFIG[currency] || CURRENCY_CONFIG['PYG'];
 
@@ -122,6 +129,81 @@ export function formatCurrency(value: number, currencyCode?: string): string {
 }
 
 /**
+ * Format a nullable amount. Null and undefined mean "not computable"
+ * (failed fetch, zero denominator, missing data) and render the fallback
+ * instead of a fake zero.
+ */
+export function formatCurrencyOrFallback(
+  value: number | null | undefined,
+  fallback: string = 'N/A',
+  currencyCode?: string
+): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return formatCurrency(value, currencyCode);
+}
+
+/**
+ * Format a rate/ratio as a percentage. Null and undefined mean the rate was
+ * not computable (denominator zero, missing data) and render 'N/A', which is
+ * different from a real 0%.
+ */
+export function formatPercent(
+  value: number | null | undefined,
+  decimals: number = 1
+): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return 'N/A';
+  }
+  return `${value.toFixed(decimals)}%`;
+}
+
+/**
+ * Format a plain decimal number (attempts, days, ratings, multipliers).
+ * Null, undefined and non-finite render the fallback. This is the JSX-safe
+ * replacement for raw `.toFixed()` calls.
+ */
+export function formatDecimal(
+  value: number | null | undefined,
+  decimals: number = 1,
+  fallback: string = 'N/A'
+): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return value.toFixed(decimals);
+}
+
+/**
+ * Compact currency for tight layouts (cards, projections): 1,234,567 PYG
+ * renders as "Gs. 1.235K". Non-finite or nullable input renders 'N/A',
+ * mirroring formatCurrencyOrFallback.
+ */
+export function formatCompactCurrency(
+  value: number | null | undefined,
+  currencyCode?: string
+): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return 'N/A';
+  }
+
+  const currency = currencyCode || getCurrentCurrency();
+  const config = CURRENCY_CONFIG[currency] || CURRENCY_CONFIG['PYG'];
+
+  if (Math.abs(value) < 1000) {
+    return formatCurrency(value, currency);
+  }
+
+  const thousands = value / 1000;
+  const formatted = thousands.toLocaleString(config.locale, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: Math.abs(thousands) < 100 ? 1 : 0,
+  });
+  return `${config.symbol} ${formatted}K`;
+}
+
+/**
  * Get just the currency symbol for the current store
  */
 export function getCurrencySymbol(currencyCode?: string): string {
@@ -131,18 +213,24 @@ export function getCurrencySymbol(currencyCode?: string): string {
 }
 
 /**
- * Parse a formatted currency string to number
- * @param formattedValue - The formatted currency string
- * @returns Numeric value
+ * Parse a formatted currency string to number.
+ *
+ * Returns NaN on empty or non-numeric input (same contract as
+ * parseAmountInput). Callers must check Number.isFinite() before using the
+ * result. A silent 0 here would turn a typo into a real amount.
  */
 export function parseCurrency(formattedValue: string): number {
+  if (typeof formattedValue !== 'string') return NaN;
+
   // Remove all non-numeric characters except decimal separator
   const cleaned = formattedValue.replace(/[^\d.,]/g, '');
+  if (cleaned === '') return NaN;
 
   // Handle different decimal separators
   const normalized = cleaned.replace(/\./g, '').replace(',', '.');
 
-  return parseFloat(normalized) || 0;
+  const parsed = parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : NaN;
 }
 
 /**
@@ -151,13 +239,13 @@ export function parseCurrency(formattedValue: string): number {
  *
  * For 0-decimal currencies (PYG/CLP/COP), every separator is treated as a
  * thousands separator and stripped: "150", "150.000", "150,000", "Gs 150.000"
- * all parse to 150000. This is the only safe parse for PY couriers — Number()
+ * all parse to 150000. This is the only safe parse for PY couriers, Number()
  * naively reads "150.000" as 150.
  *
  * For decimal currencies the last separator wins as decimal, the rest are
  * thousands. "150,000.50" (US) and "150.000,50" (PY/AR) both yield 150000.5.
  *
- * Returns NaN on empty or non-numeric input — callers must check
+ * Returns NaN on empty or non-numeric input, callers must check
  * Number.isFinite() before persisting. Never returns 0 silently.
  */
 export function parseAmountInput(input: string, decimals: number = 0): number {
@@ -183,7 +271,7 @@ export function parseAmountInput(input: string, decimals: number = 0): number {
     normalized = cleaned.replace(/\./g, '').replace(',', '.');
   } else if (lastDot > lastComma) {
     // Dot is decimal (US/EN). Strip all commas. Multiple dots means earlier
-    // dots were thousands grouping (Swiss/etc) — strip every dot except the
+    // dots were thousands grouping (Swiss/etc), strip every dot except the
     // last one. Without this, parseFloat('1.234.567') silently returns 1.234.
     const noCommas = cleaned.replace(/,/g, '');
     const lastDotInNoCommas = noCommas.lastIndexOf('.');

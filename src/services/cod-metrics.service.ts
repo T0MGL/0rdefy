@@ -96,7 +96,8 @@ export const getCODMetricsByCarrier = async (): Promise<{
     failed: number;
     in_delivery: number;
     total_attempts: number;
-    success_rate: number;
+    // null = transportista sin entregas ni fallos todavía (denominador 0)
+    success_rate: number | null;
     avg_attempts: number;
   }>;
 }> => {

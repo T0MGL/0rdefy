@@ -85,7 +85,7 @@ export function ActiveOrderRow({
   // The outer CTA has two modes:
   //   1. idle    -> "Entregar" lime, expands the inline panel
   //   2. expanded -> "Confirmar entrega" lime, triggers inline.submit()
-  // Cancel lives only as the X chip in the inline panel header — this avoids
+  // Cancel lives only as the X chip in the inline panel header, this avoids
   // the regression where the primary lime CTA turned gray "Cancelar" and the
   // courier double-tapped expecting "confirm" but got "close".
   const handlePrimaryClick = () => {
@@ -106,7 +106,7 @@ export function ActiveOrderRow({
         variant="active"
         onClick={() => {
           // Tapping the card while the inline panel is open should just
-          // close the panel — the user is signaling "I changed my mind".
+          // close the panel, the user is signaling "I changed my mind".
           if (isExpanded) {
             setExpanded('idle');
             return;
@@ -116,7 +116,7 @@ export function ActiveOrderRow({
         className={cn(isExpanded && 'ring-2 ring-primary/40')}
       />
 
-      {/* Call + navigate shortcuts — the two highest-frequency courier
+      {/* Call + navigate shortcuts, the two highest-frequency courier
           actions on the street. Visible without opening the detail. */}
       {(order.customer_phone || order.customer_address || order.customer_city) && (
         <div className="flex items-stretch gap-2">
@@ -136,7 +136,7 @@ export function ActiveOrderRow({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                // window.open forces a fresh top-level context — PWA shells
+                // window.open forces a fresh top-level context, PWA shells
                 // and in-app browsers respect this where bare target=_blank
                 // fell back to in-place navigation. On mobile the system
                 // picks up Google Maps' universal link and opens the app.
@@ -159,7 +159,7 @@ export function ActiveOrderRow({
         </div>
       )}
 
-      {/* Primary CTA — stays lime in both states, semantics never invert. */}
+      {/* Primary CTA, stays lime in both states, semantics never invert. */}
       <button
         type="button"
         onClick={handlePrimaryClick}

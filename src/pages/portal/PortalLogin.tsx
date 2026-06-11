@@ -52,7 +52,7 @@ export default function PortalLogin() {
     if (role === 'courier') {
       navigate(ROLE_REDIRECTS.COURIER, { replace: true });
     } else if (role) {
-      // Authenticated but not a courier — keep them out of the portal.
+      // Authenticated but not a courier, keep them out of the portal.
       setErrorMessage(
         'Esta cuenta no tiene acceso al portal de couriers.',
       );
@@ -79,7 +79,7 @@ export default function PortalLogin() {
 
       // After signIn, AuthContext re-renders with the new currentStore.
       // The effect above either redirects or surfaces "not a courier" via
-      // setErrorMessage. Either way the user has feedback — we don't want a
+      // setErrorMessage. Either way the user has feedback, we don't want a
       // permanent spinner if the role check fails, so release it after a
       // short delay if no navigation happened.
       if (isMountedRef.current) {

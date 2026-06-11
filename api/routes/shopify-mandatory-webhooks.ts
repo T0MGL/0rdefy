@@ -69,7 +69,7 @@ shopifyMandatoryWebhooksRouter.post(
 /**
  * POST /api/shopify/webhooks/app-subscriptions-update
  *
- * Shopify App Store mandatory webhook — fires whenever a subscription status changes.
+ * Shopify App Store mandatory webhook, fires whenever a subscription status changes.
  * Source of truth for Shopify-billed subscription state.
  *
  * Payload shape (relevant fields):
@@ -77,7 +77,7 @@ shopifyMandatoryWebhooksRouter.post(
  *
  * Handles two independent concerns:
  *   1. Ordefy subscriptions table (billing_source = shopify)
- *   2. shopify_integrations status (active/inactive) — always updated
+ *   2. shopify_integrations status (active/inactive), always updated
  */
 shopifyMandatoryWebhooksRouter.post(
   '/app-subscriptions-update',

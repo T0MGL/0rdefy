@@ -1,5 +1,5 @@
 /**
- * Active orders view — the home of the courier portal.
+ * Active orders view, the home of the courier portal.
  *
  * Composition:
  *   - Financial summary cards (React Query, 30s staleTime).

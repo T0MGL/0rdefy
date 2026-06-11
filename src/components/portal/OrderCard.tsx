@@ -158,7 +158,7 @@ export function OrderCard({
         {variant === 'history' && (
           <>
             <span className="text-muted-foreground">
-              {order.delivered_at ? formatTime(order.delivered_at) : '—'}
+              {order.delivered_at ? formatTime(order.delivered_at) : 'Sin hora'}
             </span>
             <OrderStatusBadge status={order.sleeves_status} />
           </>

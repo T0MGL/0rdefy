@@ -112,6 +112,10 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         if (storeError) {
             logger.error('SERVER', '[GET /api/analytics/overview] Store query error:', storeError);
+            // tax_rate/timezone/currency drive every money figure below. A
+            // silent fallback here would render the whole overview with fake
+            // defaults, so surface the failure instead.
+            throw storeError;
         }
 
         const taxRate = Number(storeData?.tax_rate) || 0;
@@ -215,6 +219,9 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         if (marketingExpensesError) {
             logger.error('SERVER', '[GET /api/analytics/overview] Marketing expenses query error:', marketingExpensesError);
+            // Marketing spend feeds netProfit, ROAS and costPerOrder. Treating
+            // a failed query as "0 spend" inflates every profit metric.
+            throw marketingExpensesError;
         }
 
         const marketingExpenses = marketingExpensesData || [];
@@ -346,7 +353,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             // any orders that left pending and ended in returned / delivery_failed.
             // For projection symmetry we account for delivered + (in_transit weighted).
             const confirmedOrders = ordersList.filter(o =>
-                !['pending', 'cancelled', 'rejected'].includes(o.sleeves_status)
+                isPostPending(o.sleeves_status)
             );
             const realConfirmedOrders = ordersList.filter(o =>
                 isDeliveredOrSettled(o.sleeves_status)
@@ -431,10 +438,12 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             const realGrossProfit = realRevenue - realProductCosts;
             const projectedGrossProfit = projectedRevenue - projectedProductCosts;
 
-            // Gross margin = (Gross Profit / Revenue) × 100
-            const grossMargin = rev > 0 ? ((grossProfit / rev) * 100) : 0;
-            const realGrossMargin = realRevenue > 0 ? ((realGrossProfit / realRevenue) * 100) : 0;
-            const projectedGrossMargin = projectedRevenue > 0 ? ((projectedGrossProfit / projectedRevenue) * 100) : 0;
+            // Gross margin = (Gross Profit / Revenue) × 100.
+            // Null when revenue is 0: a margin over nothing is not computable,
+            // and a literal 0% would read as "we sold at cost".
+            const grossMargin = rev > 0 ? ((grossProfit / rev) * 100) : null;
+            const realGrossMargin = realRevenue > 0 ? ((realGrossProfit / realRevenue) * 100) : null;
+            const projectedGrossMargin = projectedRevenue > 0 ? ((projectedGrossProfit / projectedRevenue) * 100) : null;
 
             // 7. NET PROFIT & MARGIN
             // MARGEN NETO = Resta TODOS los costos (productos + envío + gasto publicitario)
@@ -444,35 +453,42 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             const realNetProfit = realRevenue - realTotalCosts;
             const projectedNetProfit = projectedRevenue - projectedTotalCosts;
 
-            // Net margin = (Net Profit / Revenue) × 100
-            const netMargin = rev > 0 ? ((netProfit / rev) * 100) : 0;
-            const realNetMargin = realRevenue > 0 ? ((realNetProfit / realRevenue) * 100) : 0;
-            const projectedNetMargin = projectedRevenue > 0 ? ((projectedNetProfit / projectedRevenue) * 100) : 0;
+            // Net margin = (Net Profit / Revenue) × 100. Null when revenue is 0.
+            const netMargin = rev > 0 ? ((netProfit / rev) * 100) : null;
+            const realNetMargin = realRevenue > 0 ? ((realNetProfit / realRevenue) * 100) : null;
+            const projectedNetMargin = projectedRevenue > 0 ? ((projectedNetProfit / projectedRevenue) * 100) : null;
 
             // 8. ROI (Return on Investment)
             // Para proyecciones: usa todos los pedidos
             // Convertir a porcentaje multiplicando por 100
             const investment = totalCosts;
-            const roiValue = investment > 0 ? (((rev - investment) / investment) * 100) : 0;
+            // Null when there is no investment: ROI over 0 cost is undefined.
+            const roiValue = investment > 0 ? (((rev - investment) / investment) * 100) : null;
 
             // Para métricas reales: usa solo pedidos entregados
             const realInvestment = realTotalCosts;
-            const realRoiValue = realInvestment > 0 ? (((realRevenue - realInvestment) / realInvestment) * 100) : 0;
+            const realRoiValue = realInvestment > 0 ? (((realRevenue - realInvestment) / realInvestment) * 100) : null;
 
             // 9. ROAS (Return on Ad Spend)
             // Para proyecciones: usa todos los pedidos
-            const roasValue = gastoPublicitario > 0 ? (rev / gastoPublicitario) : 0;
+            // Null without ad spend: ROAS over 0 spend is undefined.
+            const roasValue = gastoPublicitario > 0 ? (rev / gastoPublicitario) : null;
 
             // Para métricas reales: usa solo pedidos entregados
-            const realRoasValue = gastoPublicitario > 0 ? (realRevenue / gastoPublicitario) : 0;
+            const realRoasValue = gastoPublicitario > 0 ? (realRevenue / gastoPublicitario) : null;
 
             // 10. DELIVERY RATE for COD: entregados / despachados.
             // Uses the same deliveryRateDecimal calculated above (single source of
             // truth between headline card and projection weighting). Multiplied by
             // 100 here for the percentage display. See metrics-definitions.md.
-            const delivRate = dispatched > 0 && deliveredCount > 0
-                ? deliveryRateDecimal * 100
-                : 0;
+            // Displayed delivery rate is computed straight from the data:
+            // honest 0% when everything dispatched failed, null when nothing
+            // was dispatched (not computable). The 0.85 default inside
+            // deliveryRateDecimal exists ONLY for projection weighting and
+            // must never leak into this displayed figure.
+            const delivRate = dispatched > 0
+                ? (deliveredCount / dispatched) * 100
+                : null;
 
             return {
                 totalOrders: count,
@@ -544,32 +560,34 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         // Count only confirmed orders (exclude pending, cancelled, rejected)
         const confirmedOrders = currentPeriodOrders.filter(o =>
-            !['pending', 'cancelled', 'rejected'].includes(o.sleeves_status)
+            isPostPending(o.sleeves_status)
         );
         const confirmedOrdersCount = confirmedOrders.length;
 
         // Cost per order: legacy variant (numerator includes all-period costs,
         // denominator excludes pending/cancelled/rejected). Kept for backwards
         // compat; UI prefers realCostPerOrder which is internally consistent.
-        const costPerOrder = confirmedOrdersCount > 0 ? (totalCosts / confirmedOrdersCount) : 0;
+        const costPerOrder = confirmedOrdersCount > 0 ? (totalCosts / confirmedOrdersCount) : null;
 
         // Real cost per order: realCosts (delivered-only product/delivery
         // costs + confirmation fees of delivered + full marketing spend)
         // divided by delivered count. Same set in num and denom, which is
         // what the user actually wants to read in the dashboard.
         const deliveredCount = currentPeriodOrders.filter(o => isDeliveredOrSettled(o.sleeves_status)).length;
-        const realCostPerOrder = deliveredCount > 0 ? (currentMetrics.realCosts / deliveredCount) : 0;
+        const realCostPerOrder = deliveredCount > 0 ? (currentMetrics.realCosts / deliveredCount) : null;
 
         const previousDeliveredCount = previousPeriodOrders.filter(o => isDeliveredOrSettled(o.sleeves_status)).length;
         const previousRealCostPerOrder = previousDeliveredCount > 0
             ? (previousMetrics.realCosts / previousDeliveredCount)
-            : 0;
+            : null;
 
-        const averageOrderValue = totalOrders > 0 ? (revenue / totalOrders) : 0;
+        const averageOrderValue = totalOrders > 0 ? (revenue / totalOrders) : null;
 
         // ===== CALCULATE PERCENTAGE CHANGES (Current period vs Previous period) =====
-        const calculateChange = (current: number, previous: number): number | null => {
-            if (previous === 0) return null; // No hay datos previos para comparar
+        const calculateChange = (current: number | null, previous: number | null): number | null => {
+            // No comparison when either side is not computable or previous is 0.
+            if (current === null || previous === null || previous === 0) return null;
+            if (!Number.isFinite(current) || !Number.isFinite(previous)) return null;
             return parseFloat((((current - previous) / previous) * 100).toFixed(1));
         };
 
@@ -578,12 +596,12 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         // Count confirmed orders in previous period (exclude pending, cancelled, rejected)
         const previousConfirmedOrders = previousPeriodOrders.filter(o =>
-            !['pending', 'cancelled', 'rejected'].includes(o.sleeves_status)
+            isPostPending(o.sleeves_status)
         );
         const previousConfirmedOrdersCount = previousConfirmedOrders.length;
 
-        const previousCostPerOrder = previousConfirmedOrdersCount > 0 ? (previousMetrics.costs / previousConfirmedOrdersCount) : 0;
-        const previousAverageOrderValue = previousTotalOrders > 0 ? (previousMetrics.revenue / previousTotalOrders) : 0;
+        const previousCostPerOrder = previousConfirmedOrdersCount > 0 ? (previousMetrics.costs / previousConfirmedOrdersCount) : null;
+        const previousAverageOrderValue = previousTotalOrders > 0 ? (previousMetrics.revenue / previousTotalOrders) : null;
 
         const changes = {
             totalOrders: calculateChange(currentMetrics.totalOrders, previousMetrics.totalOrders),
@@ -622,6 +640,13 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             averageOrderValue: calculateChange(averageOrderValue, previousAverageOrderValue),
         };
 
+        // Nullable-safe rounding: null propagates (not computable), numbers
+        // keep their previous precision contract.
+        const roundOrNull = (v: number | null): number | null =>
+            v === null ? null : Math.round(v);
+        const toFixedOrNull = (v: number | null, d: number): number | null =>
+            v === null ? null : parseFloat(v.toFixed(d));
+
         res.json({
             data: {
                 // Currency for every money field in this response. Frontend
@@ -640,11 +665,11 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 gasto_publicitario,
                 // Gross profit and margin (Revenue - Product Costs only)
                 grossProfit: Math.round(grossProfit),
-                grossMargin: parseFloat(grossMargin.toFixed(1)),
+                grossMargin: toFixedOrNull(grossMargin, 1),
                 // Net profit and margin (Revenue - All Costs)
                 netProfit: Math.round(netProfit),
-                netMargin: parseFloat(netMargin.toFixed(1)),
-                profitMargin: parseFloat(netMargin.toFixed(1)), // Deprecated: same as netMargin for backwards compatibility
+                netMargin: toFixedOrNull(netMargin, 1),
+                profitMargin: toFixedOrNull(netMargin, 1), // Deprecated: same as netMargin for backwards compatibility
                 // Real cash metrics (only delivered orders)
                 realRevenue: Math.round(currentMetrics.realRevenue),
                 realProductCosts: Math.round(currentMetrics.realProductCosts),
@@ -652,10 +677,10 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 realConfirmationCosts: Math.round(currentMetrics.realConfirmationCosts),
                 realCosts: Math.round(currentMetrics.realCosts),
                 realGrossProfit: Math.round(currentMetrics.realGrossProfit),
-                realGrossMargin: parseFloat(currentMetrics.realGrossMargin.toFixed(1)),
+                realGrossMargin: toFixedOrNull(currentMetrics.realGrossMargin, 1),
                 realNetProfit: Math.round(currentMetrics.realNetProfit),
-                realNetMargin: parseFloat(currentMetrics.realNetMargin.toFixed(1)),
-                realProfitMargin: parseFloat(currentMetrics.realNetMargin.toFixed(1)), // Deprecated: same as realNetMargin for backwards compatibility
+                realNetMargin: toFixedOrNull(currentMetrics.realNetMargin, 1),
+                realProfitMargin: toFixedOrNull(currentMetrics.realNetMargin, 1), // Deprecated: same as realNetMargin for backwards compatibility
                 realTaxCollected: Math.round(currentMetrics.realTaxCollected),
                 // Projected metrics (delivered + in-transit weighted by historical delivery rate)
                 projectedRevenue: Math.round(currentMetrics.projectedRevenue),
@@ -664,24 +689,24 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 projectedConfirmationCosts: Math.round(currentMetrics.projectedConfirmationCosts),
                 projectedCosts: Math.round(currentMetrics.projectedCosts),
                 projectedGrossProfit: Math.round(currentMetrics.projectedGrossProfit),
-                projectedGrossMargin: parseFloat(currentMetrics.projectedGrossMargin.toFixed(1)),
+                projectedGrossMargin: toFixedOrNull(currentMetrics.projectedGrossMargin, 1),
                 projectedNetProfit: Math.round(currentMetrics.projectedNetProfit),
-                projectedNetMargin: parseFloat(currentMetrics.projectedNetMargin.toFixed(1)),
+                projectedNetMargin: toFixedOrNull(currentMetrics.projectedNetMargin, 1),
                 projectedTaxCollected: Math.round(currentMetrics.projectedTaxCollected),
                 // Pipeline diagnostics
                 inTransitOrders: currentMetrics.inTransitOrders,
                 inTransitGrossRevenue: Math.round(currentMetrics.inTransitGrossRevenue),
                 deliveryRateUsedForProjection: parseFloat((currentMetrics.deliveryRateUsedForProjection * 100).toFixed(1)),
                 // ROI and ROAS metrics
-                roi: parseFloat(roi.toFixed(2)),
-                roas: parseFloat(roas.toFixed(2)),
-                realRoi: parseFloat(currentMetrics.realRoi.toFixed(2)), // ROI basado en pedidos entregados
-                realRoas: parseFloat(currentMetrics.realRoas.toFixed(2)), // ROAS basado en pedidos entregados
+                roi: toFixedOrNull(roi, 2),
+                roas: toFixedOrNull(roas, 2),
+                realRoi: toFixedOrNull(currentMetrics.realRoi, 2), // ROI basado en pedidos entregados
+                realRoas: toFixedOrNull(currentMetrics.realRoas, 2), // ROAS basado en pedidos entregados
                 // Other metrics
-                deliveryRate: parseFloat(deliveryRate.toFixed(1)),
-                costPerOrder: Math.round(costPerOrder),
-                realCostPerOrder: Math.round(realCostPerOrder),
-                averageOrderValue: Math.round(averageOrderValue),
+                deliveryRate: toFixedOrNull(deliveryRate, 1),
+                costPerOrder: roundOrNull(costPerOrder),
+                realCostPerOrder: roundOrNull(realCostPerOrder),
+                averageOrderValue: roundOrNull(averageOrderValue),
                 taxCollected: Math.round(taxCollected), // IVA recolectado
                 taxRate: parseFloat(taxRate.toFixed(2)), // Tasa de IVA configurada
                 adSpend: gasto_publicitario, // Alias for compatibility
@@ -788,6 +813,7 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
 
         if (marketingExpensesError) {
             logger.error('SERVER', '[GET /api/analytics/chart] Marketing expenses query error:', marketingExpensesError);
+            throw marketingExpensesError;
         }
 
         const marketingExpenses = marketingExpensesData || [];
@@ -1066,13 +1092,13 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
 
         const currentConfirmRate = currentWeekOrders.length > 0
             ? (currentWeekConfirmed / currentWeekOrders.length) * 100
-            : 0;
+            : null;
 
         const previousConfirmRate = previousWeekOrders.length > 0
             ? (previousWeekConfirmed / previousWeekOrders.length) * 100
-            : 0;
+            : null;
 
-        const confirmationRateChange = previousConfirmRate > 0
+        const confirmationRateChange = currentConfirmRate !== null && previousConfirmRate !== null && previousConfirmRate > 0
             ? parseFloat((((currentConfirmRate - previousConfirmRate) / previousConfirmRate) * 100).toFixed(1))
             : null;
 
@@ -1080,7 +1106,7 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
             data: {
                 totalPending: pendingOrders,
                 totalConfirmed: confirmedOrders,
-                confirmationRate: totalOrders > 0 ? parseFloat(((confirmedOrders / totalOrders) * 100).toFixed(1)) : 0,
+                confirmationRate: totalOrders > 0 ? parseFloat(((confirmedOrders / totalOrders) * 100).toFixed(1)) : null,
                 avgConfirmationTime: parseFloat(avgConfirmationTime.toFixed(1)),
                 avgDeliveryTime: parseFloat(avgDeliveryTime.toFixed(1)),
                 confirmationsToday: todayConfirmed,
@@ -1268,9 +1294,11 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
             const packagingCost = Number(product.packaging_cost) || 0;
             const additionalCosts = Number(product.additional_costs) || 0;
             const totalCost = baseCost + packagingCost + additionalCosts;
+            // Ratio: null when price is 0 (placeholder/service product), a
+            // literal "0% margin" would read as a measured figure.
             const profitability = price > 0
                 ? parseFloat((((price - totalCost) / price) * 100).toFixed(1))
-                : 0;
+                : null;
 
             return {
                 id: product.id,
@@ -1357,9 +1385,14 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
         // projection across the board.
         const dispatchedOrders = historical.filter(o => isDispatched(o.sleeves_status, o.shipped_at)).length;
         const deliveredOrders = historical.filter(o => isDeliveredOrSettled(o.sleeves_status)).length;
-        const historicalDeliveryRate = dispatchedOrders > 0
+        // measuredDeliveryRate is what we can honestly display: null when the
+        // store has no dispatch history. historicalDeliveryRate keeps the 0.85
+        // fallback ONLY as a projection weighting default (deliberate, see
+        // plan); it must never be shown as if it were measured data.
+        const measuredDeliveryRate = dispatchedOrders > 0
             ? (deliveredOrders / dispatchedOrders)
-            : 0.85;
+            : null;
+        const historicalDeliveryRate = measuredDeliveryRate ?? 0.85;
 
         // Cash already in: delivered + settled.
         const deliveredRevenue = active
@@ -1481,7 +1514,9 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
                 },
 
                 // Metrics
-                historicalDeliveryRate: parseFloat((historicalDeliveryRate * 100).toFixed(1)),
+                historicalDeliveryRate: measuredDeliveryRate === null
+                    ? null
+                    : parseFloat((measuredDeliveryRate * 100).toFixed(1)),
                 avgDailyRevenue: Math.round(avgDailyRevenue),
                 lookbackDays: parseInt(lookbackDays as string, 10),
             }
@@ -1892,9 +1927,10 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
         });
         const totalFailed = failedAfterDispatch.length;
 
+        // Null when nothing was dispatched: the rate is not computable.
         const failedRate = totalDispatched > 0
             ? parseFloat(((totalFailed / totalDispatched) * 100).toFixed(1))
-            : 0;
+            : null;
 
         const failedOrdersValue = failedAfterDispatch.reduce((sum, o) =>
             sum + (Number(o.total_price) || 0), 0
@@ -1919,7 +1955,7 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
 
         const doorRejectionRate = deliveryAttempts > 0
             ? parseFloat(((doorRejections.length / deliveryAttempts) * 100).toFixed(1))
-            : 0;
+            : null;
 
         // Cash collection (mig 183): anchored on reconciled_at (objective
         // courier-closeout evidence) instead of payment_status (a mutable
@@ -1940,7 +1976,7 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
 
         const cashCollectionRate = expectedCash > 0
             ? parseFloat(((collectedCash / expectedCash) * 100).toFixed(1))
-            : 0;
+            : null;
 
         const pendingCollection = codTerminalOrders.filter(o => o.reconciled_at == null);
         const pendingCashAmount = pendingCollection.reduce((sum, o) =>
@@ -1960,7 +1996,9 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
 
         // Tiempo promedio de entrega (días)
         const deliveredWithDates = deliveredOrders.filter(o => o.created_at && o.delivered_at);
-        let avgDeliveryDays = 0;
+        // Null when there are no delivered orders with dates: an average over
+        // an empty set is not computable.
+        let avgDeliveryDays: number | null = null;
         if (deliveredWithDates.length > 0) {
             const totalDays = deliveredWithDates.reduce((sum, o) => {
                 const created = new Date(o.created_at).getTime();
@@ -1995,8 +2033,11 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
                 totalFailed,
                 failedOrdersValue: Math.round(failedOrdersValue),
 
-                // Tasa de rechazo en puerta
+                // Tasa de rechazo en puerta. The rate comes from a text-match
+                // heuristic over failed_reason/delivery_status, so the consumer
+                // must label it as an estimate.
                 doorRejectionRate,
+                doorRejectionConfidence: 'heuristic',
                 doorRejections: doorRejections.length,
                 deliveryAttempts,
 
@@ -2075,7 +2116,7 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
         const totalDeliveredAndReturned = deliveredOrders.length + returnedOrders.length;
         const returnRate = totalDeliveredAndReturned > 0
             ? parseFloat(((returnedOrders.length / totalDeliveredAndReturned) * 100).toFixed(1))
-            : 0;
+            : null;
 
         // Valor de devoluciones
         const returnedValue = returnedOrders.reduce((sum, o) =>
@@ -2092,6 +2133,7 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
 
         if (sessionsError) {
             logger.error('SERVER', '[GET /api/analytics/returns-metrics] Sessions query error:', sessionsError);
+            throw sessionsError;
         }
 
         const sessions = returnSessions || [];
@@ -2107,6 +2149,7 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
 
             if (itemsError) {
                 logger.error('SERVER', '[GET /api/analytics/returns-metrics] Items query error:', itemsError);
+                throw itemsError;
             }
             items = returnItems || [];
         }
@@ -2118,7 +2161,7 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
 
         const acceptanceRate = totalItems > 0
             ? parseFloat(((totalAccepted / totalItems) * 100).toFixed(1))
-            : 0;
+            : null;
 
         // Rejection reasons breakdown
         const rejectionReasons: Record<string, number> = {};
@@ -2214,12 +2257,12 @@ analyticsRouter.get('/incidents-metrics', async (req: AuthRequest, res: Response
         // Resolución exitosa = entregados después de incidencia
         const successRate = resolvedIncidents.length > 0
             ? parseFloat(((deliveredResolutions.length / resolvedIncidents.length) * 100).toFixed(1))
-            : 0;
+            : null;
 
         // ===== REINTENTOS PROMEDIO =====
         const avgRetries = incidents.length > 0
             ? parseFloat((incidents.reduce((sum, i) => sum + (i.current_retry_count || 0), 0) / incidents.length).toFixed(1))
-            : 0;
+            : null;
 
         res.json({
             data: {
@@ -2455,14 +2498,16 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
             .sort((a, b) => b.deliveredCosts - a.deliveredCosts);
 
         // ===== 6. CALCULATE AVERAGES =====
+        // Averages are null over an empty set: a literal 0 would read as
+        // "deliveries are free".
         const avgCostPerDelivery = deliveredOrders.length > 0
             ? Math.round(deliveredCosts / deliveredOrders.length)
-            : 0;
+            : null;
 
         const totalDeliveredFromSettlements = settlements.reduce((sum, s) => sum + (s.total_delivered || 0), 0);
         const avgCostPerSettledDelivery = totalDeliveredFromSettlements > 0
             ? Math.round(totalSettlementFees / totalDeliveredFromSettlements)
-            : 0;
+            : null;
 
         // Success rate uses canonical isDispatched. Three previous "dispatched"
         // formulas in this codebase used different 3- or 4-status hardcoded
@@ -2472,11 +2517,11 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
 
         const successRate = dispatchedCount > 0
             ? parseFloat(((deliveredOrders.length / dispatchedCount) * 100).toFixed(1))
-            : 0;
+            : null;
 
         // ===== 8. AVERAGE DELIVERY TIME =====
         const deliveredWithDates = deliveredOrders.filter((o: any) => o.created_at && o.delivered_at);
-        let avgDeliveryDays = 0;
+        let avgDeliveryDays: number | null = null;
         if (deliveredWithDates.length > 0) {
             const totalDays = deliveredWithDates.reduce((sum: number, o: any) => {
                 const created = new Date(o.created_at).getTime();

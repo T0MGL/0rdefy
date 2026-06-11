@@ -499,7 +499,7 @@ ordersRouter.post('/token/:token/delivery-confirm', validate(DeliveryConfirmSche
             }
         } else {
             // PREPAID payment (tarjeta, qr, transferencia): no cash collected by courier
-            // The payment already went directly to the store — mark as collected immediately
+            // The payment already went directly to the store, mark as collected immediately
             updateData.payment_status = 'collected';
             updateData.amount_collected = 0;
             updateData.has_amount_discrepancy = false;
@@ -3215,7 +3215,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
 
         // ================================================================
         // OUTBOUND WEBHOOKS: Fire-and-forget notification
-        // Non-blocking — errors logged but never affect the response
+        // Non-blocking, errors logged but never affect the response
         // ================================================================
         OutboundWebhookService.fireOrderStatusEvent(
             effectiveStoreId,

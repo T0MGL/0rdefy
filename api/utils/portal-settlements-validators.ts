@@ -91,7 +91,7 @@ export function extensionFromMime(mime: string): string {
  * proof-of-payment receipts we don't want to host arbitrary content under a
  * Supabase signed URL (an iframe of a malicious PDF still executes JS).
  *
- * We don't pull in the `file-type` npm package — for our 4 accepted types
+ * We don't pull in the `file-type` npm package, for our 4 accepted types
  * a hand-written sniffer is ~20 lines and has no supply-chain surface.
  */
 function detectMimeFromBuffer(buffer: Buffer): string | null {

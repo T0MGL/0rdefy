@@ -104,7 +104,7 @@ export default function PortalProfile() {
           Operás para
         </p>
         <h2 className="mt-1 text-base font-semibold tracking-tight">
-          {me?.carrier?.name || '—'}
+          {me?.carrier?.name || 'Sin datos'}
         </h2>
         <div className="mt-3 space-y-2">
           {me?.store?.name && <Row icon={Building2} value={me.store.name} />}
@@ -124,7 +124,7 @@ export default function PortalProfile() {
         {(() => {
           // Support is rendered only when VITE_SUPPORT_WHATSAPP is set in the
           // env. Accepts any format ("+595 983 912 902", "0983912902", etc.)
-          // — normalizeWhatsappNumber strips formatting AND drops the spurious
+          //, normalizeWhatsappNumber strips formatting AND drops the spurious
           // leading 0 that wa.me rejects. Hiding the entry when unconfigured
           // beats sending Mike to a dead number.
           const supportNumber = normalizeWhatsappNumber(

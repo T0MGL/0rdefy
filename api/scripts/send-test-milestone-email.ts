@@ -104,7 +104,7 @@ async function main() {
   console.log('  --store-id         :', args.storeId ?? '(none, using mock)');
   console.log('');
 
-  // 1. Build email data (mock for now — real DB pull is exercised in
+  // 1. Build email data (mock for now, real DB pull is exercised in
   //    production by checkAndSendMilestone).
   const data: MilestoneEmailData = buildMockData(args.milestoneValue);
 
@@ -181,7 +181,7 @@ async function main() {
     console.warn('Share-card render failed (non-fatal):', (err as Error).message);
   }
 
-  // 3. Send the email — sendMilestoneEmail handles hero+chart upload to Supabase
+  // 3. Send the email, sendMilestoneEmail handles hero+chart upload to Supabase
   if (!process.env.RESEND_API_KEY) {
     console.error('FATAL: RESEND_API_KEY not set. Cannot send real email.');
     console.error('       Set it in .env or export it before running.');

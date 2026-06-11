@@ -1,5 +1,5 @@
 /**
- * /portal/conciliacion — courier-side reconciliation.
+ * /portal/conciliacion, courier-side reconciliation.
  *
  * Two tabs:
  *   - Pendientes: orders delivered + not-yet-reconciled. Courier picks
@@ -13,7 +13,7 @@
  * settlement_payment_proofs (audit only).
  *
  * The pending tab is the "new conciliaciones" surface; the historial
- * tab is the "ya conciliadas" surface — visually distinct (different
+ * tab is the "ya conciliadas" surface, visually distinct (different
  * card components, different colors, different actions) so the
  * courier never confuses them.
  */
@@ -86,7 +86,7 @@ export default function PortalConciliacion() {
 
   // Both queries opt-in to refetchOnWindowFocus (global default is off)
   // so the courier always sees fresh state when they come back to the
-  // tab — critical when an admin reconciles from the dashboard while
+  // tab, critical when an admin reconciles from the dashboard while
   // the courier has the portal open.
   const pendingQuery = useQuery<PortalPendingSettlementsResult>({
     queryKey: ['portal', 'settlements', 'pending'],

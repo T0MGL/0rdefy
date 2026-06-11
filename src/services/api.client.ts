@@ -4,7 +4,7 @@ import { getActiveStoreId } from '@/lib/activeStore';
 
 const apiClient = axios.create({
   baseURL: `${config.api.baseUrl}/api`,
-  timeout: 30000, // 30s request timeout — prevents hanging requests
+  timeout: 30000, // 30s request timeout, prevents hanging requests
   headers: {
     'Content-Type': 'application/json',
   },

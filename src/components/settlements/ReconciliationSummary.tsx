@@ -110,9 +110,13 @@ export function ReconciliationSummary({
         </div>
         <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg text-center">
           <p className="text-xs text-muted-foreground">Tasa Exito</p>
-          <p className="text-2xl font-bold text-blue-600">
-            {totalDispatched > 0 ? Math.round((totalDelivered / totalDispatched) * 100) : 0}%
-          </p>
+          {totalDispatched > 0 ? (
+            <p className="text-2xl font-bold text-blue-600">
+              {Math.round((totalDelivered / totalDispatched) * 100)}%
+            </p>
+          ) : (
+            <p className="text-sm font-medium text-muted-foreground mt-1.5">Sin despachos</p>
+          )}
         </div>
       </div>
 

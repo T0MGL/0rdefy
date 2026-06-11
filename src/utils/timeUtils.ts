@@ -50,7 +50,7 @@ export function formatLocalDate(date: Date, timezone?: string): string {
       return `${year}-${month}-${day}`;
     }
   } catch {
-    // Invalid timezone — fall through to browser local
+    // Invalid timezone, fall through to browser local
   }
 
   // Fallback: browser's local timezone

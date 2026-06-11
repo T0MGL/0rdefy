@@ -98,7 +98,7 @@ export function MarkDeliveredSheet({
 
   // Locale-aware parser: PY couriers type "150.000" expecting 150000; Number()
   // would parse it as 150 and silently destroy the conciliation. Returns NaN on
-  // bad input — caller must gate submit on hasParsedValue.
+  // bad input, caller must gate submit on hasParsedValue.
   const parsedAmount = isCod ? parseAmountInput(amount, 0) : 0;
   const numericAmount = Number.isFinite(parsedAmount) ? parsedAmount : NaN;
   const hasParsedValue = isCod ? Number.isFinite(numericAmount) : true;

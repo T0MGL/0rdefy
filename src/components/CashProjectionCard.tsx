@@ -1,6 +1,6 @@
 import { Card } from '@/components/ui/card';
 import { Wallet, TrendingUp, Package, Truck, Clock, Target } from 'lucide-react';
-import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
+import { formatCompactCurrency, formatCurrency } from '@/utils/currency';
 
 interface CashProjectionData {
   cashInHand: number;
@@ -21,7 +21,8 @@ interface CashProjectionData {
     next14Days: number;
     next30Days: number;
   };
-  historicalDeliveryRate: number;
+  // null = la tienda no tiene historial de despachos para medir la tasa
+  historicalDeliveryRate: number | null;
   avgDailyRevenue: number;
 }
 
@@ -47,7 +48,9 @@ export function CashProjectionCard({ projection }: CashProjectionCardProps) {
               Proyección de Caja
             </h3>
             <p className="text-sm text-blue-700 dark:text-blue-300">
-              Basado en histórico de entregas ({projection.historicalDeliveryRate}% tasa de entrega)
+              {projection.historicalDeliveryRate === null
+                ? 'Sin historial de despachos, proyección con tasa estimada'
+                : `Basado en histórico de entregas (${projection.historicalDeliveryRate}% tasa de entrega)`}
             </p>
           </div>
         </div>
@@ -137,19 +140,19 @@ export function CashProjectionCard({ projection }: CashProjectionCardProps) {
             <div className="bg-white dark:bg-gray-900/50 rounded-lg p-3 border border-blue-100 dark:border-blue-900 text-center">
               <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Conservadora</p>
               <p className="text-sm font-bold text-blue-900 dark:text-blue-100">
-                {getCurrencySymbol()} {(projection.projections.conservative / 1000).toFixed(0)}K
+                {formatCompactCurrency(projection.projections.conservative)}
               </p>
             </div>
             <div className="bg-blue-100 dark:bg-blue-900/30 rounded-lg p-3 border-2 border-blue-400 dark:border-blue-600 text-center">
               <p className="text-xs text-blue-700 dark:text-blue-300 mb-1 font-medium">Moderada</p>
               <p className="text-sm font-bold text-blue-900 dark:text-blue-100">
-                {getCurrencySymbol()} {(projection.projections.moderate / 1000).toFixed(0)}K
+                {formatCompactCurrency(projection.projections.moderate)}
               </p>
             </div>
             <div className="bg-white dark:bg-gray-900/50 rounded-lg p-3 border border-blue-100 dark:border-blue-900 text-center">
               <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Optimista</p>
               <p className="text-sm font-bold text-blue-900 dark:text-blue-100">
-                {getCurrencySymbol()} {(projection.projections.optimistic / 1000).toFixed(0)}K
+                {formatCompactCurrency(projection.projections.optimistic)}
               </p>
             </div>
           </div>
@@ -167,19 +170,19 @@ export function CashProjectionCard({ projection }: CashProjectionCardProps) {
             <div className="text-center">
               <p className="text-xs text-blue-700 dark:text-blue-300 mb-1">7 días</p>
               <p className="text-lg font-bold text-blue-900 dark:text-blue-100">
-                {getCurrencySymbol()} {(projection.futureProjections.next7Days / 1000).toFixed(0)}K
+                {formatCompactCurrency(projection.futureProjections.next7Days)}
               </p>
             </div>
             <div className="text-center">
               <p className="text-xs text-blue-700 dark:text-blue-300 mb-1">14 días</p>
               <p className="text-lg font-bold text-blue-900 dark:text-blue-100">
-                {getCurrencySymbol()} {(projection.futureProjections.next14Days / 1000).toFixed(0)}K
+                {formatCompactCurrency(projection.futureProjections.next14Days)}
               </p>
             </div>
             <div className="text-center">
               <p className="text-xs text-blue-700 dark:text-blue-300 mb-1">30 días</p>
               <p className="text-lg font-bold text-blue-900 dark:text-blue-100">
-                {getCurrencySymbol()} {(projection.futureProjections.next30Days / 1000).toFixed(0)}K
+                {formatCompactCurrency(projection.futureProjections.next30Days)}
               </p>
             </div>
           </div>

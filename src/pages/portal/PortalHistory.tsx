@@ -1,5 +1,5 @@
 /**
- * History view — paginated infinite scroll of every order the courier has
+ * History view, paginated infinite scroll of every order the courier has
  * touched. Filter by final status to find a specific delivery. Page size is
  * 30; the server bounds it to 100 max.
  *

@@ -20,7 +20,7 @@ import { onboardingService } from '@/services/onboarding.service';
 import { merchandiseService } from '@/services/merchandise.service';
 import { productsService } from '@/services/products.service';
 import { suppliersService } from '@/services/suppliers.service';
-import { getCurrencySymbol } from '@/utils/currency';
+import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
 import type { InboundShipment, InboundShipmentItem, CreateShipmentDTO, CreateShipmentItemDTO, ReceiveShipmentItemDTO, Product, Supplier } from '@/types';
 import { logger } from '@/utils/logger';
 
@@ -969,7 +969,7 @@ function ReceiveShipmentModal({ open, onClose, shipment, onSubmit, loading }: Re
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-medium">Costo: ${item.unit_cost.toFixed(2)}</p>
+                        <p className="text-sm font-medium">Costo: {formatCurrency(item.unit_cost)}</p>
                       </div>
                     </div>
 

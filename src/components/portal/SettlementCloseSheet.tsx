@@ -122,7 +122,7 @@ export function SettlementCloseSheet({
   }, [previewUrl]);
 
   // Reset every time the sheet opens with a fresh selection. When the sheet
-  // CLOSES we also abort any in-flight close — the courier dismissing the
+  // CLOSES we also abort any in-flight close, the courier dismissing the
   // sheet is a clear signal that they don't want this submission anymore.
   useEffect(() => {
     if (!open) {
@@ -217,7 +217,7 @@ export function SettlementCloseSheet({
       onSuccess(result);
       onOpenChange(false);
     } catch (err) {
-      // Abort is an explicit user action (closed the sheet or remounted) —
+      // Abort is an explicit user action (closed the sheet or remounted) -
       // no toast, no error, just exit. AbortError is what fetch raises;
       // we also short-circuit on aborted signal in case the polyfill differs.
       if (
@@ -245,7 +245,7 @@ export function SettlementCloseSheet({
         toast({
           title: 'Conciliación con incidencia',
           description:
-            'Tu rendición quedó registrada pero el comprobante no se guardó. El admin la va a revisar — no la vuelvas a cerrar.',
+            'Tu rendición quedó registrada pero el comprobante no se guardó. El admin la va a revisar, no la vuelvas a cerrar.',
           variant: 'destructive',
           duration: 10000,
         });

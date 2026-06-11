@@ -3,7 +3,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { TrendingUp, DollarSign, Percent } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
+import { formatCurrency, formatPercent, getCurrencySymbol } from '@/utils/currency';
 
 export function ProfitabilityCalculator() {
   const [cost, setCost] = useState<number>(0);
@@ -12,7 +12,7 @@ export function ProfitabilityCalculator() {
   const [shippingCost, setShippingCost] = useState<number>(0);
 
   const [netProfit, setNetProfit] = useState<number>(0);
-  const [profitMargin, setProfitMargin] = useState<number>(0);
+  const [profitMargin, setProfitMargin] = useState<number | null>(null);
   const [suggestedPrice, setSuggestedPrice] = useState<number>(0);
 
   useEffect(() => {
@@ -21,8 +21,9 @@ export function ProfitabilityCalculator() {
     const profit = sellingPrice - totalCosts;
     setNetProfit(profit);
 
-    // Calcular margen
-    const margin = sellingPrice > 0 ? (profit / sellingPrice) * 100 : 0;
+    // Sin precio de venta el margen no es computable: null, no un 0% que
+    // se lee como margen critico real.
+    const margin = sellingPrice > 0 ? (profit / sellingPrice) * 100 : null;
     setProfitMargin(margin);
 
     // Calcular precio sugerido para 40% de margen
@@ -127,12 +128,23 @@ export function ProfitabilityCalculator() {
               <Percent size={14} />
               Margen de Beneficio
             </div>
-            <p className={`text-2xl font-bold ${profitMargin >= 30 ? 'text-primary' : profitMargin >= 15 ? 'text-orange-600' : 'text-red-600'}`}>
-              {profitMargin.toFixed(1)}%
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {profitMargin >= 30 ? 'Excelente margen' : profitMargin >= 15 ? 'Margen bajo' : 'Margen crítico'}
-            </p>
+            {profitMargin !== null ? (
+              <>
+                <p className={`text-2xl font-bold ${profitMargin >= 30 ? 'text-primary' : profitMargin >= 15 ? 'text-orange-600' : 'text-red-600'}`}>
+                  {formatPercent(profitMargin, 1)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {profitMargin >= 30 ? 'Excelente margen' : profitMargin >= 15 ? 'Margen bajo' : 'Margen crítico'}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-muted-foreground">Ingresa un precio</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  El margen se calcula sobre el precio de venta
+                </p>
+              </>
+            )}
           </div>
 
           <div className="p-4 bg-primary/10 border border-primary/30 rounded-lg">

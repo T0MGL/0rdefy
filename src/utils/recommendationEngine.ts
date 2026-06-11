@@ -41,8 +41,9 @@ export function generateRecommendations(data: RecommendationEngineData): Recomme
   }
   
   // Analizar márgenes de productos
-  const sortedProducts = [...products].sort((a, b) => b.profitability - a.profitability);
-  const lowMarginProducts = sortedProducts.filter(p => p.profitability < 30);
+  const measurableProducts = products.filter(p => p.profitability !== null);
+  const sortedProducts = [...measurableProducts].sort((a, b) => (b.profitability ?? 0) - (a.profitability ?? 0));
+  const lowMarginProducts = sortedProducts.filter(p => p.profitability !== null && p.profitability < 30);
   
   if (lowMarginProducts.length > 0) {
     recommendations.push({

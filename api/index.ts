@@ -147,10 +147,10 @@ function validateEnvironment() {
 
     if (process.env.NODE_ENV === 'production') {
         if (logLevel === 'debug') {
-            logger.error('ENV', 'SECURITY: LOG_LEVEL=debug in production — this will leak sensitive data. Set LOG_LEVEL=info in Railway.');
+            logger.error('ENV', 'SECURITY: LOG_LEVEL=debug in production, this will leak sensitive data. Set LOG_LEVEL=info in Railway.');
         }
         if (enableQueryLogging === 'true') {
-            logger.error('ENV', 'PERFORMANCE: ENABLE_QUERY_LOGGING=true in production — this will degrade throughput. Set ENABLE_QUERY_LOGGING=false in Railway.');
+            logger.error('ENV', 'PERFORMANCE: ENABLE_QUERY_LOGGING=true in production, this will degrade throughput. Set ENABLE_QUERY_LOGGING=false in Railway.');
         }
 
         const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL ?? '';
@@ -426,7 +426,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 // Body parsing (for non-webhook routes)
-// 1MB general limit — upload routes use multer with their own limits
+// 1MB general limit, upload routes use multer with their own limits
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
@@ -721,7 +721,7 @@ app.use('/api/portal', portalRouter);
 // Note: /api/billing/webhook uses raw body parser internally for Stripe signature
 app.use('/api/billing', billingRouter);
 
-// Shopify Billing API routes (App Store merchants — Req 1.2.2 / 1.2.3)
+// Shopify Billing API routes (App Store merchants, Req 1.2.2 / 1.2.3)
 // Confirm callback must be reachable without auth (Shopify redirect)
 app.use('/api/shopify-billing', shopifyBillingRouter);
 
@@ -737,7 +737,7 @@ app.use('/api/invoicing', invoicingRouter);
 // Fiscal routes (identity / activities / store link - Paraguay only)
 app.use('/api/fiscal', fiscalRouter);
 
-// Wrapped (milestone share) routes — public, token-addressed.
+// Wrapped (milestone share) routes, public, token-addressed.
 // Mounted at root because it serves /og/wrapped/*.png, /wrapped/:token (SSR
 // shell with OG meta), and /api/public/wrapped/:token (JSON).
 app.use(wrappedRouter);
@@ -873,11 +873,11 @@ process.on('unhandledRejection', async (reason) => {
 // ================================================================
 
 const server = app.listen(PORT, async () => {
-    // Verify database connectivity on startup — exit if unreachable
+    // Verify database connectivity on startup, exit if unreachable
     const { testSupabaseConnection } = await import('./db/connection');
     const dbConnected = await testSupabaseConnection();
     if (!dbConnected) {
-        logger.error('DB', 'FATAL: Cannot connect to database on startup — aborting');
+        logger.error('DB', 'FATAL: Cannot connect to database on startup, aborting');
         process.exit(1);
     }
 

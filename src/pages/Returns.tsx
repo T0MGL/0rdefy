@@ -17,7 +17,7 @@ import { Progress } from '@/components/ui/progress';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { MetricCard } from '@/components/MetricCard';
-import { formatCurrency } from '@/utils/currency';
+import { formatCurrency, formatPercent } from '@/utils/currency';
 import { analyticsService, ReturnsMetrics } from '@/services/analytics.service';
 import { isStrictDelivered, isStrictInTransit } from '@/lib/status';
 import { metricLabels } from '@/lib/metric-labels';
@@ -420,7 +420,8 @@ export default function Returns() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
             title={metricLabels.returnRate.title}
-            value={`${returnsMetrics.returnRate}%`}
+            value={formatPercent(returnsMetrics.returnRate, 1)}
+            state={returnsMetrics.returnRate == null ? 'no-data' : 'ok'}
             subtitle={`${returnsMetrics.returnedOrders} de ${returnsMetrics.deliveredOrders + returnsMetrics.returnedOrders} pedidos`}
             icon={<TrendingDown className="text-red-600" size={20} />}
           />
@@ -433,7 +434,8 @@ export default function Returns() {
           />
           <MetricCard
             title="Tasa de Aceptación"
-            value={`${returnsMetrics.acceptanceRate}%`}
+            value={formatPercent(returnsMetrics.acceptanceRate, 1)}
+            state={returnsMetrics.acceptanceRate == null ? 'no-data' : 'ok'}
             subtitle={`${returnsMetrics.itemsAccepted} aceptados · ${returnsMetrics.itemsRejected} rechazados`}
             icon={<Check className="text-primary" size={20} />}
             variant="accent"
@@ -623,7 +625,7 @@ export default function Returns() {
                       </div>
                       <div>
                         <span className="text-gray-600 dark:text-gray-400">Total:</span>
-                        <span className="ml-1 font-medium">${order.total_price.toFixed(2)}</span>
+                        <span className="ml-1 font-medium">{formatCurrency(order.total_price)}</span>
                       </div>
                     </div>
                   </div>

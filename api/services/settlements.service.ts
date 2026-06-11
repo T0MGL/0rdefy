@@ -1236,7 +1236,7 @@ async function processSettlementLegacy(
 
   if (deliveredSessionOrders.length > 0) {
     // Delivered orders: set sleeves_status + payment_status in one batch.
-    // Do NOT override delivered_at here — each order already has its own delivered_at
+    // Do NOT override delivered_at here, each order already has its own delivered_at
     // set when the courier scanned the QR or the CSV was imported.
     await supabaseAdmin
       .from('orders')
@@ -3000,7 +3000,7 @@ export interface PendingReconciliationOrder {
   delivered_at: string;
   carrier_fee: number;
   // Debug fields for fee troubleshooting
-  fee_source: 'coverage' | 'zone' | 'default';
+  fee_source: 'coverage' | 'coverage_zone' | 'zone' | 'default';
   normalized_city: string;
 }
 
@@ -4038,11 +4038,7 @@ export async function getPendingReconciliationOrdersByCarrier(
       is_cod: isCod,
       delivered_at: order.delivered_at as string,
       carrier_fee: carrierFee,
-      // NOTE: PendingReconciliationOrder.fee_source declares 'coverage' | 'zone' | 'default'
-      // but the legacy implementation already returns 'coverage_zone' as well (pre-existing
-      // type drift in this module). We narrow via cast to stay consistent with the rest of
-      // the codebase without widening the interface in this scope.
-      fee_source: feeSource as 'coverage' | 'zone' | 'default',
+      fee_source: feeSource,
       normalized_city: normalizedCity,
     };
   }) as PendingReconciliationOrder[];
