@@ -21,7 +21,8 @@ interface CashProjectionData {
     next14Days: number;
     next30Days: number;
   };
-  historicalDeliveryRate: number;
+  // null = la tienda no tiene historial de despachos para medir la tasa
+  historicalDeliveryRate: number | null;
   avgDailyRevenue: number;
 }
 
@@ -47,7 +48,9 @@ export function CashProjectionCard({ projection }: CashProjectionCardProps) {
               Proyección de Caja
             </h3>
             <p className="text-sm text-blue-700 dark:text-blue-300">
-              Basado en histórico de entregas ({projection.historicalDeliveryRate}% tasa de entrega)
+              {projection.historicalDeliveryRate === null
+                ? 'Sin historial de despachos, proyección con tasa estimada'
+                : `Basado en histórico de entregas (${projection.historicalDeliveryRate}% tasa de entrega)`}
             </p>
           </div>
         </div>

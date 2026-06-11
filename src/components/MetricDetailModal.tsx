@@ -188,7 +188,7 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
         return (
           <div className="space-y-4">
             <div className="grid gap-2 max-h-[60vh] overflow-y-auto">
-              {products.sort((a, b) => b.profitability - a.profitability).map(p => (
+              {products.sort((a, b) => (b.profitability ?? -Infinity) - (a.profitability ?? -Infinity)).map(p => (
                 <div
                   key={p.id}
                   className="flex items-center justify-between p-3 bg-muted/30 rounded-xl"
@@ -200,10 +200,10 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
                     </p>
                   </div>
                   <Badge
-                    variant={p.profitability > 40 ? 'default' : 'secondary'}
+                    variant={p.profitability !== null && p.profitability > 40 ? 'default' : 'secondary'}
                     className="tabular-nums shrink-0"
                   >
-                    {p.profitability}%
+                    {p.profitability === null ? 'N/A' : `${p.profitability}%`}
                   </Badge>
                 </div>
               ))}

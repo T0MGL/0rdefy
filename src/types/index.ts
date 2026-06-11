@@ -300,7 +300,8 @@ export interface Product {
   packaging_cost?: number;
   additional_costs?: number;
   is_service?: boolean;
-  profitability: number;
+  // null = no computable (precio 0, producto placeholder o de servicio)
+  profitability: number | null;
   sales: number;
   // Returned by /api/analytics/top-products: snapshot of unit_price * pack_qty
   // at sale time, NOT current product.price * sales. Frontends should prefer

@@ -28,7 +28,7 @@ const {
 describe('formatCurrency', () => {
   it('formats PYG with zero decimals', () => {
     const out = formatCurrency(1234567, 'PYG');
-    assert.match(out.replace(/ /g, ' '), /1\.234\.567/);
+    assert.match(out.replace(/\u00A0/g, ' '), /1\.234\.567/);
     assert.doesNotMatch(out, /,\d{2}$/);
   });
 

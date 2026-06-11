@@ -267,7 +267,7 @@ export const productsExportColumns: ExportColumn[] = [
     header: 'Rentabilidad (%)',
     key: 'profitability',
     width: 15,
-    format: (value) => `${value || 0}%`
+    format: (value) => (value === null || value === undefined ? 'N/A' : `${value}%`)
   },
   {
     header: 'Ventas Totales',
