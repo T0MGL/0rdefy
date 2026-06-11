@@ -269,8 +269,8 @@ export function RevenueIntelligence() {
               key: 'cogs',
               format: (val: any) => formatCurrency(Number(val))
             },
-            { header: 'Margen (%)', key: 'marginPercent', format: (val: any) => (val == null ? 'N/A' : `${val}%`) },
-            { header: 'ROI', key: 'roi', format: (val: any) => `${val}%` },
+            { header: 'Margen (%)', key: 'marginPercent', format: (val: number | null) => (val == null ? 'N/A' : `${val}%`) },
+            { header: 'ROI', key: 'roi', format: (val: number | null) => (val == null ? 'N/A' : `${val}%`) },
           ]}
         />
       </div>

@@ -665,7 +665,7 @@ export default function Products() {
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Rentabilidad:</span>
                       <span className="font-semibold text-primary">
-                        {product.profitability}%
+                        {product.profitability == null ? 'N/A' : `${product.profitability}%`}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
