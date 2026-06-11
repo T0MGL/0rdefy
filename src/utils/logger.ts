@@ -18,8 +18,10 @@
  * ```
  */
 
-const isDevelopment = import.meta.env.DEV;
-const isProduction = import.meta.env.PROD;
+// Optional chaining keeps this module importable outside Vite (node:test
+// runs without import.meta.env). Absent env means "not development".
+const isDevelopment = import.meta.env?.DEV ?? false;
+const isProduction = import.meta.env?.PROD ?? true;
 
 /**
  * Conditional logger that respects environment

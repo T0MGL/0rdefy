@@ -538,16 +538,19 @@ export interface ChartData {
   profit: number;           // Beneficio real (solo entregados)
 }
 
+export type MetricCardState = 'ok' | 'loading' | 'error' | 'no-data';
+
 export interface MetricCardProps {
   title: string | React.ReactNode;
   value: string | number;
-  change?: number;
+  change?: number | null;
   trend?: 'up' | 'down';
   icon: React.ReactNode;
   variant?: 'default' | 'primary' | 'secondary' | 'accent' | 'purple';
   subtitle?: string;
   onClick?: () => void;
   dense?: boolean;
+  state?: MetricCardState;
 }
 
 export interface ConfirmationMetrics {
