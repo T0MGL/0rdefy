@@ -14,7 +14,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeParaguayPhone } from '../phone';
 
-describe('normalizeParaguayPhone — Paraguay normalization', () => {
+describe('normalizeParaguayPhone, Paraguay normalization', () => {
   it('canonicalises the three Shopify variants reported in production', () => {
     assert.equal(normalizeParaguayPhone('0983912902'), '+595983912902');
     assert.equal(normalizeParaguayPhone('+5950983912902'), '+595983912902');
@@ -51,7 +51,7 @@ describe('normalizeParaguayPhone — Paraguay normalization', () => {
   });
 });
 
-describe('normalizeParaguayPhone — safety: never mangle foreign numbers', () => {
+describe('normalizeParaguayPhone, safety: never mangle foreign numbers', () => {
   // Every test below MUST return the original input untouched. A failure
   // here means we just silently corrupted a real customer's phone number.
 
@@ -87,7 +87,7 @@ describe('normalizeParaguayPhone — safety: never mangle foreign numbers', () =
   });
 
   it('passes through European numbers', () => {
-    // France local with leading 0 (10 digits) — this is the critical
+    // France local with leading 0 (10 digits), this is the critical
     // collision case that the first draft of this function got wrong.
     assert.equal(normalizeParaguayPhone('0112345678'), '0112345678');
     assert.equal(normalizeParaguayPhone('+33112345678'), '+33112345678');
@@ -108,7 +108,7 @@ describe('normalizeParaguayPhone — safety: never mangle foreign numbers', () =
   });
 });
 
-describe('normalizeParaguayPhone — edge cases', () => {
+describe('normalizeParaguayPhone, edge cases', () => {
   it('returns empty string for nullish / empty input', () => {
     assert.equal(normalizeParaguayPhone(null), '');
     assert.equal(normalizeParaguayPhone(undefined), '');

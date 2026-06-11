@@ -1,5 +1,5 @@
 /**
- * Milestone detector — fires when a store crosses a meaningful order count
+ * Milestone detector, fires when a store crosses a meaningful order count
  * (delivered orders, not confirmed, to avoid false positives from cancellations).
  *
  * On match:
@@ -97,7 +97,7 @@ export async function checkAndSendMilestone(storeId: string, _orderId: string): 
 
     const result = await sendMilestoneEmail(owner.email, emailData);
 
-    // Insert idempotency record regardless of send success — we don't want
+    // Insert idempotency record regardless of send success, we don't want
     // to retry forever on hard failures (e.g. invalid email address).
     await supabaseAdmin.from('founder_emails_sent').insert({
       store_id: storeId,
@@ -196,7 +196,7 @@ async function computeStats(storeId: string): Promise<MilestoneStats> {
     .maybeSingle();
 
   // Pull all delivered orders for derived stats. Bounded by milestone size
-  // (max 10000 rows). For 10000 we accept the cost — this fires once per
+  // (max 10000 rows). For 10000 we accept the cost, this fires once per
   // store per milestone.
   const { data: deliveredOrders } = await supabaseAdmin
     .from('orders')

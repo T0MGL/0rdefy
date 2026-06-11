@@ -147,7 +147,7 @@ const chartCaption: React.CSSProperties = {
  * rendering raw <table> here gives us tighter control on Outlook/Gmail.
  */
 function StatsGrid({ stats }: { stats: MilestoneStat[] }) {
-  // 2 rows x 2 cols (capped at 4 stats — keeps the visual rhythm tight)
+  // 2 rows x 2 cols (capped at 4 stats, keeps the visual rhythm tight)
   const grid = stats.slice(0, 4);
   const rows: MilestoneStat[][] = [];
   for (let i = 0; i < grid.length; i += 2) {
@@ -218,7 +218,7 @@ function StatsGrid({ stats }: { stats: MilestoneStat[] }) {
 }
 
 /* Highlight card: full-width feature stat below the grid (used for margen
- * acumulado — the headline number that earns its own row). */
+ * acumulado, the headline number that earns its own row). */
 function FeatureStat({ value, label }: { value: string; label: string }) {
   return (
     <table

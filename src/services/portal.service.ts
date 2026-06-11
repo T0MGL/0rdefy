@@ -468,7 +468,7 @@ export const portalService = {
   /**
    * Upload a proof-of-delivery photo.
    *
-   * DISABLED for production launch — the previous implementation wrote PII
+   * DISABLED for production launch, the previous implementation wrote PII
    * (customer + address) into the public `merchandise` Supabase bucket. The
    * backend endpoint now returns 501. Calling this helper throws so the
    * mistake is caught at the call site instead of round-tripping a useless

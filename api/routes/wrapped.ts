@@ -1,5 +1,5 @@
 /**
- * Wrapped Routes — public, token-addressed milestone share pages.
+ * Wrapped Routes, public, token-addressed milestone share pages.
  *
  *   GET  /api/public/wrapped/:token            JSON payload (public + private)
  *   POST /api/public/wrapped/:token/share      record a share interaction

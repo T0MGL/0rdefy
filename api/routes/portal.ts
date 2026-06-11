@@ -491,7 +491,7 @@ portalRouter.get('/orders', async (req: CourierRequest, res: Response) => {
       //   - sleeves_status = 'delivered'
       //   - delivered_at within the last 24h (timezone-agnostic for
       //     simplicity; the store timezone column is not on this row)
-      //   - reconciled_at IS NULL — once an admin (or the courier
+      //   - reconciled_at IS NULL, once an admin (or the courier
       //     themselves via /portal/settlements/close) reconciles the
       //     order, it falls out of "Hoy". This matches the
       //     v_courier_financial_summary "delivered_unsettled" filter so
@@ -782,7 +782,7 @@ portalRouter.post(
       // can mean any of:
       //   a) concurrent writer beat us to 'delivered' (idempotent success)
       //   b) admin reassigned courier_id mid-flight (we should NOT lie to
-      //      the courier saying "already delivered" — surface it)
+      //      the courier saying "already delivered", surface it)
       //   c) order soft-deleted, etc.
       const { data: probe } = await supabaseAdmin
         .from('orders')
@@ -812,7 +812,7 @@ portalRouter.post(
         res.json({ already_delivered: true, order: { id: orderId, sleeves_status: 'delivered' } });
         return;
       }
-      // Unknown state — treat as conflict so the courier retries / refreshes.
+      // Unknown state, treat as conflict so the courier retries / refreshes.
       res.status(409).json({
         error: 'No se pudo marcar como entregado. Refrescá la lista.',
         code: 'CONCURRENT_MODIFICATION',
@@ -1411,7 +1411,7 @@ portalRouter.post(
 //
 // The active courier portal does NOT call this endpoint (verified across
 // src/components/portal/ and src/services/portal.service.ts:uploadProof
-// — the service helper exists but has no caller in the portal flow). We
+//, the service helper exists but has no caller in the portal flow). We
 // disable the route so an external integration can't reactivate the leak
 // before the proper migration lands.
 //
@@ -1529,7 +1529,7 @@ portalRouter.get('/financial-summary', async (req: CourierRequest, res: Response
 //
 // All three endpoints scope themselves to the authenticated courier's
 // (store_id, carrier_id) pair. They never trust the client for
-// carrier identity — that comes from requireCourierRole's pinned
+// carrier identity, that comes from requireCourierRole's pinned
 // req.courierCarrierId.
 //
 // Trust model is auto-paid: closeSettlement stamps the resulting

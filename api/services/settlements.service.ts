@@ -1236,7 +1236,7 @@ async function processSettlementLegacy(
 
   if (deliveredSessionOrders.length > 0) {
     // Delivered orders: set sleeves_status + payment_status in one batch.
-    // Do NOT override delivered_at here — each order already has its own delivered_at
+    // Do NOT override delivered_at here, each order already has its own delivered_at
     // set when the courier scanned the QR or the CSV was imported.
     await supabaseAdmin
       .from('orders')

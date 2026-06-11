@@ -169,7 +169,7 @@ export default function Wrapped() {
         // Fallback: text + url only
         await navigator.share({ text: shareText, url: shareUrl });
       } catch {
-        // user cancelled or unsupported — silent
+        // user cancelled or unsupported, silent
       }
     }
   };

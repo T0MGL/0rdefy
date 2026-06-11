@@ -180,7 +180,7 @@ function MilestoneCard({ data, spec }: CardComponentProps) {
       {/* Spacer that pushes the number block toward vertical center */}
       <div style={{ flex: 1, display: 'flex' }} />
 
-      {/* Big number — auto-shrink for >=4 digits to keep within frame */}
+      {/* Big number, auto-shrink for >=4 digits to keep within frame */}
       <div
         style={{
           display: 'flex',
@@ -418,7 +418,7 @@ function EmailHero({ milestoneValue, subtitle }: EmailHeroProps) {
 
       <div style={{ flex: 1, display: 'flex' }} />
 
-      {/* Footer wordmark only — no personalization */}
+      {/* Footer wordmark only, no personalization */}
       <div
         style={{
           display: 'flex',

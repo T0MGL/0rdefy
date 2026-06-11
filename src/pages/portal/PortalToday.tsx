@@ -1,5 +1,5 @@
 /**
- * "Hoy" view — what the courier closed today.
+ * "Hoy" view, what the courier closed today.
  *
  * Sums amount_collected and shipping_cost across the day's orders so the
  * courier knows what they should be settling this evening. Numbers come

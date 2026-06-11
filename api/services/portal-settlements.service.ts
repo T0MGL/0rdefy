@@ -480,7 +480,7 @@ export async function closeSettlement(args: {
   // malicioso podría enumerar IDs ajenos por diff de 404 vs 403). Todo lo
   // que no caiga en el scope se reporta uniformemente como NOT_FOUND.
   // Hacemos un segundo paso para identificar IDs que sí existen en la
-  // tienda pero pertenecen a otro courier — sólo para auditar la
+  // tienda pero pertenecen a otro courier, sólo para auditar la
   // intentona, NO para exponer información al cliente.
   const { data: scopedRows, error: scopeErr } = await supabaseAdmin
     .from('orders')

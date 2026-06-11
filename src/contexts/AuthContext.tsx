@@ -402,7 +402,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // (page reload, new tab, PWA relaunch, bookmarked /portal URL) rehydrates
         // the user from localStorage. Older cached payloads (and the standalone
         // `onboarding_completed` key) may be missing, which previously made
-        // OnboardingGuard bounce a fully-onboarded user — owner OR courier — back
+        // OnboardingGuard bounce a fully-onboarded user, owner OR courier, back
         // into the store-setup form. We derive completion from durable user state
         // (backend flag, courier role, or the same rule the backend uses) and
         // stamp it onto the user object so the derived context value is stable.
@@ -464,7 +464,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [signOut]); // Include signOut in dependencies to prevent stale closure
 
   // ================================================================
-  // Role-based routing (Phase 4 — courier portal)
+  // Role-based routing (Phase 4, courier portal)
   // ================================================================
   // - Couriers landing on any non-portal route go to /portal.
   // - Admins/owners landing on /portal go to /.

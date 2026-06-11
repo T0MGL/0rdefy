@@ -1,5 +1,5 @@
 /**
- * Order detail — the action surface for the courier.
+ * Order detail, the action surface for the courier.
  *
  * Reads the order from the React Query cache (active/today/history pages
  * already populated it) instead of issuing a separate GET, because the
@@ -181,14 +181,14 @@ export default function PortalOrderDetail() {
 
   const handleDeliveredSuccess = () => {
     invalidatePortalLists();
-    // Back to Activos — that's where the courier keeps working. "Hoy" is a
+    // Back to Activos, that's where the courier keeps working. "Hoy" is a
     // wrap-up view they consult at end-of-shift, not the next-step surface.
     navigate('/portal', { replace: true });
   };
 
   const handleFailedSuccess = () => {
     invalidatePortalLists();
-    // Stay on detail — order is still active.
+    // Stay on detail, order is still active.
   };
 
   const handleReturnedSuccess = () => {

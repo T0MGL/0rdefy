@@ -404,7 +404,7 @@ export class OutboundWebhookService {
 
     /**
      * Fire outbound webhooks for an order status change.
-     * This is fire-and-forget — errors are logged but never thrown.
+     * This is fire-and-forget, errors are logged but never thrown.
      *
      * @param storeId - The store ID
      * @param newStatus - The new order status (e.g., 'delivered')
@@ -457,7 +457,7 @@ export class OutboundWebhookService {
                 });
             }
         } catch (err: any) {
-            // Never throw — this is fire-and-forget
+            // Never throw, this is fire-and-forget
             logger.error('OUTBOUND_WEBHOOK', 'Error in fireOrderStatusEvent:', err.message);
         }
     }
@@ -577,7 +577,7 @@ export class OutboundWebhookService {
                     return result;
                 }
 
-                // Non-2xx response — retry on 5xx, fail on 4xx
+                // Non-2xx response, retry on 5xx, fail on 4xx
                 lastError = `HTTP ${responseStatus}: ${responseBody?.substring(0, 200)}`;
                 if (responseStatus < 500) break; // Don't retry client errors
 

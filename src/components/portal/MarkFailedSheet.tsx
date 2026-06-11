@@ -57,7 +57,7 @@ export function MarkFailedSheet({
   const { toast } = useToast();
   const isMountedRef = useRef(true);
 
-  // No default reason: pre-selecting "Cliente ausente" biased analytics —
+  // No default reason: pre-selecting "Cliente ausente" biased analytics -
   // couriers confirmed the default without thinking. Force a conscious choice.
   const [reason, setReason] = useState<FailedReason | ''>('');
   const [notes, setNotes] = useState('');

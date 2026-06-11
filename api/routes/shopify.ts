@@ -1668,7 +1668,7 @@ shopifyRouter.get('/webhook-health', async (req: AuthRequest, res: Response) => 
 // POST /api/shopify/webhook-retry/process
 // Procesar cola de reintentos manualmente (también se ejecuta como cron job)
 shopifyRouter.post('/webhook-retry/process', async (req: Request, res: Response) => {
-  // SECURITY: Validate cron secret — same pattern as billing cron routes
+  // SECURITY: Validate cron secret, same pattern as billing cron routes
   const cronSecret = req.headers['x-cron-secret'];
   const expectedSecret = process.env.CRON_SECRET;
   if (!expectedSecret || !cronSecret || cronSecret !== expectedSecret) {
@@ -1698,7 +1698,7 @@ shopifyRouter.post('/webhook-retry/process', async (req: Request, res: Response)
 // POST /api/shopify/webhook-cleanup
 // Limpiar idempotency keys expirados (ejecutar como cron job diario)
 shopifyRouter.post('/webhook-cleanup', async (req: Request, res: Response) => {
-  // SECURITY: Validate cron secret — same pattern as billing cron routes
+  // SECURITY: Validate cron secret, same pattern as billing cron routes
   const cronSecret = req.headers['x-cron-secret'];
   const expectedSecret = process.env.CRON_SECRET;
   if (!expectedSecret || !cronSecret || cronSecret !== expectedSecret) {

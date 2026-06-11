@@ -7,7 +7,7 @@
  * What this asserts (per template):
  *   - render*Email returns { subject, html, text } without throwing.
  *   - HTML opts into the hybrid color scheme: meta `color-scheme` is
- *     "light dark" (NOT "dark only" — that was the v2 anti-pattern that
+ *     "light dark" (NOT "dark only", that was the v2 anti-pattern that
  *     caused the white-on-white Gmail iOS bug).
  *   - HTML contains the dark `prefers-color-scheme: dark` media block so
  *     Apple Mail / Outlook web flip to dark when the user prefers it.

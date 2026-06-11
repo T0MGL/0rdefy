@@ -9,7 +9,7 @@
  *   - One CTA "Confirmar". A bit of fricción + the link "Editar detalle"
  *     escalates to the full MarkDeliveredSheet for edge cases.
  *
- * Prepaid orders skip the amount input — the courier just confirms.
+ * Prepaid orders skip the amount input, the courier just confirms.
  * Discrepancies > 5% block submit and prompt to use the detail sheet
  * so the courier can record notes.
  */

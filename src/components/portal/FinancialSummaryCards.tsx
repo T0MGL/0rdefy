@@ -4,8 +4,8 @@
  * Mobile: horizontal snap scroll. Tablet/desktop: 4-column grid.
  *
  * Cards consume the typed PortalFinancialSummary returned by the backend.
- * Loading and error states keep layout stable with a placeholder dash to
- * avoid CLS when the React Query result lands.
+ * Render states: loading shows a skeleton, fetch error shows a visible
+ * error, missing data shows "Sin datos". Numbers never default to 0.
  */
 
 import { motion } from 'framer-motion';
@@ -53,35 +53,36 @@ const TONE_ICON_BG: Record<CardSpec['tone'], string> = {
 
 function buildCards(summary?: PortalFinancialSummary): CardSpec[] {
   if (!summary) {
+    // No data yet (loading or unavailable). "Sin datos" is the explicit
+    // no-data state; a placeholder that looks like an amount would be read
+    // as a real figure.
     return [
       {
         key: 'in_transit',
         icon: Truck,
         label: 'En tránsito',
-        primary: '—',
-        secondary: '—',
+        primary: 'Sin datos',
         tone: 'amber',
       },
       {
         key: 'unsettled',
         icon: PackageCheck,
         label: 'Por rendir',
-        primary: '—',
-        secondary: '—',
+        primary: 'Sin datos',
         tone: 'sky',
       },
       {
         key: 'fees',
         icon: Coins,
         label: 'Tu cobro',
-        primary: '—',
+        primary: 'Sin datos',
         tone: 'violet',
       },
       {
         key: 'net',
         icon: Wallet,
         label: 'Saldo neto',
-        primary: '—',
+        primary: 'Sin datos',
         tone: 'neutral',
       },
     ];
@@ -141,7 +142,7 @@ function buildCards(summary?: PortalFinancialSummary): CardSpec[] {
           : net < 0
             ? 'Te debe el store'
             : 'Estás al día',
-      // Neutral by default — "rose" implied danger for the normal case of
+      // Neutral by default: "rose" implied danger for the normal case of
       // owing the store. The textual label below the amount carries the
       // direction; color is reserved for actually anomalous states.
       tone: 'neutral',
@@ -191,8 +192,8 @@ export function FinancialSummaryCards({
                 {isLoading ? (
                   <div className="h-6 w-20 animate-pulse rounded-md bg-muted sm:h-7 sm:w-32" />
                 ) : isError ? (
-                  <p className="truncate text-lg font-semibold tracking-tight text-muted-foreground sm:text-2xl">
-                    —
+                  <p className="truncate text-sm font-medium text-red-600 dark:text-red-400 sm:text-base">
+                    Error al cargar
                   </p>
                 ) : (
                   <p className="truncate text-lg font-semibold tracking-tight text-foreground tabular-nums sm:text-2xl">

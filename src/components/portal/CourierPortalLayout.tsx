@@ -1,5 +1,5 @@
 /**
- * Mobile-first layout for the courier portal — also fully usable on web.
+ * Mobile-first layout for the courier portal, also fully usable on web.
  *
  * Three pieces:
  *   - Sticky header: store switcher (left, only when courier carries
@@ -9,7 +9,7 @@
  *     past the mobile column.
  *   - Sticky bottom nav: 4 tabs with safe-area bottom inset on mobile;
  *     same nav on desktop (the portal is a single-purpose surface, the
- *     bottom nav is the only navigation primitive — keeps web parity
+ *     bottom nav is the only navigation primitive, keeps web parity
  *     with mobile).
  *
  * Store switching: a courier user (user_stores.role='courier') may be
@@ -192,7 +192,7 @@ export function CourierPortalLayout() {
               Transportadora
             </p>
             <p className="truncate text-sm font-medium text-foreground">
-              {carrierName ?? '—'}
+              {carrierName ?? 'Sin datos'}
             </p>
           </div>
 
