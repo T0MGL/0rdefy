@@ -27,4 +27,29 @@ export default tseslint.config(
       "@typescript-eslint/no-empty-object-type": "off",
     },
   },
+  {
+    // Numeric integrity guardrails for rendered UI. Raw `.toFixed()` inside
+    // JSX bypasses the shared formatters (formatCurrency / formatPercent /
+    // formatCompactCurrency), which are the only places that handle
+    // NaN/Infinity/null. Em dashes are banned repo-wide by convention.
+    files: ["src/pages/**/*.tsx", "src/components/**/*.tsx"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "JSXExpressionContainer CallExpression > MemberExpression[property.name='toFixed']",
+          message:
+            "No uses .toFixed() directo en JSX: usa formatCurrency/formatPercent/formatCompactCurrency de @/utils/currency, que manejan null/NaN/Infinity.",
+        },
+        {
+          selector: "Literal[value=/\\u2014/]",
+          message: "Em dash prohibido. Usa coma, punto, dos puntos o 'Sin datos'/'N/A' para estados vacios.",
+        },
+        {
+          selector: "JSXText[value=/\\u2014/]",
+          message: "Em dash prohibido. Usa coma, punto, dos puntos o 'Sin datos'/'N/A' para estados vacios.",
+        },
+      ],
+    },
+  },
 );
