@@ -39,7 +39,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Customer } from '@/types';
 import { customersExportColumns } from '@/utils/exportConfigs';
-import { formatCurrency } from '@/utils/currency';
+import { formatDecimal, formatCurrency } from '@/utils/currency';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -467,7 +467,7 @@ export default function Customers() {
             />
             <MetricCard
               title={metricLabels.customerOrders.title}
-              value={(stats?.overview.avg_orders_per_customer ?? 0).toFixed(1)}
+              value={formatDecimal(stats?.overview.avg_orders_per_customer, 1, 'Sin datos')}
               icon={<ShoppingBag className="text-blue-600" size={24} />}
               subtitle={metricLabels.customerOrders.subtitle}
             />

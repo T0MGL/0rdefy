@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { formatPercent, formatDecimal } from '@/utils/currency';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -201,7 +202,7 @@ export default function CourierPerformance() {
                       </div>
                     </div>
                     <span className="font-bold text-primary">
-                      {courier.delivery_rate.toFixed(1)}%
+                      {formatPercent(courier.delivery_rate, 1)}
                     </span>
                   </div>
                 ))}
@@ -231,7 +232,7 @@ export default function CourierPerformance() {
                       </p>
                     </div>
                     <span className="font-bold text-orange-600">
-                      {courier.delivery_rate.toFixed(1)}%
+                      {formatPercent(courier.delivery_rate, 1)}
                     </span>
                   </div>
                 ))}
@@ -257,11 +258,13 @@ export default function CourierPerformance() {
                   <p className="text-2xl font-bold">
                     {(() => {
                       const couriersWithDeliveries = couriers.filter(c => c.total_deliveries > 0);
-                      if (couriersWithDeliveries.length === 0) return '0.0';
-                      return (
-                        couriersWithDeliveries.reduce((sum, c) => sum + c.delivery_rate, 0) / couriersWithDeliveries.length
-                      ).toFixed(1);
-                    })()}%
+                      // Sin entregas no hay tasa: "Sin datos", no un 0% falso.
+                      if (couriersWithDeliveries.length === 0) return 'Sin datos';
+                      return formatPercent(
+                        couriersWithDeliveries.reduce((sum, c) => sum + c.delivery_rate, 0) / couriersWithDeliveries.length,
+                        1
+                      );
+                    })()}
                   </p>
                 </div>
                 <div>
@@ -334,13 +337,13 @@ export default function CourierPerformance() {
                       </td>
                       <td className="text-center py-3 px-4">
                         <span className="text-lg font-bold">
-                          {courier.delivery_rate.toFixed(1)}%
+                          {formatPercent(courier.delivery_rate, 1)}
                         </span>
                       </td>
                       <td className="text-center py-3 px-4">
                         {courier.avg_delivery_time_hours ? (
                           <span className="text-sm">
-                            {courier.avg_delivery_time_hours.toFixed(1)}h
+                            {formatDecimal(courier.avg_delivery_time_hours, 1)}h
                           </span>
                         ) : (
                           <span className="text-xs text-muted-foreground">N/A</span>

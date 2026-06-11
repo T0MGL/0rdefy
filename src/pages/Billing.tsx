@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { formatDecimal } from '@/utils/currency';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { setTourPending } from '@/components/demo-tour';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -573,20 +574,20 @@ ${link}`;
                       <div className="mb-6">
                         {isAnnual && plan.plan !== 'free' && (
                           <div className="text-sm text-muted-foreground/60 line-through mb-1">
-                            ${monthlyPrice.toFixed(0)}/mes
+                            ${formatDecimal(monthlyPrice, 0, '--')}/mes
                           </div>
                         )}
                         <div className="flex items-baseline gap-1">
                           <span className={`text-5xl font-bold tracking-tight ${
                             isGrowth ? 'text-primary' : 'text-foreground'
                           }`}>
-                            ${displayPrice.toFixed(0)}
+                            ${formatDecimal(displayPrice, 0, '--')}
                           </span>
                           <span className="text-muted-foreground text-lg">/mes</span>
                         </div>
                         {isAnnual && plan.plan !== 'free' && (
                           <p className="text-xs text-muted-foreground mt-2">
-                            ${plan.priceAnnual.toFixed(0)} facturado por año
+                            ${formatDecimal(plan.priceAnnual, 0, '--')} facturado por año
                             {plan.annualSavings ? (
                               <span className="ml-1 text-primary font-medium">
                                 ({plan.annualSavings}% de ahorro)
@@ -863,13 +864,13 @@ ${link}`;
                 </div>
                 <div className="text-center p-4 bg-muted rounded-lg">
                   <div className="text-2xl font-bold">
-                    ${referralStats?.totalCreditsEarned?.toFixed(2) || '0.00'}
+                    ${formatDecimal(referralStats?.totalCreditsEarned, 2, '0.00')}
                   </div>
                   <div className="text-sm text-muted-foreground">Total Ganado</div>
                 </div>
                 <div className="text-center p-4 bg-primary/5 dark:bg-primary rounded-lg">
                   <div className="text-2xl font-bold text-primary">
-                    ${referralStats?.availableCredits?.toFixed(2) || '0.00'}
+                    ${formatDecimal(referralStats?.availableCredits, 2, '0.00')}
                   </div>
                   <div className="text-sm text-muted-foreground">Credito Disponible</div>
                 </div>

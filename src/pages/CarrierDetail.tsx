@@ -11,7 +11,7 @@ import { Progress } from '@/components/ui/progress';
 import { carriersService, CarrierReview, CarrierReviewStats, RatingDistribution } from '@/services/carriers.service';
 import { ordersService } from '@/services/orders.service';
 import { deliveryRatePct, isDeliveredStatus, isStrictDelivered } from '@/lib/status';
-import { formatCurrency } from '@/utils/currency';
+import { formatPercent, formatDecimal, formatCurrency } from '@/utils/currency';
 import { format, formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { logger } from '@/utils/logger';
@@ -575,7 +575,9 @@ export default function CarrierDetail() {
                 <TrendingUp className="text-blue-600" size={20} />
                 <span className="text-sm text-muted-foreground">Tasa de Entrega</span>
               </div>
-              <p className="text-3xl font-bold text-card-foreground">{metrics.deliveryRate}%</p>
+              <p className="text-3xl font-bold text-card-foreground">
+                {metrics.deliveryRate === 'n/a' ? 'Sin despachos' : `${metrics.deliveryRate}%`}
+              </p>
             </Card>
             <Card className="p-6 bg-card">
               <div className="flex items-center gap-3 mb-2">
@@ -645,7 +647,7 @@ export default function CarrierDetail() {
                           <Progress value={percentage} className="h-2" />
                         </div>
                         <span className="text-sm text-muted-foreground w-16 text-right">
-                          {count} ({percentage.toFixed(0)}%)
+                          {count} ({formatPercent(percentage, 0)})
                         </span>
                       </div>
                     );
@@ -702,7 +704,7 @@ export default function CarrierDetail() {
                   {reviewStats.avg_hours_to_rate !== null
                     ? reviewStats.avg_hours_to_rate < 1
                       ? `${Math.round(reviewStats.avg_hours_to_rate * 60)} min`
-                      : `${reviewStats.avg_hours_to_rate.toFixed(1)} h`
+                      : `${formatDecimal(reviewStats.avg_hours_to_rate, 1)} h`
                     : 'N/D'}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">entre entrega y rating</p>

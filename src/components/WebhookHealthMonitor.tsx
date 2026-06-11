@@ -6,6 +6,7 @@
  * - Displays health status (healthy, degraded, unhealthy)
  * - Lists pending retries
  */
+import { formatPercent } from '@/utils/currency';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -338,7 +339,7 @@ export const WebhookHealthMonitor: React.FC<WebhookHealthMonitorProps> = ({
           <CardHeader className="pb-2">
             <CardDescription>Success Rate</CardDescription>
             <CardTitle className="text-3xl flex items-center gap-2">
-              {metrics.success_rate.toFixed(1)}%
+              {formatPercent(metrics.success_rate, 1)}
               <TrendingUp
                 className={`h-5 w-5 ${
                   metrics.success_rate >= 95
@@ -425,7 +426,7 @@ export const WebhookHealthMonitor: React.FC<WebhookHealthMonitorProps> = ({
                   <div className="flex items-center justify-between text-sm">
                     <span className="font-medium">{labels[errorType] || errorType}</span>
                     <span className="text-muted-foreground">
-                      {count} ({percentage.toFixed(1)}%)
+                      {count} ({formatPercent(percentage, 1)})
                     </span>
                   </div>
                   <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">

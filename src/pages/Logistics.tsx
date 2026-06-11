@@ -9,7 +9,7 @@ import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { logger } from '@/utils/logger';
 import { formatLocalDate } from '@/utils/timeUtils';
-import { formatCurrency, getCurrencyConfig } from '@/utils/currency';
+import { formatDecimal, formatCurrency, formatCurrencyOrFallback, formatPercent, getCurrencyConfig } from '@/utils/currency';
 import {
   DollarSign,
   Package,
@@ -37,6 +37,7 @@ import {
 
 export default function Logistics() {
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [shippingCosts, setShippingCosts] = useState<ShippingCostsMetrics | null>(null);
   const [logisticsMetrics, setLogisticsMetrics] = useState<LogisticsMetrics | null>(null);
 
@@ -73,6 +74,7 @@ export default function Logistics() {
       abortControllerRef.current = controller;
 
       setIsLoading(true);
+      setLoadError(false);
       try {
         const dateParams = {
           startDate: dateRange.startDate,
@@ -91,6 +93,11 @@ export default function Logistics() {
       } catch (error) {
         if (!isMountedRef.current) return;
         logger.error('Error loading logistics data:', error);
+        // A failed fetch must surface as an error, never as a page full of
+        // zeros that reads like "no costs committed".
+        setShippingCosts(null);
+        setLogisticsMetrics(null);
+        setLoadError(true);
       } finally {
         if (isMountedRef.current) setIsLoading(false);
       }
@@ -112,6 +119,30 @@ export default function Logistics() {
             </Card>
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-2xl font-bold text-card-foreground">Dashboard Logístico</h2>
+          <p className="text-sm text-muted-foreground">
+            Seguimiento de costos de envío y pagos a transportistas
+          </p>
+        </div>
+        <Card className="p-8 border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/10">
+          <div className="flex flex-col items-center text-center gap-3">
+            <AlertTriangle className="h-8 w-8 text-red-600" />
+            <div>
+              <h3 className="font-semibold text-lg">No se pudieron cargar los datos de logística</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Los montos no están disponibles en este momento. Reintentá recargando la página.
+              </p>
+            </div>
+          </div>
+        </Card>
       </div>
     );
   }
@@ -277,7 +308,7 @@ export default function Logistics() {
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-bold text-card-foreground">
-                {formatCurrency(shippingCosts?.averages.costPerDelivery || 0)}
+                {formatCurrencyOrFallback(shippingCosts?.averages.costPerDelivery, 'Sin datos')}
               </p>
               <p className="text-xs text-muted-foreground mt-1">Promedio por pedido</p>
             </CardContent>
@@ -336,7 +367,9 @@ export default function Logistics() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-card-foreground">
-              {shippingCosts?.averages.deliveryDays || 0} días
+              {shippingCosts?.averages.deliveryDays != null && Number.isFinite(shippingCosts.averages.deliveryDays)
+                ? `${shippingCosts.averages.deliveryDays} días`
+                : 'Sin datos'}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               Promedio de entrega
@@ -360,7 +393,9 @@ export default function Logistics() {
               </CardHeader>
               <CardContent>
                 <p className="text-3xl font-bold text-card-foreground">
-                  {(100 - logisticsMetrics.failedRate).toFixed(1)}%
+                  {logisticsMetrics.failedRate !== null
+                    ? formatPercent(100 - logisticsMetrics.failedRate, 1)
+                    : 'Sin despachos'}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
                   {logisticsMetrics.deliveredOrders} de {logisticsMetrics.totalDispatched} despachados
@@ -378,7 +413,7 @@ export default function Logistics() {
               </CardHeader>
               <CardContent>
                 <p className="text-3xl font-bold text-card-foreground">
-                  {logisticsMetrics.failedRate.toFixed(1)}%
+                  {formatPercent(logisticsMetrics.failedRate)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
                   {logisticsMetrics.totalFailed} pedidos fallidos
@@ -396,10 +431,10 @@ export default function Logistics() {
               </CardHeader>
               <CardContent>
                 <p className="text-3xl font-bold text-card-foreground">
-                  {logisticsMetrics.doorRejectionRate.toFixed(1)}%
+                  {formatPercent(logisticsMetrics.doorRejectionRate)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {logisticsMetrics.doorRejections} rechazos
+                  {logisticsMetrics.doorRejections} rechazos (estimado)
                 </p>
               </CardContent>
             </Card>
@@ -414,7 +449,9 @@ export default function Logistics() {
               </CardHeader>
               <CardContent>
                 <p className="text-3xl font-bold text-card-foreground">
-                  {logisticsMetrics.avgDeliveryDays.toFixed(1)} días
+                  {logisticsMetrics.avgDeliveryDays !== null
+                    ? `${formatDecimal(logisticsMetrics.avgDeliveryDays, 1)} días`
+                    : 'Sin datos'}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">Promedio de entrega</p>
               </CardContent>
@@ -446,7 +483,7 @@ export default function Logistics() {
                   <YAxis
                     className="stroke-muted-foreground"
                     tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
-                    tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
+                    tickFormatter={(value) => `${formatDecimal(value / 1000, 0, '0')}k`}
                   />
                   <Tooltip
                     contentStyle={{

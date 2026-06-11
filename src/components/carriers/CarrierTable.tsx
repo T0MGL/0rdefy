@@ -1,4 +1,5 @@
 import { Card } from '@/components/ui/card';
+import { formatDecimal, formatPercent } from '@/utils/currency';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Star, Eye, Edit, Power, MapPin } from 'lucide-react';
@@ -144,7 +145,7 @@ export function CarrierTable({ carriers, onEdit, onRefresh, onManageZones, isHig
                   </td>
                   <td className="py-4 px-4 text-right">
                     <span className="text-sm font-semibold text-muted-foreground">
-                      {carrier.delivery_rate ? `${carrier.delivery_rate.toFixed(1)}%` : '0%'}
+                      {formatPercent(carrier.delivery_rate != null ? Number(carrier.delivery_rate) : null, 1)}
                     </span>
                   </td>
                   <td className="py-4 px-4">
@@ -153,7 +154,7 @@ export function CarrierTable({ carriers, onEdit, onRefresh, onManageZones, isHig
                         <>
                           <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                           <span className="text-sm font-semibold text-card-foreground">
-                            {carrier.average_rating.toFixed(1)}
+                            {formatDecimal(carrier.average_rating, 1)}
                           </span>
                           <span className="text-xs text-muted-foreground">
                             ({carrier.total_ratings || 0})

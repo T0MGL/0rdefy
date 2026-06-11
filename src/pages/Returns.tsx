@@ -623,7 +623,7 @@ export default function Returns() {
                       </div>
                       <div>
                         <span className="text-gray-600 dark:text-gray-400">Total:</span>
-                        <span className="ml-1 font-medium">${order.total_price.toFixed(2)}</span>
+                        <span className="ml-1 font-medium">{formatCurrency(order.total_price)}</span>
                       </div>
                     </div>
                   </div>

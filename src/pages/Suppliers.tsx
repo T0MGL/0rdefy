@@ -1,4 +1,5 @@
 import { Card } from '@/components/ui/card';
+import { formatDecimal } from '@/utils/currency';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -360,7 +361,7 @@ export default function Suppliers() {
                       {supplier.rating ? (
                         <>
                           <Star className="fill-primary text-primary" size={16} />
-                          <span className="text-sm font-semibold">{supplier.rating.toFixed(1)}</span>
+                          <span className="text-sm font-semibold">{formatDecimal(supplier.rating, 1)}</span>
                         </>
                       ) : (
                         <span className="text-sm text-muted-foreground">-</span>

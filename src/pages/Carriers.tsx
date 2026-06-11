@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MetricCard } from '@/components/MetricCard';
+import { formatDecimal, formatPercent } from '@/utils/currency';
 import { CarrierTable } from '@/components/carriers/CarrierTable';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -749,19 +750,27 @@ export default function Carriers() {
     return matchesSearch && matchesStatus && matchesPerformance;
   }), [carriersWithStats, searchTerm, statusFilter, performanceFilter]);
 
-  // Calculate global metrics
+  // Calculate global metrics. Numeric columns can arrive as strings from the
+  // API (Postgres numerics serialize as text), so coerce with Number() before
+  // doing arithmetic: string concatenation in reduce would render "NaN".
+  // Averages over an empty set are null (no data), never a fake 0.
   const { totalDeliveries, avgDeliveryRate, avgRating } = useMemo(() => {
-    const total = carriersWithStats.reduce((sum, c) => sum + (c.total_deliveries || 0), 0);
+    const toFinite = (value: unknown): number => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : 0;
+    };
 
-    const withDeliveries = carriersWithStats.filter(c => (c.total_deliveries || 0) > 0);
-    const avgRate = withDeliveries.length > 0
-      ? withDeliveries.reduce((sum, c) => sum + (c.delivery_rate || 0), 0) / withDeliveries.length
-      : 0;
+    const total = carriersWithStats.reduce((sum, c) => sum + toFinite(c.total_deliveries), 0);
 
-    const withRatings = carriersWithStats.filter(c => c.average_rating > 0);
-    const avgRat = withRatings.length > 0
-      ? withRatings.reduce((sum, c) => sum + (c.average_rating || 0), 0) / withRatings.length
-      : 0;
+    const withDeliveries = carriersWithStats.filter(c => toFinite(c.total_deliveries) > 0);
+    const avgRate: number | null = withDeliveries.length > 0
+      ? withDeliveries.reduce((sum, c) => sum + toFinite(c.delivery_rate), 0) / withDeliveries.length
+      : null;
+
+    const withRatings = carriersWithStats.filter(c => toFinite(c.average_rating) > 0);
+    const avgRat: number | null = withRatings.length > 0
+      ? withRatings.reduce((sum, c) => sum + toFinite(c.average_rating), 0) / withRatings.length
+      : null;
 
     return { totalDeliveries: total, avgDeliveryRate: avgRate, avgRating: avgRat };
   }, [carriersWithStats]);
@@ -829,7 +838,8 @@ export default function Carriers() {
         />
         <MetricCard
           title="Tasa de Entrega Promedio"
-          value={`${avgDeliveryRate.toFixed(1)}%`}
+          value={formatPercent(avgDeliveryRate)}
+          state={avgDeliveryRate === null ? 'no-data' : 'ok'}
           icon={<TrendingUp className="text-primary" size={20} />}
         />
         <MetricCard
@@ -839,7 +849,7 @@ export default function Carriers() {
         />
         <MetricCard
           title="Rating Promedio"
-          value={avgRating > 0 ? `${avgRating.toFixed(1)} ⭐` : 'Sin ratings'}
+          value={avgRating !== null ? `${formatDecimal(avgRating, 1)} de 5` : 'Sin ratings'}
           icon={<Star className="text-yellow-500 fill-yellow-500" size={20} />}
         />
       </div>
