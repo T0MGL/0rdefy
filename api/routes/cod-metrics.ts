@@ -104,10 +104,12 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
             isOrderCod(o.payment_method, o.prepaid_method),
         );
         const reconciledCodOrders = codDeliveredOrders.filter((o) => o.reconciled_at != null);
+        // Null when there are no delivered COD orders: the rate is not
+        // computable and 0 would read as "nothing ever gets paid".
         const payment_success_rate =
             codDeliveredOrders.length > 0
                 ? Math.round((reconciledCodOrders.length / codDeliveredOrders.length) * 100)
-                : 0;
+                : null;
 
         const paidOrders = list.filter((o) => o.payment_status === 'collected');
 
@@ -119,7 +121,7 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
         const average_delivery_attempts =
             ordersWithAttempts.length > 0
                 ? Number((totalAttempts / ordersWithAttempts.length).toFixed(1))
-                : 0;
+                : null;
 
         // Failed deliveries loss = revenue lost on orders that left the
         // warehouse and did not pay. Pre-dispatch cancels do not count
@@ -166,7 +168,9 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
         const confirmedOrdersCount = list.filter((o) => isPostPending(o.sleeves_status)).length;
 
         const metrics = {
-            confirmation_rate: confirmation_rate_pct === null ? 0 : Math.round(confirmation_rate_pct),
+            // Canonical helper already returns null for "not computable";
+            // pass it through instead of masking it as 0.
+            confirmation_rate: confirmation_rate_pct === null ? null : Math.round(confirmation_rate_pct),
             payment_success_rate,
             average_delivery_attempts,
             failed_deliveries_loss,
@@ -180,7 +184,7 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
             failed_orders: failedOrders.length,
             // Headline AOV and revenue computed canonically so the COD page
             // matches the dashboard.
-            average_order_value: averageOrderValue(list) ?? 0,
+            average_order_value: averageOrderValue(list),
             revenue_real: revenueReal(list),
             period: {
                 start_date: startLocalDate,

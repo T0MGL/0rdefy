@@ -43,12 +43,16 @@ settlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
       status
     });
 
+    // The users embed must name the FK: daily_settlements has two FKs to
+    // users (settled_by and submitted_by_courier_user_id) and PostgREST
+    // rejects the ambiguous embed with PGRST201, which surfaced here as a
+    // permanent 500 on the settlements list.
     let query = supabaseAdmin
       .from('daily_settlements')
       .select(`
         *,
         carriers(name),
-        users(name)
+        users!daily_settlements_settled_by_fkey(name)
       `, { count: 'exact' })
       .eq('store_id', req.storeId)
       .order('settlement_date', { ascending: false });
@@ -114,7 +118,7 @@ settlementsRouter.get('/today', async (req: AuthRequest, res: Response) => {
       .select(`
         *,
         carriers(name),
-        users(name)
+        users!daily_settlements_settled_by_fkey(name)
       `)
       .eq('store_id', req.storeId)
       .eq('settlement_date', today);
@@ -1430,7 +1434,7 @@ settlementsRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, 
       .select(`
         *,
         carriers(name),
-        users(name)
+        users!daily_settlements_settled_by_fkey(name)
       `)
       .eq('id', id)
       .eq('store_id', req.storeId)
