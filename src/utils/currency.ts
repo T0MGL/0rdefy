@@ -160,6 +160,22 @@ export function formatPercent(
 }
 
 /**
+ * Format a plain decimal number (attempts, days, ratings, multipliers).
+ * Null, undefined and non-finite render the fallback. This is the JSX-safe
+ * replacement for raw `.toFixed()` calls.
+ */
+export function formatDecimal(
+  value: number | null | undefined,
+  decimals: number = 1,
+  fallback: string = 'N/A'
+): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return value.toFixed(decimals);
+}
+
+/**
  * Compact currency for tight layouts (cards, projections): 1,234,567 PYG
  * renders as "Gs. 1.235K". Non-finite or nullable input renders 'N/A',
  * mirroring formatCurrencyOrFallback.
@@ -223,13 +239,13 @@ export function parseCurrency(formattedValue: string): number {
  *
  * For 0-decimal currencies (PYG/CLP/COP), every separator is treated as a
  * thousands separator and stripped: "150", "150.000", "150,000", "Gs 150.000"
- * all parse to 150000. This is the only safe parse for PY couriers — Number()
+ * all parse to 150000. This is the only safe parse for PY couriers, Number()
  * naively reads "150.000" as 150.
  *
  * For decimal currencies the last separator wins as decimal, the rest are
  * thousands. "150,000.50" (US) and "150.000,50" (PY/AR) both yield 150000.5.
  *
- * Returns NaN on empty or non-numeric input — callers must check
+ * Returns NaN on empty or non-numeric input, callers must check
  * Number.isFinite() before persisting. Never returns 0 silently.
  */
 export function parseAmountInput(input: string, decimals: number = 0): number {
@@ -255,7 +271,7 @@ export function parseAmountInput(input: string, decimals: number = 0): number {
     normalized = cleaned.replace(/\./g, '').replace(',', '.');
   } else if (lastDot > lastComma) {
     // Dot is decimal (US/EN). Strip all commas. Multiple dots means earlier
-    // dots were thousands grouping (Swiss/etc) — strip every dot except the
+    // dots were thousands grouping (Swiss/etc), strip every dot except the
     // last one. Without this, parseFloat('1.234.567') silently returns 1.234.
     const noCommas = cleaned.replace(/,/g, '');
     const lastDotInNoCommas = noCommas.lastIndexOf('.');
