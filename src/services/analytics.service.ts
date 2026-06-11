@@ -4,6 +4,9 @@ import { getActiveStoreId } from '@/lib/activeStore';
 
 const API_BASE_URL = `${import.meta.env.VITE_API_URL || 'https://api.ordefy.io'}/api`;
 
+// Defaults applied over the backend payload for fields older API versions
+// omit. Sums and counts default to 0 (empty-set identity). Rates, ratios and
+// averages default to null: "not computable" must never read as a real 0.
 const defaultOverview: DashboardOverview = {
   totalOrders: 0,
   revenue: 0,
@@ -12,22 +15,22 @@ const defaultOverview: DashboardOverview = {
   deliveryCosts: 0,
   gasto_publicitario: 0,
   grossProfit: 0,
-  grossMargin: 0,
+  grossMargin: null,
   netProfit: 0,
-  netMargin: 0,
-  profitMargin: 0,
+  netMargin: null,
+  profitMargin: null,
   realRevenue: 0,
   realCosts: 0,
   realDeliveryCosts: 0,
   realNetProfit: 0,
-  realProfitMargin: 0,
-  roi: 0,
-  roas: 0,
-  deliveryRate: 0,
+  realProfitMargin: null,
+  roi: null,
+  roas: null,
+  deliveryRate: null,
   taxCollected: 0,
   taxRate: 0,
-  costPerOrder: 0,
-  averageOrderValue: 0,
+  costPerOrder: null,
+  averageOrderValue: null,
 };
 
 const defaultConfirmationMetrics: ConfirmationMetrics = {
@@ -65,6 +68,11 @@ export const analyticsService = {
       throw new Error(`Error HTTP: ${response.status}`);
     }
     const result = await response.json();
+    if (!result || typeof result !== 'object' || !result.data || typeof result.data !== 'object') {
+      // A 200 without a data envelope is a malformed response. Falling back
+      // to defaults here would paint the dashboard with fake zeros.
+      throw new Error('Respuesta de analytics malformada: falta data');
+    }
     return { ...defaultOverview, ...result.data };
   },
 
@@ -267,20 +275,23 @@ export interface CashFlowTimeline {
 export interface LogisticsMetrics {
   totalDispatched: number;
   dispatchedValue: number;
-  failedRate: number;
+  failedRate: number | null;
   totalFailed: number;
   failedOrdersValue: number;
-  doorRejectionRate: number;
+  doorRejectionRate: number | null;
+  // Text-match heuristic flag from the backend: render with an
+  // "estimado" label, never as an exact figure.
+  doorRejectionConfidence?: 'heuristic';
   doorRejections: number;
   deliveryAttempts: number;
-  cashCollectionRate: number;
+  cashCollectionRate: number | null;
   expectedCash: number;
   collectedCash: number;
   pendingCashAmount: number;
   pendingCollectionOrders: number;
   inTransitOrders: number;
   inTransitValue: number;
-  avgDeliveryDays: number;
+  avgDeliveryDays: number | null;
   avgDeliveryAttempts: number;
   costPerFailedAttempt: number;
   totalOrders: number;
@@ -355,12 +366,12 @@ export interface ShippingCostsMetrics {
     grandTotal: number;
   };
   averages: {
-    costPerDelivery: number;
-    costPerSettledDelivery: number;
-    deliveryDays: number;
+    costPerDelivery: number | null;
+    costPerSettledDelivery: number | null;
+    deliveryDays: number | null;
   };
   performance: {
-    successRate: number;
+    successRate: number | null;
     totalDispatched: number;
     totalDelivered: number;
   };

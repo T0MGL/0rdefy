@@ -16,11 +16,11 @@ export interface DashboardOverview {
   gasto_publicitario: number;
   // Gross profit and margin (Revenue - Product Costs only)
   grossProfit: number; // Beneficio bruto (Ingresos - Costos de productos)
-  grossMargin: number; // Margen bruto (%) (Beneficio bruto / Ingresos × 100)
+  grossMargin: number | null; // Margen bruto (%). Null = no computable (ingresos 0)
   // Net profit and margin (Revenue - All Costs)
   netProfit: number; // Beneficio neto (Ingresos - Costos totales)
-  netMargin: number; // Margen neto (%) (Beneficio neto / Ingresos × 100)
-  profitMargin: number; // Deprecated: use netMargin instead
+  netMargin: number | null; // Margen neto (%). Null = no computable (ingresos 0)
+  profitMargin: number | null; // Deprecated: use netMargin instead
   // Real cash metrics (only delivered orders)
   realRevenue?: number; // Ingreso real (solo pedidos entregados)
   realProductCosts?: number; // Costo de productos reales (solo pedidos entregados)
@@ -28,10 +28,10 @@ export interface DashboardOverview {
   realDeliveryCosts?: number; // Costos de envío reales (solo pedidos entregados)
   realConfirmationCosts?: number; // Costos de confirmación reales (solo pedidos entregados)
   realGrossProfit?: number; // Beneficio bruto real (solo pedidos entregados)
-  realGrossMargin?: number; // Margen bruto real (%) (solo pedidos entregados)
+  realGrossMargin?: number | null; // Margen bruto real (%). Null = no computable
   realNetProfit?: number; // Beneficio neto real (solo pedidos entregados)
-  realNetMargin?: number; // Margen neto real (%) (solo pedidos entregados)
-  realProfitMargin?: number; // Deprecated: use realNetMargin instead
+  realNetMargin?: number | null; // Margen neto real (%). Null = no computable
+  realProfitMargin?: number | null; // Deprecated: use realNetMargin instead
   realTaxCollected?: number; // IVA recolectado real (solo pedidos entregados)
   // Projected metrics (delivered + in-transit pipeline weighted by historical delivery rate)
   projectedRevenue?: number; // Ingreso proyectado (entregados + en tránsito ajustado por tasa de entrega)
@@ -40,25 +40,25 @@ export interface DashboardOverview {
   projectedConfirmationCosts?: number; // Costo de confirmación proyectado
   projectedCosts?: number; // Costos totales proyectados (productos + envío + confirmación + gasto publicitario)
   projectedGrossProfit?: number; // Beneficio bruto proyectado
-  projectedGrossMargin?: number; // Margen bruto proyectado (%)
+  projectedGrossMargin?: number | null; // Margen bruto proyectado (%). Null = no computable
   projectedNetProfit?: number; // Beneficio neto proyectado (entregados + en tránsito ponderado, después de todos los costos)
-  projectedNetMargin?: number; // Margen neto proyectado (%)
+  projectedNetMargin?: number | null; // Margen neto proyectado (%). Null = no computable
   projectedTaxCollected?: number; // IVA proyectado
   // Pipeline diagnostics
   inTransitOrders?: number; // Cantidad de pedidos en tránsito (post-confirmación, pre-terminal)
   inTransitGrossRevenue?: number; // Suma sin ponderar del valor de pedidos en tránsito
   deliveryRateUsedForProjection?: number; // Tasa de entrega histórica (%) usada para ponderar la proyección
   // ROI and ROAS metrics
-  roi: number; // ROI proyectado (todos los pedidos)
-  roas: number; // ROAS proyectado (todos los pedidos)
-  realRoi?: number; // ROI real (solo pedidos entregados)
-  realRoas?: number; // ROAS real (solo pedidos entregados)
-  deliveryRate: number;
+  roi: number | null; // ROI proyectado (%). Null = no computable (costos 0)
+  roas: number | null; // ROAS proyectado. Null = no computable (gasto publicitario 0)
+  realRoi?: number | null; // ROI real (%). Null = no computable
+  realRoas?: number | null; // ROAS real. Null = no computable
+  deliveryRate: number | null; // Null = sin despachos en el rango (no computable)
   taxCollected: number; // IVA recolectado incluido en los ingresos
   taxRate: number; // Tasa de IVA configurada en el onboarding (ej: 10 para 10%)
-  costPerOrder: number; // Costo promedio por pedido (legacy: numerator usa todos los pedidos, denominador excluye pending/cancelled/rejected)
-  realCostPerOrder?: number; // Costo real por pedido entregado (realCosts / deliveredCount) - base consistente
-  averageOrderValue: number; // Ticket promedio (valor promedio por pedido)
+  costPerOrder: number | null; // Costo promedio por pedido. Null = sin pedidos confirmados
+  realCostPerOrder?: number | null; // Costo real por pedido entregado. Null = sin entregados
+  averageOrderValue: number | null; // Ticket promedio. Null = sin pedidos en el rango
   changes?: {
     totalOrders: number | null;
     revenue: number | null;

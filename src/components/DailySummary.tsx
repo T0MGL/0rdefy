@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { logger } from '@/utils/logger';
 import { formatLocalDate } from '@/utils/timeUtils';
-import { formatCurrency } from '@/utils/currency';
+import { formatCurrencyOrFallback } from '@/utils/currency';
 import { isInPreparation, isPending, isStrictDelivered } from '@/lib/status';
 import {
   Collapsible,
@@ -35,7 +35,7 @@ export function DailySummary() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [status, setStatus] = useState<'loading' | 'error' | 'ready'>('loading');
 
   // Check if user has analytics permission (wait for auth to load)
   const { permissions, loading: authLoading, currentStore, stores } = useAuth();
@@ -89,7 +89,7 @@ export function DailySummary() {
     const controller = new AbortController();
 
     const loadData = async () => {
-      setIsLoading(true);
+      setStatus('loading');
       let fetchedOrdersCount = 0;
       try {
         const dateParams = {
@@ -130,11 +130,11 @@ export function DailySummary() {
             setOverview(unifiedOverview.data || {
               totalOrders: ordersData.length,
               revenue: 0,
-              deliveryRate: 0,
-              profitMargin: 0,
-              netProfit: 0,
+              deliveryRate: null,
+              profitMargin: null,
+              netProfit: null,
               changes: null,
-            } as DashboardOverview);
+            } as unknown as DashboardOverview);
           } else {
             const overviewData = await analyticsService.getOverview(dateParams);
             if (controller.signal.aborted || !isMountedRef.current) return;
@@ -147,37 +147,34 @@ export function DailySummary() {
           const deliveredCount = useGlobalViewData
             ? ordersData.filter((o: Order) => isStrictDelivered(o.status)).length
             : (countsData['delivered'] || 0);
+          // Rate over zero orders is not computable: null renders "Sin datos".
           const deliveryRate = fetchedOrdersCount > 0
             ? Math.round((deliveredCount / fetchedOrdersCount) * 100)
-            : 0;
+            : null;
 
-          // Create a simplified overview from available data
-          const simplifiedOverview: DashboardOverview = {
+          // Simplified overview for roles without analytics access. Metrics
+          // this role cannot see are null (rendered as "Sin datos"), never a
+          // fake 0 that reads like a real figure.
+          const simplifiedOverview = {
             totalOrders: fetchedOrdersCount,
-            revenue: totalRevenue, // Only accurate for global view; 0 for single-store without analytics
+            revenue: useGlobalViewData ? totalRevenue : null,
             deliveryRate,
-            profitMargin: 0, // Not available without analytics
-            netProfit: 0, // Not available without analytics
-            changes: null, // No comparison data available
-          } as DashboardOverview;
+            profitMargin: null,
+            netProfit: null,
+            changes: null,
+          } as unknown as DashboardOverview;
 
           setOverview(simplifiedOverview);
         }
       } catch (error) {
         if (controller.signal.aborted || !isMountedRef.current) return;
         logger.error('Error loading daily summary data:', error);
-        // Even on error, set a basic overview to prevent crash
-        setOverview({
-          totalOrders: fetchedOrdersCount,
-          revenue: 0,
-          deliveryRate: 0,
-          profitMargin: 0,
-          netProfit: 0,
-          changes: null,
-        } as DashboardOverview);
-      } finally {
-        if (!controller.signal.aborted && isMountedRef.current) setIsLoading(false);
+        // A failed fetch is an error state, never a summary full of zeros.
+        setOverview(null);
+        setStatus('error');
+        return;
       }
+      if (!controller.signal.aborted && isMountedRef.current) setStatus('ready');
     };
     loadData();
 
@@ -186,7 +183,20 @@ export function DailySummary() {
     };
   }, [dateRange, hasAnalyticsAccess, authLoading, useGlobalViewData]);
 
-  if (authLoading || isLoading || !overview) {
+  if (status === 'error') {
+    return (
+      <Card className="p-6 border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/10">
+        <div className="space-y-1">
+          <h3 className="text-lg font-semibold">{getSummaryTitle()}</h3>
+          <p className="text-sm text-muted-foreground">
+            No se pudieron cargar los datos del resumen. Reintentá recargando la página.
+          </p>
+        </div>
+      </Card>
+    );
+  }
+
+  if (authLoading || status === 'loading' || !overview) {
     return (
       <Card className="p-6 bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
         <div className="space-y-4">
@@ -240,7 +250,7 @@ export function DailySummary() {
   // El total bruto (overview.revenue, incluye pending/cancelled/rejected) se mostraba antes
   // y confundía a los usuarios porque los cards de ROAS / margenes / costos del Desglose
   // usan realRevenue. Ahora todos los cards del summary leen la misma base.
-  const ventasValue = overview?.realRevenue ?? overview?.revenue ?? 0;
+  const ventasValue = overview?.realRevenue ?? overview?.revenue ?? null;
   const ventasChange = overview?.changes?.realRevenue ?? overview?.changes?.revenue ?? null;
 
   const metrics = [
@@ -253,7 +263,7 @@ export function DailySummary() {
     },
     {
       label: getMetricLabel('Ventas del Período'),
-      value: formatCurrency(ventasValue),
+      value: formatCurrencyOrFallback(ventasValue, 'Sin datos'),
       change: ventasChange,
       icon: DollarSign,
       trend: ventasChange != null ? (ventasChange >= 0 ? 'up' as const : 'down' as const) : undefined,
@@ -340,7 +350,9 @@ export function DailySummary() {
                 )}
                 <li className="flex items-start gap-2">
                   <CheckCircle size={16} className="text-primary mt-0.5" />
-                  <span>Tasa de entrega: {overview?.deliveryRate ?? 0}%</span>
+                  <span>
+                    Tasa de entrega: {overview?.deliveryRate != null ? `${overview.deliveryRate}%` : 'Sin datos'}
+                  </span>
                 </li>
               </ul>
             </div>
@@ -351,13 +363,15 @@ export function DailySummary() {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Margen de Beneficio</span>
                     <span className="font-semibold">
-                      {overview?.realNetMargin ?? overview?.profitMargin ?? 0}%
+                      {(overview?.realNetMargin ?? overview?.profitMargin) != null
+                        ? `${overview?.realNetMargin ?? overview?.profitMargin}%`
+                        : 'Sin datos'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Beneficio Neto</span>
                     <span className="font-semibold">
-                      {formatCurrency(overview?.realNetProfit ?? overview?.netProfit ?? 0)}
+                      {formatCurrencyOrFallback(overview?.realNetProfit ?? overview?.netProfit, 'Sin datos')}
                     </span>
                   </div>
                 </div>

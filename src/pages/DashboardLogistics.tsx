@@ -12,7 +12,7 @@ import { useDateRange } from '@/contexts/DateRangeContext';
 import { useAuth, Module } from '@/contexts/AuthContext';
 import { DashboardOverview, ConfirmationMetrics } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
-import { formatCurrency } from '@/utils/currency';
+import { formatDecimal, formatCurrency, formatPercent } from '@/utils/currency';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { logger } from '@/utils/logger';
@@ -304,7 +304,8 @@ export default function DashboardLogistics() {
                 <InfoTooltip content="Porcentaje de pedidos entregados exitosamente sobre el total despachado." />
               </div>
             }
-            value={`${(dashboardOverview.deliveryRate || 0).toFixed(1)}%`}
+            value={formatPercent(dashboardOverview.deliveryRate, 1)}
+            state={dashboardOverview.deliveryRate == null ? 'no-data' : 'ok'}
             change={dashboardOverview.changes?.deliveryRate !== null && dashboardOverview.changes?.deliveryRate !== undefined ? Math.abs(dashboardOverview.changes.deliveryRate) : undefined}
             trend={dashboardOverview.changes?.deliveryRate !== null && dashboardOverview.changes?.deliveryRate !== undefined ? (dashboardOverview.changes.deliveryRate >= 0 ? 'up' : 'down') : undefined}
             icon={<Truck className="text-purple-600" size={24} />}
@@ -317,7 +318,7 @@ export default function DashboardLogistics() {
                 <InfoTooltip content="Porcentaje de pedidos confirmados sobre el total de pedidos recibidos." />
               </div>
             }
-            value={`${(confirmationMetrics?.confirmationRate || 0).toFixed(1)}%`}
+            value={formatPercent(confirmationMetrics?.confirmationRate, 1)}
             change={confirmationMetrics?.confirmationRateChange !== null && confirmationMetrics?.confirmationRateChange !== undefined ? Math.abs(confirmationMetrics.confirmationRateChange) : undefined}
             trend={confirmationMetrics?.confirmationRateChange !== null && confirmationMetrics?.confirmationRateChange !== undefined ? (confirmationMetrics.confirmationRateChange >= 0 ? 'up' : 'down') : undefined}
             icon={<CheckCircle2 className="text-primary" size={24} />}
@@ -341,7 +342,7 @@ export default function DashboardLogistics() {
                 <InfoTooltip content="Tiempo promedio transcurrido desde la confirmación hasta la entrega." />
               </div>
             }
-            value={confirmationMetrics?.avgDeliveryTime ? `${confirmationMetrics.avgDeliveryTime.toFixed(1)} días` : '0.0 días'}
+            value={confirmationMetrics?.avgDeliveryTime ? `${formatDecimal(confirmationMetrics.avgDeliveryTime, 1)} días` : 'Sin datos'}
             icon={<Clock className="text-orange-600" size={24} />}
           />
         </div>
@@ -380,7 +381,8 @@ export default function DashboardLogistics() {
                   <InfoTooltip content="Porcentaje de pedidos que no pudieron ser entregados." />
                 </div>
               }
-              value={`${logisticsMetrics.failedRate}%`}
+              value={formatPercent(logisticsMetrics.failedRate)}
+              state={logisticsMetrics.failedRate == null ? 'no-data' : 'ok'}
               subtitle={`${logisticsMetrics.totalFailed} pedidos · ${formatCurrency(logisticsMetrics.failedOrdersValue)} perdidos`}
               icon={<XCircle className="text-red-600" size={20} />}
             />
@@ -391,7 +393,8 @@ export default function DashboardLogistics() {
                   <InfoTooltip content="Porcentaje de envíos rechazados por el cliente al momento de la entrega." />
                 </div>
               }
-              value={`${logisticsMetrics.doorRejectionRate}%`}
+              value={formatPercent(logisticsMetrics.doorRejectionRate)}
+              state={logisticsMetrics.doorRejectionRate == null ? 'no-data' : 'ok'}
               subtitle={`${logisticsMetrics.doorRejections} rechazos de ${logisticsMetrics.deliveryAttempts} intentos`}
               icon={<DoorOpen className="text-orange-600" size={20} />}
             />
@@ -402,7 +405,8 @@ export default function DashboardLogistics() {
                   <InfoTooltip content="Porcentaje de dinero recaudado sobre el total esperado (Contra Entrega)." />
                 </div>
               }
-              value={`${logisticsMetrics.cashCollectionRate}%`}
+              value={formatPercent(logisticsMetrics.cashCollectionRate)}
+              state={logisticsMetrics.cashCollectionRate == null ? 'no-data' : 'ok'}
               subtitle={`Cobrado: ${formatCurrency(logisticsMetrics.collectedCash)} · Pendiente: ${formatCurrency(logisticsMetrics.pendingCashAmount)}`}
               icon={<Banknote className="text-primary" size={20} />}
               variant="accent"
@@ -448,12 +452,15 @@ export default function DashboardLogistics() {
             />
             <MetricCard
               title="Tasa de Pago Exitoso"
-              value={`${codMetrics.payment_success_rate || 0}%`}
+              value={formatPercent(codMetrics.payment_success_rate, 0)}
+              state={codMetrics.payment_success_rate == null ? 'no-data' : 'ok'}
               icon={<Percent className="text-primary" size={20} />}
             />
             <MetricCard
               title="Intentos Promedio"
-              value={(codMetrics.average_delivery_attempts || 0).toFixed(1)}
+              value={codMetrics.average_delivery_attempts != null
+                ? formatDecimal(codMetrics.average_delivery_attempts, 1)
+                : 'Sin datos'}
               icon={<Package2 className="text-purple-600" size={20} />}
             />
           </div>
@@ -486,7 +493,7 @@ export default function DashboardLogistics() {
               />
               <MetricCard
                 title={metricLabels.avgConfirmationTime.title}
-                value={`${(confirmationMetrics?.avgConfirmationTime || 0).toFixed(1)}h`}
+                value={confirmationMetrics?.avgConfirmationTime != null ? `${formatDecimal(confirmationMetrics.avgConfirmationTime, 1)}h` : 'Sin datos'}
                 icon={<Clock className="text-blue-600" size={20} />}
               />
               <MetricCard

@@ -16,7 +16,7 @@ import { useGlobalView } from '@/contexts/GlobalViewContext';
 import { DashboardOverview, ChartData } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { calculateRevenueProjection } from '@/utils/recommendationEngine';
-import { formatCurrency } from '@/utils/currency';
+import { formatDecimal, formatCurrency, formatCurrencyOrFallback, formatPercent } from '@/utils/currency';
 import { logger } from '@/utils/logger';
 import { formatLocalDate } from '@/utils/timeUtils';
 import { getPeriodSuffix, getPeriodSubtitle } from '@/utils/dateRangeLabels';
@@ -99,6 +99,7 @@ export default function Dashboard() {
   );
 
   const [dashboardOverview, setDashboardOverview] = useState<DashboardOverview | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [chartData, setChartData] = useState<ChartData[]>([]);
 
   useEffect(() => {
@@ -160,6 +161,7 @@ export default function Dashboard() {
         setIsLoading(true);
       }
       try {
+        setLoadError(false);
         const dateParams = {
           startDate: dateRange.startDate,
           endDate: dateRange.endDate,
@@ -219,6 +221,10 @@ export default function Dashboard() {
           return;
         }
         logger.error('[Dashboard] Error loading data:', error);
+        // Surface the failure: without this flag the page renders the
+        // "no data" card, which reads as "you sold nothing" instead of
+        // "we could not load your numbers".
+        if (!signal?.aborted) setLoadError(true);
       } finally {
         if (!signal?.aborted) {
           setIsLoading(false);
@@ -308,9 +314,11 @@ export default function Dashboard() {
       <div className="space-y-6">
         <DailySummary />
         <QuickActions />
-        <Card className="p-6">
+        <Card className={loadError ? 'p-6 border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/10' : 'p-6'}>
           <p className="text-center text-muted-foreground">
-            No hay datos disponibles. Por favor, intente nuevamente.
+            {loadError
+              ? 'No se pudieron cargar las métricas. Reintentá recargando la página.'
+              : 'No hay datos disponibles. Por favor, intente nuevamente.'}
           </p>
         </Card>
       </div>
@@ -452,7 +460,8 @@ export default function Dashboard() {
                 <InfoTooltip content={`Porcentaje de pedidos entregados exitosamente sobre el total despachado en el período seleccionado (${periodSuffix}).`} />
               </div>
             }
-            value={`${dashboardOverview.deliveryRate}%`}
+            value={formatPercent(dashboardOverview.deliveryRate, 1)}
+            state={dashboardOverview.deliveryRate == null ? 'no-data' : 'ok'}
             change={getChange('deliveryRate')}
             trend={getTrend('deliveryRate')}
             icon={<Truck className="text-purple-600" size={24} />}
@@ -521,7 +530,7 @@ export default function Dashboard() {
                   <InfoTooltip content={`Valor promedio de venta por cada pedido realizado en el período seleccionado (${periodSuffix}).`} />
                 </div>
               }
-              value={formatCurrency(dashboardOverview.averageOrderValue)}
+              value={formatCurrencyOrFallback(dashboardOverview.averageOrderValue, 'Sin datos')}
               change={getChange('averageOrderValue')}
               trend={getTrend('averageOrderValue')}
               icon={<ShoppingCart className="text-orange-600" size={24} />}
@@ -556,12 +565,14 @@ export default function Dashboard() {
                           <InfoTooltip content="Retorno de la inversión publicitaria (solo pedidos entregados)." />
                         </div>
                       }
-                      value={
-                        dashboardOverview.gasto_publicitario > 0 &&
-                        (dashboardOverview.realRevenue ?? 0) > 0
-                          ? `${(dashboardOverview.realRoas ?? dashboardOverview.roas).toFixed(2)}x`
-                          : 'N/A'
-                      }
+                      value={(() => {
+                        const roas = dashboardOverview.realRoas ?? dashboardOverview.roas;
+                        return dashboardOverview.gasto_publicitario > 0 &&
+                          (dashboardOverview.realRevenue ?? 0) > 0 &&
+                          roas != null && Number.isFinite(roas)
+                          ? `${formatDecimal(roas, 2)}x`
+                          : 'N/A';
+                      })()}
                       change={
                         dashboardOverview.gasto_publicitario > 0 &&
                         (dashboardOverview.realRevenue ?? 0) > 0
@@ -590,12 +601,14 @@ export default function Dashboard() {
                           <InfoTooltip content="Retorno sobre la inversión total (solo pedidos entregados)." />
                         </div>
                       }
-                      value={
-                        (dashboardOverview.realCosts ?? 0) > 0 &&
-                        (dashboardOverview.realRevenue ?? 0) > 0
-                          ? `${(dashboardOverview.realRoi ?? dashboardOverview.roi).toFixed(1)}%`
-                          : 'N/A'
-                      }
+                      value={(() => {
+                        const roi = dashboardOverview.realRoi ?? dashboardOverview.roi;
+                        return (dashboardOverview.realCosts ?? 0) > 0 &&
+                          (dashboardOverview.realRevenue ?? 0) > 0 &&
+                          roi != null && Number.isFinite(roi)
+                          ? formatPercent(roi, 1)
+                          : 'N/A';
+                      })()}
                       change={
                         (dashboardOverview.realCosts ?? 0) > 0 &&
                         (dashboardOverview.realRevenue ?? 0) > 0
@@ -622,7 +635,7 @@ export default function Dashboard() {
                       }
                       value={
                         (dashboardOverview.realRevenue ?? 0) > 0
-                          ? `${dashboardOverview.realGrossMargin ?? dashboardOverview.grossMargin}%`
+                          ? formatPercent(dashboardOverview.realGrossMargin ?? dashboardOverview.grossMargin, 1)
                           : 'N/A'
                       }
                       change={
@@ -649,7 +662,7 @@ export default function Dashboard() {
                       }
                       value={
                         (dashboardOverview.realRevenue ?? 0) > 0
-                          ? `${dashboardOverview.realNetMargin ?? dashboardOverview.netMargin}%`
+                          ? formatPercent(dashboardOverview.realNetMargin ?? dashboardOverview.netMargin, 1)
                           : 'N/A'
                       }
                       change={
@@ -674,8 +687,9 @@ export default function Dashboard() {
                           <InfoTooltip content="Costo total promedio por pedido entregado (productos, envío, confirmación y publicidad sobre pedidos entregados)." />
                         </div>
                       }
-                      value={formatCurrency(
-                        dashboardOverview.realCostPerOrder ?? dashboardOverview.costPerOrder
+                      value={formatCurrencyOrFallback(
+                        dashboardOverview.realCostPerOrder ?? dashboardOverview.costPerOrder,
+                        'Sin datos'
                       )}
                       change={getChange('realCostPerOrder')}
                       trend={getTrend('realCostPerOrder')}

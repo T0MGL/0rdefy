@@ -23,7 +23,7 @@ import { productsService } from '@/services/products.service';
 import { carriersService } from '@/services/carriers.service';
 import type { Order, Product } from '@/types';
 import type { Carrier } from '@/services/carriers.service';
-import { formatCurrency } from '@/utils/currency';
+import { formatCurrency, formatCurrencyOrFallback } from '@/utils/currency';
 
 interface MetricDetailModalProps {
   metric: string | null;
@@ -133,7 +133,7 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
                     <p className="text-[15px] truncate">{o.customer}</p>
                   </div>
                   <span className="text-[15px] font-semibold tabular-nums shrink-0">
-                    {formatCurrency(o.total ?? 0)}
+                    {formatCurrencyOrFallback(o.total, 'Sin datos')}
                   </span>
                 </div>
               ))}
@@ -153,7 +153,7 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
                       <td className="p-2 font-mono">{o.id}</td>
                       <td className="p-2">{o.customer}</td>
                       <td className="text-right p-2 tabular-nums">
-                        {formatCurrency(o.total ?? 0)}
+                        {formatCurrencyOrFallback(o.total, 'Sin datos')}
                       </td>
                     </tr>
                   ))}
@@ -167,10 +167,13 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
         return (
           <div className="space-y-4">
             <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={carriers.slice(0, 5).map(c => ({
-                name: (c.carrier_name || c.name || 'Sin nombre').slice(0, 15),
-                rate: c.delivery_rate || 0
-              }))}>
+              <BarChart data={carriers
+                .filter(c => c.delivery_rate != null && Number.isFinite(Number(c.delivery_rate)))
+                .slice(0, 5)
+                .map(c => ({
+                  name: (c.carrier_name || c.name || 'Sin nombre').slice(0, 15),
+                  rate: Number(c.delivery_rate),
+                }))}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
                 <YAxis />

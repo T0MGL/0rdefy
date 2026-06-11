@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { analyticsService } from '@/services/analytics.service';
-import { formatCurrency } from '@/utils/currency';
+import { formatDecimal, formatCurrency } from '@/utils/currency';
 import { logger } from '@/utils/logger';
 import {
   LineChart,
@@ -227,7 +227,7 @@ export function CashFlowProjection() {
               className="text-xs text-gray-600 dark:text-gray-400"
             />
             <YAxis
-              tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
+              tickFormatter={(value) => `${formatDecimal(value / 1000, 0, '0')}k`}
               className="text-xs text-gray-600 dark:text-gray-400"
             />
             <Tooltip
@@ -312,7 +312,7 @@ export function CashFlowProjection() {
                   {formatPeriodLabel(period.period)}
                 </td>
                 <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-400">
-                  {period.ordersCount[scenario].toFixed(1)}
+                  {formatDecimal(period.ordersCount[scenario], 1)}
                 </td>
                 <td className="py-2 px-3 text-right text-blue-600 dark:text-blue-400 font-medium">
                   {formatCurrency(period.revenue[scenario])}

@@ -6,7 +6,7 @@ import { ExportButton } from '@/components/ExportButton';
 import { TrendingUp, TrendingDown, DollarSign, Trophy, ShoppingBag } from 'lucide-react';
 import { logger } from '@/utils/logger';
 import { formatLocalDate } from '@/utils/timeUtils';
-import { formatCurrency } from '@/utils/currency';
+import { formatCurrency, formatCurrencyOrFallback, formatPercent } from '@/utils/currency';
 import {
   PieChart,
   Pie,
@@ -28,7 +28,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import type { DashboardOverview, Product } from '@/types';
 
-const getMarginColor = (margin: number) => {
+const getMarginColor = (margin: number | null) => {
+  if (margin === null) return 'text-muted-foreground bg-muted';
   if (margin > 40) return 'text-primary bg-primary/5 dark:text-primary dark:bg-primary';
   if (margin >= 20) return 'text-yellow-600 bg-yellow-50 dark:text-yellow-400 dark:bg-yellow-950';
   return 'text-red-600 bg-red-50 dark:text-red-400 dark:bg-red-950';
@@ -36,6 +37,7 @@ const getMarginColor = (margin: number) => {
 
 export function RevenueIntelligence() {
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [topProducts, setTopProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
@@ -76,6 +78,7 @@ export function RevenueIntelligence() {
 
     const loadData = async () => {
       setIsLoading(true);
+      setLoadError(false);
       try {
         const dateParams = {
           startDate: dateRange.startDate,
@@ -94,6 +97,7 @@ export function RevenueIntelligence() {
       } catch (error: any) {
         if (error?.name === 'AbortError') return;
         logger.error('Error loading revenue intelligence data:', error);
+        if (isMountedRef.current && !controller.signal.aborted) setLoadError(true);
       } finally {
         if (isMountedRef.current && !controller.signal.aborted) {
           setIsLoading(false);
@@ -116,8 +120,10 @@ export function RevenueIntelligence() {
     const revenue = Number(product.sales_revenue ?? (product.sales * Number(product.price)));
     const cogs = product.sales * totalUnitCost;
     const margin = revenue - cogs;
-    const marginPercent = revenue > 0 ? parseFloat(((margin / revenue) * 100).toFixed(1)) : 0;
-    const roi = cogs > 0 ? parseFloat(((revenue / cogs) * 100).toFixed(1)) : 0;
+    // Margin and ROI are ratios: with a zero denominator they are not
+    // computable. Null here renders as 'N/A'; a 0 would read as "zero margin".
+    const marginPercent: number | null = revenue > 0 ? parseFloat(((margin / revenue) * 100).toFixed(1)) : null;
+    const roi: number | null = cogs > 0 ? parseFloat(((revenue / cogs) * 100).toFixed(1)) : null;
 
     return {
       id: product.id,
@@ -129,7 +135,7 @@ export function RevenueIntelligence() {
       cogs: Math.round(cogs),
       marginPercent,
       roi,
-      isTopPerformer: marginPercent > 40,
+      isTopPerformer: marginPercent !== null && marginPercent > 40,
       isTopSeller: true,
     };
   }).filter(p => p.units > 0), [topProducts]);
@@ -138,13 +144,13 @@ export function RevenueIntelligence() {
     if (productFilter === 'sales') {
       return b.units - a.units;
     } else {
-      return b.marginPercent - a.marginPercent;
+      return (b.marginPercent ?? Number.NEGATIVE_INFINITY) - (a.marginPercent ?? Number.NEGATIVE_INFINITY);
     }
   }), [productProfitability, productFilter]);
 
   const finalProducts = useMemo(() => sortedProducts.map((product, index) => ({
     ...product,
-    isTopPerformer: productFilter === 'profitability' ? product.marginPercent > 40 : false,
+    isTopPerformer: productFilter === 'profitability' ? product.marginPercent !== null && product.marginPercent > 40 : false,
     isTopSeller: productFilter === 'sales' && index < 3,
   })), [sortedProducts, productFilter]);
 
@@ -153,15 +159,29 @@ export function RevenueIntelligence() {
 
   const { totalCustomers, avgRevenuePerCustomer, medianRevenue, minRevenue, maxRevenue } = useMemo(() => {
     const total = new Set(orders.map(o => o.customer || o.customer_email)).size;
-    const avgRev = total > 0 ? totalRevenueForCustomers / total : 0;
+    // Averages and medians over an empty set are not computable: null, not 0.
+    const avgRev: number | null = total > 0 ? totalRevenueForCustomers / total : null;
     const revenues = orders.map(o => o.total || 0).sort((a, b) => a - b);
-    const median = revenues.length > 0
+    const median: number | null = revenues.length > 0
       ? revenues[Math.floor(revenues.length / 2)]
-      : 0;
-    const min = revenues.length > 0 ? revenues[0] : 0;
-    const max = revenues.length > 0 ? revenues[revenues.length - 1] : 0;
+      : null;
+    const min: number | null = revenues.length > 0 ? revenues[0] : null;
+    const max: number | null = revenues.length > 0 ? revenues[revenues.length - 1] : null;
     return { totalCustomers: total, avgRevenuePerCustomer: avgRev, medianRevenue: median, minRevenue: min, maxRevenue: max };
   }, [orders, totalRevenueForCustomers]);
+
+  if (loadError) {
+    return (
+      <Card className="p-8 border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/10">
+        <div className="flex flex-col items-center text-center gap-2">
+          <p className="font-semibold">No se pudieron cargar los datos de ingresos</p>
+          <p className="text-sm text-muted-foreground">
+            Los montos no están disponibles en este momento. Reintentá recargando la página.
+          </p>
+        </div>
+      </Card>
+    );
+  }
 
   if (isLoading || !overview) {
     return (
@@ -249,7 +269,7 @@ export function RevenueIntelligence() {
               key: 'cogs',
               format: (val: any) => formatCurrency(Number(val))
             },
-            { header: 'Margen (%)', key: 'marginPercent', format: (val: any) => `${val}%` },
+            { header: 'Margen (%)', key: 'marginPercent', format: (val: any) => (val == null ? 'N/A' : `${val}%`) },
             { header: 'ROI', key: 'roi', format: (val: any) => `${val}%` },
           ]}
         />
@@ -292,13 +312,13 @@ export function RevenueIntelligence() {
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">COGS</span>
                     <span className="font-semibold text-red-600 dark:text-red-400">
-                      {formatCurrency(totalCOGS)} ({totalRevenue > 0 ? ((totalCOGS / totalRevenue) * 100).toFixed(1) : 0}%)
+                      {formatCurrency(totalCOGS)} ({formatPercent(totalRevenue > 0 ? (totalCOGS / totalRevenue) * 100 : null, 1)})
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Margen Bruto</span>
                     <span className="font-semibold text-primary dark:text-primary">
-                      {formatCurrency(grossMargin)} ({grossMarginPercent.toFixed(1)}%)
+                      {formatCurrency(grossMargin)} ({formatPercent(grossMarginPercent, 1)})
                     </span>
                   </div>
                 </div>
@@ -368,7 +388,7 @@ export function RevenueIntelligence() {
                 <div>
                   <p className="text-xs text-muted-foreground">Promedio</p>
                   <p className="text-2xl font-bold text-card-foreground">
-                    {formatCurrency(Math.round(avgRevenuePerCustomer))}
+                    {formatCurrencyOrFallback(avgRevenuePerCustomer === null ? null : Math.round(avgRevenuePerCustomer), 'Sin datos')}
                   </p>
                 </div>
               </div>
@@ -376,13 +396,15 @@ export function RevenueIntelligence() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Mediano</span>
                   <span className="font-semibold text-card-foreground">
-                    {formatCurrency(Math.round(medianRevenue))}
+                    {formatCurrencyOrFallback(medianRevenue === null ? null : Math.round(medianRevenue), 'Sin datos')}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Rango</span>
                   <span className="font-semibold text-card-foreground">
-                    {formatCurrency(Math.round(minRevenue))} - {formatCurrency(Math.round(maxRevenue))}
+                    {minRevenue !== null && maxRevenue !== null
+                      ? `${formatCurrency(Math.round(minRevenue))} - ${formatCurrency(Math.round(maxRevenue))}`
+                      : 'Sin datos'}
                   </span>
                 </div>
               </div>
@@ -552,17 +574,15 @@ export function RevenueIntelligence() {
                             getMarginColor(product.marginPercent)
                           )}
                         >
-                          {product.marginPercent}%
+                          {product.marginPercent !== null ? `${product.marginPercent}%` : 'N/A'}
                         </span>
                       </td>
                       <td className="text-right py-4 px-4">
                         <span className="inline-flex items-center gap-1 text-sm font-semibold text-primary dark:text-primary">
-                          {product.roi > 100 ? (
-                            <TrendingUp size={14} />
-                          ) : (
-                            <TrendingDown size={14} />
+                          {product.roi !== null && (
+                            product.roi > 100 ? <TrendingUp size={14} /> : <TrendingDown size={14} />
                           )}
-                          {product.roi}%
+                          {product.roi !== null ? `${product.roi}%` : 'N/A'}
                         </span>
                       </td>
                     </tr>
@@ -626,12 +646,14 @@ export function RevenueIntelligence() {
                             getMarginColor(product.marginPercent)
                           )}
                         >
-                          {product.marginPercent}%
+                          {product.marginPercent !== null ? `${product.marginPercent}%` : 'N/A'}
                         </span>
                       </div>
                       <div>
                         <p className="text-muted-foreground">ROI</p>
-                        <p className="font-medium text-primary dark:text-primary">{product.roi}%</p>
+                        <p className="font-medium text-primary dark:text-primary">
+                          {product.roi !== null ? `${product.roi}%` : 'N/A'}
+                        </p>
                       </div>
                     </div>
                   </CardContent>

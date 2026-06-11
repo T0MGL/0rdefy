@@ -1,7 +1,7 @@
 import { Card } from '@/components/ui/card';
 import { Rocket, TrendingUp } from 'lucide-react';
 import { RevenueProjection } from '@/utils/recommendationEngine';
-import { formatCurrency } from '@/utils/currency';
+import { formatCurrency, formatPercent } from '@/utils/currency';
 
 interface RevenueProjectionCardProps {
   projection: RevenueProjection;
@@ -29,7 +29,7 @@ export function RevenueProjectionCard({ projection }: RevenueProjectionCardProps
             <div className="flex items-center gap-1 px-2 py-0.5 bg-primary/10 dark:bg-primary/40 rounded-full">
               <TrendingUp className="w-3 h-3 text-primary dark:text-primary" />
               <span className="text-xs font-semibold text-primary dark:text-primary">
-                +{projection.growthRate.toFixed(1)}%
+                +{formatPercent(projection.growthRate, 1)}
               </span>
             </div>
           </div>
@@ -45,7 +45,12 @@ export function RevenueProjectionCard({ projection }: RevenueProjectionCardProps
           <div className="flex items-center gap-4 text-xs text-primary dark:text-primary">
             <div className="flex items-center gap-1">
               <div className="w-2 h-2 bg-primary dark:bg-primary/30 rounded-full" />
-              <span>Ingreso promedio diario: {formatCurrency(projection.currentRevenue / projection.daysAnalyzed)}</span>
+              <span>
+                Ingreso promedio diario:{' '}
+                {projection.daysAnalyzed > 0
+                  ? formatCurrency(projection.currentRevenue / projection.daysAnalyzed)
+                  : 'Sin datos'}
+              </span>
             </div>
             <div className="flex items-center gap-1">
               <div className="w-2 h-2 bg-primary dark:bg-primary/30 rounded-full" />
