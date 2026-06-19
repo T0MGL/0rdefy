@@ -300,6 +300,12 @@ export const ordersService = {
           variant_id: data.variant_id || null,
           quantity: data.quantity || 1,
           price: data.total && data.quantity ? data.total / data.quantity : 0,
+          // Carry the bundle pack ratio and color makeup through the rebuild.
+          // The backend replaces order_line_items wholesale on update, reading
+          // these straight off the payload; omitting them writes NULL and drops
+          // the operator's saved composition (Migration 146 / dual-write).
+          units_per_pack: data.units_per_pack || 1,
+          bundle_selections: data.bundle_selections || null,
         }];
         backendData.line_items = lineItems;
         if (data.total) {

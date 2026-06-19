@@ -405,6 +405,10 @@ export const productsService = {
         product_id: v.product_id,
         store_id: v.store_id,
         sku: v.sku || '',
+        // Bundle vs variation discriminator. The backend returns it explicitly
+        // (products.ts GET /:id/variants). Without it isBundle() in types/index.ts
+        // returns false and the order form discards the operator's color makeup.
+        variant_type: v.variant_type || (v.uses_shared_stock ? 'bundle' : 'variation'),
         variant_title: v.variant_title,
         option1_name: v.option1_name,
         option1_value: v.option1_value,
