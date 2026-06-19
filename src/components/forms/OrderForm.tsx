@@ -133,6 +133,17 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
   // Bundle composition state (Migration 146)
   // Map of variation variant_id -> quantity selected for this bundle
   const [bundleSelections, setBundleSelections] = useState<Record<string, number>>({});
+  // Existing composition to rehydrate when editing a bundle order. Built once
+  // from initialData and consumed by the reset effect when the initial variant
+  // becomes active, so the operator's saved color makeup is not wiped on load.
+  const initialBundleSelectionsRef = useRef<Record<string, number> | null>(
+    initialData?.bundleSelections && initialData.bundleSelections.length > 0
+      ? initialData.bundleSelections.reduce<Record<string, number>>((acc, sel) => {
+          if (sel.variant_id) acc[sel.variant_id] = sel.quantity;
+          return acc;
+        }, {})
+      : null
+  );
 
   // City coverage system state
   const [citySearch, setCitySearch] = useState('');
@@ -340,9 +351,33 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
   const requiredUnits = selectedIsBundle ? watchedQuantity * (selectedVariant?.units_per_pack || 1) : 0;
   const currentSelectionTotal = Object.values(bundleSelections).reduce((sum, qty) => sum + qty, 0);
 
-  // Reset bundle selections when variant or product changes
+  // Reset bundle selections when the variant or product changes. On the first
+  // pass for an edited order, rehydrate the saved composition instead of
+  // clearing it: initialBundleSelectionsRef holds the order's existing makeup
+  // and is consumed exactly once, the moment its bundle variant becomes active.
+  // Variant/product id are the only triggers (mirrors the original reset). The
+  // derived bundle flag and variations are read inside without being deps to
+  // avoid re-wiping selections on every render (their identity is unstable).
   useEffect(() => {
+    const pending = initialBundleSelectionsRef.current;
+    if (
+      pending &&
+      selectedVariantId === initialData?.variantId &&
+      selectedIsBundle
+    ) {
+      // Keep only selections that resolve to a still-active variation of this
+      // bundle, so a removed or deactivated color cannot resurrect on edit.
+      const validIds = new Set(availableVariations.map(v => v.id));
+      const rehydrated = Object.entries(pending).reduce<Record<string, number>>((acc, [varId, qty]) => {
+        if (validIds.has(varId) && qty > 0) acc[varId] = qty;
+        return acc;
+      }, {});
+      setBundleSelections(rehydrated);
+      initialBundleSelectionsRef.current = null;
+      return;
+    }
     setBundleSelections({});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedVariantId, selectedProductId]);
 
   // Search cities for autocomplete (debounced)

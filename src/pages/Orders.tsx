@@ -1481,6 +1481,11 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         variant_id: data.variantId,
         quantity: data.quantity,
         total: mainProductTotal,
+        // Bundle metadata so the rebuilt line item keeps its color makeup and
+        // pack ratio. Without these the backend writes bundle_selections=NULL
+        // (orders.ts) and the saved colors vanish on any edit (Migration 146).
+        units_per_pack: data.unitsPerPack,
+        bundle_selections: data.bundleSelections || null,
         carrier: data.carrier,
         paymentMethod: data.paymentMethod,
         shipping_city: data.shippingCity,
@@ -3607,6 +3612,19 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                   isPickup: orderToEdit.is_pickup || false,
                   // Variant from main line item
                   variantId: mainItem?.variant_id || undefined,
+                  // Bundle composition from the main line item (Migration 146).
+                  // Passing it lets the form rehydrate the operator's saved color
+                  // makeup instead of starting empty, so editing an unrelated
+                  // field does not silently null out bundle_selections on save.
+                  bundleSelections: Array.isArray(mainItem?.bundle_selections) && mainItem.bundle_selections.length > 0
+                    ? mainItem.bundle_selections
+                        .filter((sel): sel is { variant_id: string; variant_name?: string; quantity: number } => Boolean(sel?.variant_id))
+                        .map(sel => ({
+                          variant_id: sel.variant_id,
+                          variant_name: sel.variant_name || '',
+                          quantity: sel.quantity,
+                        }))
+                    : null,
                   // Delivery preferences (scheduling)
                   deliveryPreferences: orderToEdit.delivery_preferences || null,
                   // Upsell data (if exists)
