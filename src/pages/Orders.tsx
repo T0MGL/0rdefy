@@ -322,7 +322,7 @@ export default function Orders() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   // Use centralized carriers hook with caching
-  const { carriers, getCarrierName } = useCarriers();
+  const { carriers, getCarrierName, getCarrierById } = useCarriers();
 
   // P0: URL params as the single source of truth for all filters.
   // This makes filters survive page reloads and enables shareable filter URLs.
@@ -372,17 +372,30 @@ export default function Orders() {
     }, { replace: true });
   }, [setSearchParams]);
 
+  // The carrier filter is persisted in the URL as a carrier_id (UUID). Carriers are
+  // scoped per store, so the same carrier in two stores has two different UUIDs. We also
+  // persist the carrier NAME in the URL (`carrier_name`) so that when the user switches
+  // store the filter can be remapped to the homonymous carrier of the new store. The id
+  // alone is useless across stores; the name is what survives the store switch remount.
   const setCarrierFilter = useCallback((value: string) => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
       if (value && value !== 'all') {
         next.set('carrier', value);
+        // Real carriers carry their name; sentinels (pickup / none) are store-agnostic.
+        const name = value === 'pickup' || value === 'none' ? null : getCarrierById(value)?.name;
+        if (name) {
+          next.set('carrier_name', name);
+        } else {
+          next.delete('carrier_name');
+        }
       } else {
         next.delete('carrier');
+        next.delete('carrier_name');
       }
       return next;
     }, { replace: true });
-  }, [setSearchParams]);
+  }, [setSearchParams, getCarrierById]);
 
   const setScheduledFilter = useCallback((value: 'all' | 'scheduled' | 'ready') => {
     setSearchParams(prev => {
@@ -408,6 +421,45 @@ export default function Orders() {
       return next;
     }, { replace: true });
   }, [setSearchParams]);
+
+  // Revalidate the carrier filter against the CURRENT store's carriers.
+  //
+  // App.tsx wraps the routed subtree in <Fragment key={storeId}>, so switching store
+  // fully remounts this page. The router (and therefore the URL) lives above that
+  // remount, so a `?carrier=<uuid>` from the previous store survives into the new store
+  // where that UUID matches no carrier -> the orders query returns zero rows (silent
+  // empty table). This effect runs on mount and once the carriers list resolves: it
+  // keeps store-agnostic sentinels (pickup / none) and valid UUIDs untouched, remaps to
+  // the homonymous carrier of the new store using the persisted `carrier_name`, and
+  // otherwise clears the filter so the user sees their orders instead of nothing.
+  const carrierRevalidatedRef = useRef(false);
+  useEffect(() => {
+    if (carrierRevalidatedRef.current) return;
+
+    // Nothing to revalidate for "no filter" or store-agnostic sentinels.
+    if (carrierFilter === 'all' || carrierFilter === 'pickup' || carrierFilter === 'none') {
+      carrierRevalidatedRef.current = true;
+      return;
+    }
+
+    // Wait for the store's carriers to load before deciding so a valid filter is not
+    // dropped just because the list is still fetching.
+    if (carriers.length === 0) return;
+    carrierRevalidatedRef.current = true;
+
+    // The UUID already resolves to a carrier in this store: nothing to do.
+    if (carriers.some(c => c.id === carrierFilter)) return;
+
+    // Remap to a carrier with the same name in this store when one exists, otherwise
+    // clear the stale filter.
+    const previousName = (searchParams.get('carrier_name') || '').trim().toLowerCase();
+    const homonym = previousName
+      ? carriers.find(c => c.name.trim().toLowerCase() === previousName)
+      : undefined;
+
+    setCarrierFilter(homonym ? homonym.id : 'all');
+  }, [carriers, carrierFilter, searchParams, setCarrierFilter]);
+
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isQuickViewOpen, setIsQuickViewOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
@@ -474,7 +526,19 @@ export default function Orders() {
       product_ids?: string[];
     } = {};
     if (chipFilters.status) filters.status = chipFilters.status;
-    if (carrierFilter !== 'all') filters.carrier_id = carrierFilter;
+    if (carrierFilter !== 'all') {
+      // Suppress a carrier UUID that belongs to a different store (left in the URL after
+      // a store switch). Once this store's carriers have loaded and the UUID resolves to
+      // nothing, sending it would return zero orders; the revalidation effect remaps or
+      // clears it on the next tick. Sentinels (pickup / none) are store-agnostic and pass
+      // through. This avoids a one-query empty-table flicker while the remap settles.
+      const isSentinel = carrierFilter === 'pickup' || carrierFilter === 'none';
+      const resolvesInStore = carriers.length > 0 && carriers.some(c => c.id === carrierFilter);
+      const stillLoading = carriers.length === 0;
+      if (isSentinel || resolvesInStore || stillLoading) {
+        filters.carrier_id = carrierFilter;
+      }
+    }
     if (debouncedSearch && debouncedSearch.length >= 2) filters.search = debouncedSearch;
     if (scheduledFilter !== 'all') {
       filters.scheduled_filter = scheduledFilter;
@@ -486,7 +550,7 @@ export default function Orders() {
       filters.product_ids = productFilter;
     }
     return filters;
-  }, [chipFilters.status, carrierFilter, debouncedSearch, scheduledFilter, storeTimezone, productFilter]);
+  }, [chipFilters.status, carrierFilter, carriers, debouncedSearch, scheduledFilter, storeTimezone, productFilter]);
 
   // Use refs for stable queryFn (avoids recreating polling interval)
   const dateParamsRef = useRef(dateParams);
@@ -2626,7 +2690,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                     className="gap-1.5 pl-2.5 pr-1.5 py-1 text-xs cursor-pointer hover:bg-secondary/80 transition-colors"
                     onClick={() => setCarrierFilter('all')}
                   >
-                    Transportadora: {carrierFilter === 'pickup' ? 'Retiro en local' : carrierFilter === 'none' ? 'Sin transportadora' : (carriers.find(c => c.id === carrierFilter)?.name || carrierFilter)}
+                    Transportadora: {carrierFilter === 'pickup' ? 'Retiro en local' : carrierFilter === 'none' ? 'Sin transportadora' : (carriers.find(c => c.id === carrierFilter)?.name || searchParams.get('carrier_name') || carrierFilter)}
                     <X size={12} className="text-muted-foreground hover:text-foreground transition-colors" />
                   </Badge>
                 </motion.div>
