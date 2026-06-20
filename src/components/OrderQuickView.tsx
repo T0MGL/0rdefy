@@ -120,7 +120,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
     let cancelled = false;
     (async () => {
       try {
-        const fresh = await ordersService.getById(order.id);
+        const fresh = await ordersService.getById(order.id, order.store_id);
         if (cancelled || !isMountedRef.current) return;
         if (fresh?.order_line_items) {
           setFreshLineItems(fresh.order_line_items);

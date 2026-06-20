@@ -96,10 +96,12 @@ export const ordersService = {
     }
   },
 
-  getById: async (id: string): Promise<Order | undefined> => {
+  getById: async (id: string, storeId?: string): Promise<Order | undefined> => {
     try {
       const response = await fetch(`${API_BASE_URL}/orders/${id}`, {
-        headers: getHeaders(),
+        // Scope to the order's owning store when known so a multi-store owner
+        // holding a stale active store does not get a misleading 404.
+        headers: storeId ? getOrderScopedHeaders(storeId) : getHeaders(),
       });
       if (!response.ok) {
         if (response.status === 404) return undefined;
@@ -277,8 +279,13 @@ export const ordersService = {
     }
   },
 
-  update: async (id: string, data: UpdateOrderInput): Promise<Order | undefined> => {
+  update: async (id: string, data: UpdateOrderInput, storeId?: string): Promise<Order | undefined> => {
     try {
+      // Scope every request in this method (main PUT and the upsell PATCHes) to
+      // the order's owning store when known. Falls back to the active store for
+      // legacy callers that do not pass it.
+      const headers = storeId ? getOrderScopedHeaders(storeId) : getHeaders();
+
       // Transform frontend format to backend format
       const [firstName, ...lastNameParts] = (data.customer || '').split(' ');
       const lastName = lastNameParts.join(' ');
@@ -350,7 +357,7 @@ export const ordersService = {
       // Update main order data
       const response = await fetch(`${API_BASE_URL}/orders/${id}`, {
         method: 'PUT',
-        headers: getHeaders(),
+        headers,
         body: JSON.stringify(backendData),
       });
 
@@ -370,7 +377,7 @@ export const ordersService = {
           // Add or update upsell
           const upsellResponse = await fetch(`${API_BASE_URL}/orders/${id}/upsell`, {
             method: 'PATCH',
-            headers: getHeaders(),
+            headers,
             body: JSON.stringify({
               upsell_product_id: upsellProductId,
               upsell_quantity: upsellQuantity || 1,
@@ -408,7 +415,7 @@ export const ordersService = {
           // Remove upsell (upsellProductId is explicitly null/empty)
           const upsellResponse = await fetch(`${API_BASE_URL}/orders/${id}/upsell`, {
             method: 'PATCH',
-            headers: getHeaders(),
+            headers,
             body: JSON.stringify({ remove: true }),
           });
 
@@ -448,10 +455,10 @@ export const ordersService = {
   // Order shape the GET endpoint builds (joined line_items, normalized fields).
   // Returning that raw row directly would pollute the cached Order on merge, so
   // we re-fetch through getById to get the correctly shaped Order.
-  applyDiscount: async (id: string, discountAmount: number): Promise<Order | undefined> => {
+  applyDiscount: async (id: string, discountAmount: number, storeId?: string): Promise<Order | undefined> => {
     const response = await fetch(`${API_BASE_URL}/orders/${id}/discount`, {
       method: 'POST',
-      headers: getHeaders(),
+      headers: storeId ? getOrderScopedHeaders(storeId) : getHeaders(),
       body: JSON.stringify({ discount_amount: discountAmount }),
     });
 
@@ -461,7 +468,7 @@ export const ordersService = {
       throw new Error(errorData.message || `Error HTTP: ${response.status}`);
     }
 
-    return ordersService.getById(id);
+    return ordersService.getById(id, storeId);
   },
 
   delete: async (id: string, permanent: boolean = false, storeId?: string): Promise<boolean> => {
@@ -487,11 +494,11 @@ export const ordersService = {
     }
   },
 
-  restore: async (id: string): Promise<boolean> => {
+  restore: async (id: string, storeId?: string): Promise<boolean> => {
     try {
       const response = await fetch(`${API_BASE_URL}/orders/${id}/restore`, {
         method: 'POST',
-        headers: getHeaders(),
+        headers: storeId ? getOrderScopedHeaders(storeId) : getHeaders(),
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -504,11 +511,11 @@ export const ordersService = {
     }
   },
 
-  markAsTest: async (id: string, isTest: boolean): Promise<boolean> => {
+  markAsTest: async (id: string, isTest: boolean, storeId?: string): Promise<boolean> => {
     try {
       const response = await fetch(`${API_BASE_URL}/orders/${id}/test`, {
         method: 'PATCH',
-        headers: getHeaders(),
+        headers: storeId ? getOrderScopedHeaders(storeId) : getHeaders(),
         body: JSON.stringify({ is_test: isTest }),
       });
       if (!response.ok) {

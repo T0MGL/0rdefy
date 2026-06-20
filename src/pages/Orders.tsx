@@ -757,7 +757,11 @@ export default function Orders() {
 
     let freshOrder: Order | undefined;
     try {
-      freshOrder = await ordersService.getById(changedId);
+      // The realtime payload carries the owning store; scope the hydration to
+      // it so a multi-store owner on a different active store still resolves
+      // the row instead of getting a 404.
+      const recordStoreId = record?.store_id as string | undefined;
+      freshOrder = await ordersService.getById(changedId, recordStoreId);
     } catch (err) {
       logger.error('[Realtime] Failed to hydrate inserted order:', err);
       return;
@@ -1565,7 +1569,11 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         customer_ruc_dv: data.customerRucDv ?? undefined,
         customer_email: data.customerEmail || undefined,
       };
-      let updatedOrder = await ordersService.update(orderToEdit.id, updatePayload);
+      // Scope every mutation in the edit flow to the order's owning store, not
+      // the active store in the current tab, so a multi-store owner editing an
+      // order from another of their stores does not hit a false 404.
+      const editStoreId = requireOrderStoreId(orderToEdit);
+      let updatedOrder = await ordersService.update(orderToEdit.id, updatePayload, editStoreId);
 
       // Reconcile the order-level discount AFTER the update + upsell persist.
       // The RPC derives the gross subtotal from the final line_items and stamps
@@ -1583,12 +1591,12 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
       if (updatedOrder && data.discountAmount !== undefined) {
         const nextDiscount = Number(data.discountAmount) || 0;
         try {
-          const discounted = await ordersService.applyDiscount(orderToEdit.id, nextDiscount);
+          const discounted = await ordersService.applyDiscount(orderToEdit.id, nextDiscount, editStoreId);
           if (discounted) {
             updatedOrder = discounted;
           }
         } catch (discountError) {
-          const fresh = await ordersService.getById(orderToEdit.id);
+          const fresh = await ordersService.getById(orderToEdit.id, editStoreId);
           if (fresh) {
             setOrders(prev => prev.map(o => (o.id === orderToEdit.id ? fresh : o)));
           }
@@ -1744,7 +1752,9 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
 
   const handleRestoreOrder = useCallback(async (orderId: string) => {
     try {
-      const success = await ordersService.restore(orderId);
+      const order = orders.find(o => o.id === orderId);
+      const storeId = order ? requireOrderStoreId(order) : undefined;
+      const success = await ordersService.restore(orderId, storeId);
       if (success) {
         await refetch();
         toast({
@@ -1760,11 +1770,13 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         entity: 'pedido',
       });
     }
-  }, [toast, refetch]);
+  }, [orders, toast, refetch]);
 
   const handleToggleTest = useCallback(async (orderId: string, isTest: boolean) => {
     try {
-      const success = await ordersService.markAsTest(orderId, isTest);
+      const order = orders.find(o => o.id === orderId);
+      const storeId = order ? requireOrderStoreId(order) : undefined;
+      const success = await ordersService.markAsTest(orderId, isTest, storeId);
       if (success) {
         await refetch();
         toast({
@@ -1782,7 +1794,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         entity: 'pedido',
       });
     }
-  }, [toast, refetch]);
+  }, [orders, toast, refetch]);
 
   // Quick prepare: Create picking session and redirect to warehouse
   const handleQuickPrepare = useCallback(async (orderId: string) => {

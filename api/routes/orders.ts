@@ -3469,6 +3469,46 @@ ordersRouter.patch('/:id/test', requirePermission(Module.ORDERS, Permission.EDIT
             });
         }
 
+        // mark_order_as_test resolves the order by id alone, so without this it
+        // would mutate an order in any store. Resolve the owning store first to
+        // enforce ownership and auto-heal, returning 404/409 before the mutation.
+        const storeResolution = await resolveOrderStore({
+            orderId: id,
+            headerStoreId: req.storeId!,
+            userId: req.userId,
+            isShopifySession: !!req.shopifySession,
+        });
+
+        if (storeResolution.outcome === 'not_found') {
+            return res.status(404).json({
+                error: 'Order not found',
+                message: 'El pedido no existe o no pertenece a esta tienda.',
+                code: 'ORDER_NOT_FOUND'
+            });
+        }
+
+        if (storeResolution.outcome === 'mismatch') {
+            logger.warn('ORDERS', 'Order store mismatch on test toggle', {
+                requestedId: id,
+                requestedStoreId: req.storeId,
+                orderStoreId: storeResolution.orderStoreId,
+            });
+            return res.status(409).json({
+                error: 'Order belongs to a different store',
+                code: 'ORDER_STORE_MISMATCH',
+                message: 'Este pedido pertenece a otra tienda a la que no tienes acceso.',
+                details: { order_store_id: storeResolution.orderStoreId }
+            });
+        }
+
+        if (storeResolution.healed &&
+            !reauthorizeHealedAccess(storeResolution.resolvedRole, Module.ORDERS, Permission.EDIT)) {
+            return res.status(403).json({
+                error: 'Forbidden',
+                code: 'INSUFFICIENT_PERMISSION_IN_ORDER_STORE',
+                message: 'No tienes permiso para modificar pedidos en la tienda dueña de este pedido.'
+            });
+        }
 
         // Call database function to mark/unmark as test
         const { data, error } = await supabaseAdmin
@@ -4459,9 +4499,53 @@ ordersRouter.post('/:id/discount', validateUUIDParam('id'), requirePermission(Mo
             });
         }
 
+        // Resolve the store that OWNS this order, not whatever store is active
+        // in the caller's tab. Passing req.storeId straight into p_store_id made
+        // the RPC return ORDER_NOT_FOUND for a multi-store owner holding a stale
+        // X-Store-ID even though the order exists and is theirs.
+        const storeResolution = await resolveOrderStore({
+            orderId: id,
+            headerStoreId: req.storeId!,
+            userId: req.userId,
+            isShopifySession: !!req.shopifySession,
+        });
+
+        if (storeResolution.outcome === 'not_found') {
+            return res.status(404).json({
+                error: 'Order not found',
+                message: 'El pedido no existe o no pertenece a esta tienda.',
+                code: 'ORDER_NOT_FOUND'
+            });
+        }
+
+        if (storeResolution.outcome === 'mismatch') {
+            logger.warn('ORDERS', 'Order store mismatch on discount', {
+                requestedId: id,
+                requestedStoreId: req.storeId,
+                orderStoreId: storeResolution.orderStoreId,
+            });
+            return res.status(409).json({
+                error: 'Order belongs to a different store',
+                code: 'ORDER_STORE_MISMATCH',
+                message: 'Este pedido pertenece a otra tienda a la que no tienes acceso.',
+                details: { order_store_id: storeResolution.orderStoreId }
+            });
+        }
+
+        const effectiveStoreId = storeResolution.storeId;
+
+        if (storeResolution.healed &&
+            !reauthorizeHealedAccess(storeResolution.resolvedRole, Module.ORDERS, Permission.EDIT)) {
+            return res.status(403).json({
+                error: 'Forbidden',
+                code: 'INSUFFICIENT_PERMISSION_IN_ORDER_STORE',
+                message: 'No tienes permiso para modificar pedidos en la tienda dueña de este pedido.'
+            });
+        }
+
         const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc('apply_order_discount', {
             p_order_id: id,
-            p_store_id: req.storeId,
+            p_store_id: effectiveStoreId,
             p_discount_amount: discount,
             p_applied_by: req.userId || 'dashboard'
         });

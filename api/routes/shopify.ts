@@ -26,6 +26,39 @@ export const shopifyRouter = Router();
 
 const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || '2025-10';
 
+// ================================================================
+// WEBHOOK IDEMPOTENCY KEY
+// ================================================================
+// Shopify stamps every delivery with a unique X-Shopify-Webhook-Id header.
+// That id is the only value that identifies a single delivery: it is stable
+// across retries of the same event and distinct across separate events, which
+// is exactly what an idempotency key needs.
+//
+// The resource timestamps (created_at / updated_at) describe the Shopify
+// RESOURCE, not the webhook delivery. They were previously used both to reject
+// "old" webhooks and to seed the idempotency key. Both uses were wrong: a
+// legitimate orders/updated can carry an updated_at from days ago (an edit to
+// an old order, a backfill, or Shopify replaying a missed delivery), so age
+// says nothing about the delivery. We no longer reject by age at all.
+//
+// Fallback (no delivery id header, e.g. a manual replay or a non-conforming
+// caller): fold in the resource id, topic and resource timestamp so repeated
+// deliveries of the same resource state still collapse to one key. This keeps
+// behavior compatible with records written before the header was used.
+function buildWebhookIdempotencyKey(
+  manager: ShopifyWebhookManager,
+  req: Request,
+  topic: string,
+  resourceId: string,
+  resourceTimestamp?: string
+): string {
+  const deliveryId = req.get('X-Shopify-Webhook-Id');
+  if (deliveryId && deliveryId.trim() !== '') {
+    return manager.generateIdempotencyKey(deliveryId.trim(), topic, undefined);
+  }
+  return manager.generateIdempotencyKey(resourceId, topic, resourceTimestamp);
+}
+
 /**
  * Revoke Shopify token when disconnecting from Ordefy dashboard.
  * This does not uninstall the app in Shopify admin, but removes API access.
@@ -608,29 +641,22 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
       return res.status(401).json({ error: WEBHOOK_ERRORS.VERIFICATION_FAILED });
     }
 
-    // Check for replay attacks - reject webhooks older than 5 minutes
-    const webhookTimestamp = req.body.created_at || req.body.updated_at;
-    if (webhookTimestamp) {
-      const webhookDate = new Date(webhookTimestamp);
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-      if (webhookDate < fiveMinutesAgo) {
-        logger.warn('SHOPIFY', 'Webhook rejected: older than 5 minutes');
-        await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
-        return res.status(200).json({ success: true, message: 'Webhook too old' });
-      }
-    }
-
-    // Generate idempotency key
+    // Idempotency key. Keyed on the X-Shopify-Webhook-Id delivery header when
+    // present, falling back to resource id + topic + created_at. No age check:
+    // the resource timestamp is not the delivery time, so a legitimately old
+    // resource must still be processed.
     const orderId = req.body.id?.toString();
     if (!orderId) {
       logger.error('SHOPIFY', 'Webhook missing order ID');
       return res.status(400).json({ error: WEBHOOK_ERRORS.INVALID_PAYLOAD });
     }
 
-    const idempotencyKey = webhookManager.generateIdempotencyKey(
-      orderId,
+    const idempotencyKey = buildWebhookIdempotencyKey(
+      webhookManager,
+      req,
       'orders/create',
-      webhookTimestamp
+      orderId,
+      req.body.created_at || req.body.updated_at
     );
 
     // Atomic idempotency check using INSERT-first approach
@@ -836,29 +862,23 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
       return res.status(401).json({ error: WEBHOOK_ERRORS.VERIFICATION_FAILED });
     }
 
-    // Check for replay attacks - reject webhooks older than 5 minutes
-    const webhookTimestamp = req.body.updated_at || req.body.created_at;
-    if (webhookTimestamp) {
-      const webhookDate = new Date(webhookTimestamp);
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-      if (webhookDate < fiveMinutesAgo) {
-        logger.warn('SHOPIFY', 'Webhook rejected: older than 5 minutes (orders/updated)');
-        await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
-        return res.status(200).json({ success: true, message: 'Webhook too old' });
-      }
-    }
-
-    // Generate idempotency key - include timestamp to distinguish updates of same order
+    // Idempotency key. Keyed on the X-Shopify-Webhook-Id delivery header when
+    // present, falling back to resource id + topic + updated_at. No age check:
+    // an orders/updated routinely carries an updated_at from days ago (editing
+    // an old order, a backfill, or Shopify replaying a missed delivery), and
+    // rejecting by age silently dropped those legitimate updates.
     const orderId = req.body.id?.toString();
     if (!orderId) {
       logger.error('SHOPIFY', 'Webhook missing order ID (orders/updated)');
       return res.status(400).json({ error: WEBHOOK_ERRORS.INVALID_PAYLOAD });
     }
 
-    const idempotencyKey = webhookManager.generateIdempotencyKey(
-      orderId,
+    const idempotencyKey = buildWebhookIdempotencyKey(
+      webhookManager,
+      req,
       'orders/updated',
-      webhookTimestamp
+      orderId,
+      req.body.updated_at || req.body.created_at
     );
 
     // Atomic idempotency check using INSERT-first approach
@@ -1006,29 +1026,21 @@ const productsUpdateHandler = async (req: Request, res: Response) => {
       return res.status(401).json({ error: WEBHOOK_ERRORS.VERIFICATION_FAILED });
     }
 
-    // Check for replay attacks - reject webhooks older than 5 minutes
-    const webhookTimestamp = req.body.updated_at || req.body.created_at;
-    if (webhookTimestamp) {
-      const webhookDate = new Date(webhookTimestamp);
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-      if (webhookDate < fiveMinutesAgo) {
-        logger.warn('SHOPIFY', 'Webhook rejected: older than 5 minutes (products/update)');
-        await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
-        return res.status(200).json({ success: true, message: 'Webhook too old' });
-      }
-    }
-
-    // Generate idempotency key - include timestamp to distinguish updates of same product
+    // Idempotency key. Keyed on the X-Shopify-Webhook-Id delivery header when
+    // present, falling back to resource id + topic + updated_at. No age check:
+    // the resource timestamp is not the delivery time.
     const productId = req.body.id?.toString();
     if (!productId) {
       logger.error('SHOPIFY', 'Webhook missing product ID (products/update)');
       return res.status(400).json({ error: WEBHOOK_ERRORS.INVALID_PAYLOAD });
     }
 
-    const idempotencyKey = webhookManager.generateIdempotencyKey(
-      productId,
+    const idempotencyKey = buildWebhookIdempotencyKey(
+      webhookManager,
+      req,
       'products/update',
-      webhookTimestamp
+      productId,
+      req.body.updated_at || req.body.created_at
     );
 
     // Atomic idempotency check using INSERT-first approach
@@ -1175,32 +1187,23 @@ const productsDeleteHandler = async (req: Request, res: Response) => {
       return res.status(401).json({ error: WEBHOOK_ERRORS.VERIFICATION_FAILED });
     }
 
-    // Check for replay attacks - reject webhooks older than 5 minutes
-    // Note: products/delete webhook may have limited timestamp info
-    const webhookTimestamp = req.body.updated_at || req.body.created_at;
-    if (webhookTimestamp) {
-      const webhookDate = new Date(webhookTimestamp);
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-      if (webhookDate < fiveMinutesAgo) {
-        logger.warn('SHOPIFY', 'Webhook rejected: older than 5 minutes (products/delete)');
-        await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
-        return res.status(200).json({ success: true, message: 'Webhook too old' });
-      }
-    }
-
-    // Generate idempotency key - for delete, use product ID and timestamp (or fallback to now)
+    // Idempotency key. Keyed on the X-Shopify-Webhook-Id delivery header when
+    // present. The products/delete payload carries limited timestamp info, so
+    // the fallback uses the resource timestamp when available, otherwise the
+    // current time (preserving prior behavior for header-less deliveries). No
+    // age check: the resource timestamp is not the delivery time.
     const productId = req.body.id?.toString();
     if (!productId) {
       logger.error('SHOPIFY', 'Webhook missing product ID (products/delete)');
       return res.status(400).json({ error: WEBHOOK_ERRORS.INVALID_PAYLOAD });
     }
 
-    // For deletes, use current timestamp if not available (delete webhook has limited timestamp info)
-    const idempotencyTimestamp = webhookTimestamp || new Date().toISOString();
-    const idempotencyKey = webhookManager.generateIdempotencyKey(
-      productId,
+    const idempotencyKey = buildWebhookIdempotencyKey(
+      webhookManager,
+      req,
       'products/delete',
-      idempotencyTimestamp
+      productId,
+      req.body.updated_at || req.body.created_at || new Date().toISOString()
     );
 
     // Atomic idempotency check using INSERT-first approach

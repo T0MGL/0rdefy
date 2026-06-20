@@ -108,7 +108,7 @@ export function CarrierQuickChangePopover({
         carrier: carrier.carrier_id,
         shipping_cost: carrier.rate ?? undefined,
         delivery_zone: carrier.zone_code || undefined,
-      });
+      }, order.store_id);
 
       if (!isMountedRef.current) return;
 
