@@ -21,7 +21,8 @@ export interface Notification {
     carrierId?: string;
     count?: number; // Number of items affected
     itemIds?: string[]; // List of affected item IDs
-    timeReference?: string; // Original time for accurate "time ago" display
+    timeReference?: string; // Original time (ISO instant) for accurate "time ago" display. MUST be a parseable date.
+    weekKey?: string; // ISO week label ("YYYY-Www") for week-scoped reminders. NOT a date; never pass to formatTimeAgo.
   };
 
   /**

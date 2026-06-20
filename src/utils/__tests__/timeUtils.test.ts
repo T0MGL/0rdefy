@@ -121,6 +121,23 @@ describe('timeUtils', () => {
       const result = formatTimeAgo(twoMonthsAgo);
       assert.equal(result, 'hace 2 meses');
     });
+
+    // Regression: the weekly ad-spend reminder used to pass its ISO week key
+    // ("YYYY-Www") into metadata.timeReference, which the panel feeds to
+    // formatTimeAgo. A week key is NOT a parseable date, so it rendered
+    // "fecha inválida". These two assertions pin both halves of the fix:
+    // a week key is invalid, and the valid ISO timestamp we fall back to works.
+    it('should return "fecha inválida" for an ISO week key (the weekly-reminder bug)', () => {
+      const result = formatTimeAgo('2026-W24');
+      assert.equal(result, 'fecha inválida');
+    });
+
+    it('should format the reminder timestamp (valid ISO) as a relative time, not "fecha inválida"', () => {
+      const justNow = new Date().toISOString();
+      const result = formatTimeAgo(justNow);
+      assert.equal(result, 'hace menos de 1 minuto');
+      assert.notEqual(result, 'fecha inválida');
+    });
   });
 
   describe('isOlderThan', () => {

@@ -577,7 +577,12 @@ export function generateNotifications(
             read: false,
             metadata: {
               count: 1,
-              timeReference: weekKey,
+              // weekKey is an ISO week label ("YYYY-Www"), NOT a parseable date.
+              // It already scopes the id and the dismiss set above; it must never
+              // be used as timeReference or formatTimeAgo() would render "fecha
+              // inválida". Omit timeReference so the row falls back to `timestamp`
+              // (a valid ISO instant) and shows a correct relative time.
+              weekKey,
             },
           });
         }

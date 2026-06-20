@@ -85,8 +85,12 @@ function NotificationRow({
         onClick();
       }}
       className={cn(
-        'w-full text-left rounded-xl px-3 py-3 transition-colors',
-        'active:scale-[0.99] hover:bg-muted/40',
+        'group w-full text-left rounded-xl px-3 py-3 transition-colors',
+        'active:scale-[0.99]',
+        // Hover uses an alpha-blended accent over the existing tone so contrast
+        // is preserved in both themes. The text colors below are pinned to
+        // foreground tokens (not inherited), so they never collapse into the bg.
+        'hover:bg-accent/60 dark:hover:bg-accent/40',
         rowTone(notif),
       )}
     >
@@ -101,7 +105,7 @@ function NotificationRow({
         <div className="flex-1 min-w-0">
           <p
             className={cn(
-              'text-[15px] leading-snug',
+              'text-[15px] leading-snug text-foreground',
               !notif.read ? 'font-semibold' : 'font-normal',
             )}
           >
@@ -209,7 +213,12 @@ export function NotificationsPanel({
                 <DropdownMenuItem
                   key={notif.id}
                   asChild
-                  className="p-0 focus:bg-transparent"
+                  // Neutralize the menu item's default focus styles. Radix applies
+                  // `focus:bg-accent focus:text-accent-foreground` on highlight; if
+                  // we only clear the bg, the text flips to accent-foreground and can
+                  // collapse into the row's tinted background (the "invisible text on
+                  // hover" bug). Clearing both keeps the row's own colors in control.
+                  className="p-0 focus:bg-transparent focus:text-foreground"
                 >
                   <div>
                     <NotificationRow
