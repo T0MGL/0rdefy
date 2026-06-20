@@ -28,21 +28,36 @@ shopifyMandatoryWebhooksRouter.post(
         return res.status(200).json({ received: true, message: 'Integration not found' });
       }
 
-      // Products/orders are intentionally preserved after uninstall; only the integration record and its direct dependents are removed
-      const { error: deleteError } = await supabaseAdmin
+      // Products/orders are intentionally preserved after uninstall. The integration
+      // row is kept and flagged so status and uninstalled_at stay consistent, and a
+      // later reinstall can reactivate the same record instead of orphaning history.
+      const { error: updateError } = await supabaseAdmin
         .from('shopify_integrations')
-        .delete()
+        .update({
+          status: 'uninstalled',
+          uninstalled_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
         .eq('shop_domain', shopDomain);
 
-      if (deleteError) {
-        logger.error('API', 'Error deleting integration', { deleteError });
+      if (updateError) {
+        logger.error('API', 'Error marking integration as uninstalled', { updateError });
         return res.status(200).json({
           received: true,
-          error: 'Error al eliminar integración',
+          error: 'Error al marcar la integración como desinstalada',
         });
       }
 
-      logger.info('API', 'Integration deleted on app uninstall', {
+      const { error: webhooksError } = await supabaseAdmin
+        .from('shopify_webhooks')
+        .update({ is_active: false })
+        .eq('integration_id', integration.id);
+
+      if (webhooksError) {
+        logger.warn('API', 'Error deactivating webhooks on uninstall', { webhooksError });
+      }
+
+      logger.info('API', 'Integration marked as uninstalled', {
         shopDomain,
         storeId: integration.store_id,
         integrationId: integration.id,
@@ -69,7 +84,7 @@ shopifyMandatoryWebhooksRouter.post(
 /**
  * POST /api/shopify/webhooks/app-subscriptions-update
  *
- * Shopify App Store mandatory webhook, fires whenever a subscription status changes.
+ * Shopify App Store mandatory webhook: fires whenever a subscription status changes.
  * Source of truth for Shopify-billed subscription state.
  *
  * Payload shape (relevant fields):
@@ -195,7 +210,7 @@ shopifyMandatoryWebhooksRouter.post(
       } else if (shouldActivate) {
         await supabaseAdmin
           .from('shopify_integrations')
-          .update({ status: 'active', sync_error: null })
+          .update({ status: 'active', sync_error: null, uninstalled_at: null })
           .eq('shop_domain', shopDomain);
       }
 

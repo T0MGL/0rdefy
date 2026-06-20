@@ -131,8 +131,7 @@ export const startShopifyOAuth = (shop: string, userId?: string, storeId?: strin
   }
 
   const authUrl = `${API_BASE}/api/shopify-oauth/auth?${params.toString()}`;
-  console.log('[SHOPIFY-SERVICE] Starting OAuth:', authUrl);
-  console.log('[SHOPIFY-SERVICE] Embedded mode (iframe):', isInIframe);
+  console.log('[SHOPIFY-SERVICE] Starting OAuth', { embedded: isInIframe });
 
   if (isInIframe) {
     // Open OAuth in popup window (Shopify embedded mode)
