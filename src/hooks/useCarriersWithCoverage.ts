@@ -12,6 +12,11 @@ export interface CarrierWithCoverage {
 
 const API_BASE_URL = `${import.meta.env.VITE_API_URL || 'https://api.ordefy.io'}/api`;
 
+// Frozen empty-array reference for the nullish state. `query.data ?? []` mints a
+// new array every render while data is undefined, destabilizing any consumer
+// that depends on `carriers` by reference in a memo/effect dep array.
+const EMPTY_CARRIERS: CarrierWithCoverage[] = [];
+
 const DIACRITICS_REGEX = /[̀-ͯ]/g;
 
 function normalizeCity(value: string): string {
@@ -68,7 +73,7 @@ export function useCarriersWithCoverage(
   });
 
   return {
-    carriers: query.data ?? [],
+    carriers: query.data ?? EMPTY_CARRIERS,
     isLoading: query.isLoading,
     isFetching: query.isFetching,
     isError: query.isError,
