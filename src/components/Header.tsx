@@ -67,7 +67,7 @@ export function Header() {
 
   // Notification generation + polling lives in NotificationProvider (app level)
   // so it runs on every page. The Header is a pure renderer of the derived view.
-  const { notifications, unreadCount, liveCount, hasUrgentLive } = useNotifications();
+  const { notifications, unreadCount, badgeCount, badgeUrgent } = useNotifications();
 
   const [notifOpen, setNotifOpen] = useState(false);
   const [datePopoverOpen, setDatePopoverOpen] = useState(false);
@@ -381,34 +381,25 @@ export function Header() {
                 size="icon"
                 className="relative h-10 w-10 min-h-[44px] min-w-[44px]"
                 aria-label={
-                  liveCount > 0
-                    ? `Notificaciones, ${liveCount} sin resolver${unreadCount > 0 ? `, ${unreadCount} nuevas` : ''}`
-                    : unreadCount > 0
-                      ? `Notificaciones, ${unreadCount} nuevas`
-                      : 'Notificaciones'
+                  badgeCount > 0
+                    ? `Notificaciones, ${badgeCount} sin leer`
+                    : 'Notificaciones'
                 }
               >
                 <Bell size={20} className="text-muted-foreground" />
-                {/* Live-signal badge: counts conditions currently active and
-                    unresolved (red when any is urgent, amber otherwise). Stays
-                    visible even after the operator has seen the notification, so
-                    a 53h pending order keeps signalling until acted on. */}
-                {liveCount > 0 && (
+                {/* Single signal: count of UNREAD actionable notifications.
+                    Marking one read decrements it; "marcar todo leido" zeroes
+                    it. A new or changed condition gets a distinct (content-hash)
+                    id, arrives unread, and the badge reappears on its own, so
+                    this does not regress to the old invisible-badge bug. Red
+                    when any unread is urgent, amber otherwise. */}
+                {badgeCount > 0 && (
                   <Badge className={cn(
                     "absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-[10px] border-2 border-card tabular-nums",
-                    hasUrgentLive ? "bg-red-600" : "bg-orange-500"
+                    badgeUrgent ? "bg-red-600" : "bg-orange-500"
                   )}>
-                    {liveCount > 9 ? '9+' : liveCount}
+                    {badgeCount > 9 ? '9+' : badgeCount}
                   </Badge>
-                )}
-                {/* New-since-last-seen indicator: a small blue dot, distinct from
-                    the live badge. Only shown on its own when there is no live
-                    badge occupying the corner, to avoid stacking two markers. */}
-                {liveCount === 0 && unreadCount > 0 && (
-                  <span
-                    className="absolute top-0 right-0 h-2.5 w-2.5 rounded-full bg-blue-500 border-2 border-card"
-                    aria-hidden="true"
-                  />
                 )}
               </Button>
             }

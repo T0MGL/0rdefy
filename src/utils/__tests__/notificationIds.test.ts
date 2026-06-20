@@ -1,11 +1,11 @@
 /**
- * Tests for notification id hashing (content-fingerprinted ids) and the two
- * badge signal derivations (live vs unread).
+ * Tests for notification id hashing (content-fingerprinted ids) and the badge
+ * signal derivations.
  *
  * These guard the core of the badge fix: a notification whose affected set
  * changes must become a DISTINCT id (so it does not inherit the read state of
- * the previous set), and the red live badge must reflect active conditions
- * independently of whether they have been seen.
+ * the previous set), and the visible bell badge must reflect UNREAD actionable
+ * work so marking a notification read lowers it.
  *
  * Run with `npm run test:unit`.
  */
@@ -16,6 +16,8 @@ import {
   countLiveNotifications,
   hasUrgentLiveNotification,
   countUnreadNotifications,
+  countUnreadActionableNotifications,
+  hasUrgentUnreadNotification,
 } from '../notificationSignals';
 import type { Notification } from '../../types/notification';
 
@@ -136,5 +138,85 @@ describe('notification badge signals', () => {
     ];
     assert.equal(countLiveNotifications(list), 2);
     assert.equal(hasUrgentLiveNotification(list), true);
+  });
+});
+
+describe('bell badge (unread actionable) signal', () => {
+  it('counts unread actionable notifications', () => {
+    const list = [
+      notif({ id: 'a', category: 'urgent', read: false }),
+      notif({ id: 'b', category: 'action_required', read: false }),
+    ];
+    assert.equal(countUnreadActionableNotifications(list), 2);
+    assert.equal(hasUrgentUnreadNotification(list), true);
+  });
+
+  it('marking a notification read lowers the badge (the reported bug)', () => {
+    // Two unread actionable: badge = 2. Operator reads one: badge must drop to 1.
+    const beforeRead = [
+      notif({ id: 'a', category: 'urgent', read: false }),
+      notif({ id: 'b', category: 'action_required', read: false }),
+    ];
+    assert.equal(countUnreadActionableNotifications(beforeRead), 2);
+
+    const afterReadOne = [
+      notif({ id: 'a', category: 'urgent', read: true }),
+      notif({ id: 'b', category: 'action_required', read: false }),
+    ];
+    assert.equal(countUnreadActionableNotifications(afterReadOne), 1);
+    // The remaining unread one is action_required, not urgent: amber, not red.
+    assert.equal(hasUrgentUnreadNotification(afterReadOne), false);
+  });
+
+  it('marking everything read takes the badge to 0', () => {
+    const allRead = [
+      notif({ id: 'a', category: 'urgent', read: true }),
+      notif({ id: 'b', category: 'action_required', read: true }),
+    ];
+    assert.equal(countUnreadActionableNotifications(allRead), 0);
+    assert.equal(hasUrgentUnreadNotification(allRead), false);
+  });
+
+  it('does NOT count a live-but-read condition (this is the fix vs the prior behavior)', () => {
+    // A 53h pending order seen and read by the operator: the condition is still
+    // live, but the bell badge must NOT keep counting it, so reading clears it.
+    const list = [notif({ category: 'urgent', live: true, read: true })];
+    assert.equal(countUnreadActionableNotifications(list), 0);
+    // The live helper still sees it (retained for non-badge consumers), proving
+    // we changed only what drives the visible badge, not the live concept.
+    assert.equal(countLiveNotifications(list), 1);
+  });
+
+  it('a NEW unread condition (distinct content-hash id) reappears on the badge', () => {
+    // Salvaguarda: the prior single pending order was read. A second pending
+    // order arrives -> notificationEngine emits a DISTINCT id -> the merge does
+    // not match -> it lands unread -> the badge rises again. Modeled at the
+    // signal level: the new unread notification lifts the count off zero.
+    const onlyOldRead = [
+      notif({ id: `pending-${hashItemIds(['order-1'])}`, category: 'urgent', read: true }),
+    ];
+    assert.equal(countUnreadActionableNotifications(onlyOldRead), 0);
+
+    const newConditionArrived = [
+      notif({ id: `pending-${hashItemIds(['order-1'])}`, category: 'urgent', read: true }),
+      notif({ id: `pending-${hashItemIds(['order-1', 'order-2'])}`, category: 'urgent', read: false }),
+    ];
+    assert.notEqual(newConditionArrived[0].id, newConditionArrived[1].id);
+    assert.equal(countUnreadActionableNotifications(newConditionArrived), 1);
+    assert.equal(hasUrgentUnreadNotification(newConditionArrived), true);
+  });
+
+  it('an unchanged already-read condition does NOT re-inflate the badge', () => {
+    // Salvaguarda: same itemIds -> same id -> merge keeps read=true -> badge 0.
+    const sameId = `pending-${hashItemIds(['order-1'])}`;
+    const list = [notif({ id: sameId, category: 'urgent', read: true })];
+    assert.equal(countUnreadActionableNotifications(list), 0);
+  });
+
+  it('ignores informational notifications even when unread (no alarm badge)', () => {
+    const list = [notif({ category: 'informational', read: false })];
+    assert.equal(countUnreadActionableNotifications(list), 0);
+    // But the panel's total-unread copy still counts it.
+    assert.equal(countUnreadNotifications(list), 1);
   });
 });

@@ -11,12 +11,15 @@
  *    operational notifications (orders, stock) fire on every plan including
  *    free / plan-null, while ads and carrier notifications only fire when the
  *    plan includes the matching module.
- *  - Expose the derived view (notifications, unreadCount, liveCount,
- *    hasUrgentLive) so the Header is a pure renderer.
+ *  - Expose the derived view (notifications, unreadCount, badgeCount,
+ *    badgeUrgent) so the Header is a pure renderer.
  *
- * Two distinct signals are surfaced (Fix 1):
- *  - liveCount: conditions currently active and unresolved (red badge).
- *  - unreadCount: new since the operator last looked (blue "new" indicator).
+ * The bell badge reflects UNREAD actionable work (badgeCount): marking a
+ * notification read lowers it and "marcar todo leido" zeroes it. It does not
+ * regress to the original invisible-badge bug because notification ids carry a
+ * content fingerprint, so a new or changed condition gets a distinct id, arrives
+ * unread, and the badge reappears on its own. unreadCount (all unread) is kept
+ * for the panel's own copy.
  *
  * Polling is gated by tab visibility with a catch-up fetch on return, matching
  * the prior Header behavior. The cadence is 5 minutes (Fix 2): the operational
@@ -45,12 +48,12 @@ const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 interface NotificationContextValue {
   notifications: Notification[];
-  /** New since last seen. Drives the blue "new" indicator. */
+  /** Total unread (any category). Used by the panel's own copy. */
   unreadCount: number;
-  /** Active, unresolved conditions (urgent + action_required). Drives the red badge. */
-  liveCount: number;
-  /** At least one live condition is urgent: red vs amber badge selection. */
-  hasUrgentLive: boolean;
+  /** Unread actionable count (urgent + action_required). Drives the bell badge number. */
+  badgeCount: number;
+  /** At least one unread actionable is urgent: red vs amber badge selection. */
+  badgeUrgent: boolean;
 }
 
 const NotificationContext = createContext<NotificationContextValue | undefined>(undefined);
@@ -63,8 +66,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [liveCount, setLiveCount] = useState(0);
-  const [hasUrgentLive, setHasUrgentLive] = useState(false);
+  const [badgeCount, setBadgeCount] = useState(0);
+  const [badgeUrgent, setBadgeUrgent] = useState(false);
 
   // Resolve per-feature gates from the plan. While the subscription is still
   // loading we leave the gates undefined (engine treats undefined as enabled),
@@ -91,8 +94,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const syncFromService = useCallback(() => {
     setNotifications(notificationsService.getAll());
     setUnreadCount(notificationsService.getUnreadCount());
-    setLiveCount(notificationsService.getLiveCount());
-    setHasUrgentLive(notificationsService.hasUrgentLive());
+    setBadgeCount(notificationsService.getUnreadActionableCount());
+    setBadgeUrgent(notificationsService.hasUrgentUnread());
   }, []);
 
   // Cross-tab + same-tab service updates: re-derive the view.
@@ -208,8 +211,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, [subscriptionLoading, adsEnabled, carriersEnabled, loadData]);
 
   const value = useMemo<NotificationContextValue>(
-    () => ({ notifications, unreadCount, liveCount, hasUrgentLive }),
-    [notifications, unreadCount, liveCount, hasUrgentLive]
+    () => ({ notifications, unreadCount, badgeCount, badgeUrgent }),
+    [notifications, unreadCount, badgeCount, badgeUrgent]
   );
 
   return (

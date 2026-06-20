@@ -4,6 +4,8 @@ import {
   countLiveNotifications,
   hasUrgentLiveNotification,
   countUnreadNotifications,
+  countUnreadActionableNotifications,
+  hasUrgentUnreadNotification,
 } from '@/utils/notificationSignals';
 import { getISOWeekKey } from '@/utils/timeUtils';
 import type { Order, Product, Ad } from '@/types';
@@ -516,20 +518,42 @@ class NotificationsService {
   }
 
   /**
+   * Count of UNREAD actionable notifications (urgent + action_required). Drives
+   * the visible bell badge: marking a notification read decrements it, and
+   * markAllAsRead zeroes it. Informational notifications (e.g. tomorrow's
+   * deliveries) are excluded so they do not raise an alarm badge.
+   *
+   * Does not regress the original invisible-badge bug: notification ids carry a
+   * content fingerprint, so a new or changed condition gets a distinct id, is
+   * not matched by the merge, arrives unread, and the badge reappears on its
+   * own. An already-read condition with an unchanged id keeps its read flag and
+   * does not re-inflate the badge.
+   */
+  getUnreadActionableCount(): number {
+    return countUnreadActionableNotifications(this.notifications);
+  }
+
+  /**
+   * True when at least one UNREAD actionable notification is urgent. Lets the
+   * badge pick red (urgent) vs amber (action-required) without recomputing in
+   * the UI.
+   */
+  hasUrgentUnread(): boolean {
+    return hasUrgentUnreadNotification(this.notifications);
+  }
+
+  /**
    * Count of notifications whose underlying condition is currently active and
-   * actionable (urgent or action_required). This is independent of read state:
-   * a pending order the operator already saw but has not confirmed keeps
-   * counting. Drives the red live-signal badge. Informational notifications
-   * (e.g. tomorrow's deliveries) are excluded: they are heads-ups, not
-   * unresolved problems.
+   * actionable (urgent or action_required), independent of read state. Retained
+   * for non-badge consumers; no longer drives the visible bell badge.
    */
   getLiveCount(): number {
     return countLiveNotifications(this.notifications);
   }
 
   /**
-   * True when at least one live condition is urgent. Lets the badge pick red
-   * (urgent live) vs amber (action-required live) without recomputing in the UI.
+   * True when at least one live condition is urgent. Retained for non-badge
+   * consumers; no longer drives the visible bell badge.
    */
   hasUrgentLive(): boolean {
     return hasUrgentLiveNotification(this.notifications);
