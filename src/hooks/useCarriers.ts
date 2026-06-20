@@ -1,6 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
 import { carriersService, Carrier } from '@/services/carriers.service';
 
+// Stable empty-array reference for the loading/error/undefined state. Returning
+// `query.data || []` would mint a NEW array every render while data is nullish
+// (cache evicted after sleep, or query failed), making `carriers` an unstable
+// reference. Consumers that put `carriers` in a useMemo/useEffect dependency
+// array (e.g. Orders.tsx serverFilters) would then re-run every render and, if
+// they fetch, spin an infinite request loop. One frozen module-level constant
+// kills that at the source for every consumer.
+const EMPTY_CARRIERS: Carrier[] = [];
+
 /**
  * Centralized hook for fetching and caching carriers
  * Uses React Query to share data across components and reduce API calls
@@ -44,7 +53,7 @@ export function useCarriers(options?: {
   };
 
   return {
-    carriers: query.data || [],
+    carriers: query.data ?? EMPTY_CARRIERS,
     isLoading: query.isLoading,
     isError: query.isError,
     error: query.error,
