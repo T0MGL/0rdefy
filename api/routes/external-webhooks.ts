@@ -328,7 +328,9 @@ externalWebhooksRouter.get('/payload-example', async (req: any, res: Response) =
     customer: {
       name: 'Juan Pérez',
       email: 'juan@email.com',
-      phone: '+595981123456'
+      phone: '+595981123456',
+      ruc: '80012345',
+      ruc_dv: '6'
     },
 
     shipping_address: {
@@ -385,6 +387,8 @@ externalWebhooksRouter.get('/payload-example', async (req: any, res: Response) =
       },
       optional_fields: {
         'idempotency_key': 'ID único para prevenir duplicados (recomendado)',
+        'customer.ruc': 'RUC del cliente para facturación SIFEN (canónico). Alias aceptado: customer_ruc',
+        'customer.ruc_dv': 'Dígito verificador del RUC. Alias aceptado: customer_ruc_dv',
         'shipping_address.country': 'País (default: Paraguay)',
         'shipping_address.reference': 'Referencia de ubicación (ej: Casa blanca)',
         'shipping_address.notes': 'Instrucciones de entrega',
