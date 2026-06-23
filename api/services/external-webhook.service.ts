@@ -9,6 +9,7 @@ import { logger } from '../utils/logger';
 import crypto from 'crypto';
 import { supabaseAdmin } from '../db/connection';
 import { sanitizeSearchInput } from '../utils/sanitize';
+import { computeDiscountedTotal, FullDiscountBlockedError } from '../utils/discount-validation';
 import { isCancelled, isConfirmed, isPending, isRejected } from '../utils/order-status';
 import {
   resolveSkuMatch,
@@ -2297,20 +2298,31 @@ export class ExternalWebhookService {
         }
 
         // Apply discount in path A (no carrier).
-        // The atomic RPC handles this for path B; here we replicate it for the direct-update path.
-        // Mirrors db/migrations/092_confirm_order_atomic_production_fix.sql STEP 7.
+        // Path B (RPC) runs the same math via compute_discounted_total; here we
+        // call the shared TS helper so the two paths cannot diverge. The
+        // external API never overrides the guardrail (allowFullDiscount stays
+        // false): an external caller must not be able to zero an order.
         if (requestedDiscount !== undefined && requestedDiscount !== null && Number(requestedDiscount) > 0) {
           const { data: pricingRow } = await supabaseAdmin
             .from('orders')
-            .select('total_price, cod_amount, total_discounts')
+            .select('subtotal_price, total_shipping, cod_amount, total_discounts')
             .eq('id', order.id)
             .single();
 
-          const currentTotal = Number(pricingRow?.total_price ?? 0);
+          const gross = Number(pricingRow?.subtotal_price ?? 0) + Number(pricingRow?.total_shipping ?? 0);
           const currentCod = Number(pricingRow?.cod_amount ?? 0);
           const currentDiscounts = Number(pricingRow?.total_discounts ?? 0);
-          const effectiveDiscount = Math.min(Number(requestedDiscount), currentTotal);
-          const newTotal = Math.max(0, currentTotal - effectiveDiscount);
+
+          let effectiveDiscount: number;
+          let newTotal: number;
+          try {
+            ({ effectiveDiscount, newTotal } = computeDiscountedTotal({ gross, discount: Number(requestedDiscount) }));
+          } catch (err) {
+            if (err instanceof FullDiscountBlockedError) {
+              return { success: false, error: 'discount exceeds the allowed share of the order total', code: 'FULL_DISCOUNT_BLOCKED' };
+            }
+            throw err;
+          }
 
           updatePayload.total_price = newTotal;
           updatePayload.total_discounts = currentDiscounts + effectiveDiscount;
@@ -2373,6 +2385,9 @@ export class ExternalWebhookService {
         }
         if (errorMessage.includes('INVALID_STATUS')) {
           return { success: false, error: 'Order cannot be confirmed in its current status', code: 'INVALID_STATUS' };
+        }
+        if (errorMessage.includes('FULL_DISCOUNT_BLOCKED')) {
+          return { success: false, error: 'discount exceeds the allowed share of the order total', code: 'FULL_DISCOUNT_BLOCKED' };
         }
         if (errorMessage.includes('CARRIER_NOT_FOUND')) {
           return { success: false, error: 'Carrier not found or inactive', code: 'CARRIER_NOT_FOUND' };

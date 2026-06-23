@@ -795,8 +795,10 @@ export function OrderConfirmationDialog({
         payload.google_maps_link = googleMapsLink;
       }
 
-      // Add discount if enabled
-      if (discountEnabled && discountAmount > 0) {
+      // Add discount if enabled. Never on an already-paid order: the discount
+      // there would cut recorded revenue, not the collectible (see the warning
+      // in the discount section). The input is disabled too, this is the guard.
+      if (discountEnabled && discountAmount > 0 && !orderIsAlreadyPaid) {
         payload.discount_amount = discountAmount;
       }
 
@@ -1288,6 +1290,7 @@ export function OrderConfirmationDialog({
                   <Switch
                     id="discount"
                     checked={discountEnabled}
+                    disabled={orderIsAlreadyPaid}
                     onCheckedChange={(checked) => {
                       setDiscountEnabled(checked);
                       if (!checked) {
@@ -1297,7 +1300,20 @@ export function OrderConfirmationDialog({
                   />
                 </div>
 
-                {discountEnabled && (
+                {/* On an already-paid order, the discount field reduces the recorded
+                    revenue, not just what is collected. Operators were typing the full
+                    amount here to "zero out" a transfer-paid order, which under-reported
+                    revenue. Route that through "Pagado por transferencia" instead. */}
+                {orderIsAlreadyPaid && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg border bg-amber-50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800">
+                    <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+                    <p className="text-sm text-amber-900 dark:text-amber-100">
+                      Este pedido ya está pagado. El descuento reduce el <span className="font-semibold">REVENUE REGISTRADO</span>, no solo el cobro. Si el cliente ya pagó y no querés cobrar nada al entregar, usá <span className="font-semibold">"Pagado por transferencia"</span>, no el descuento.
+                    </p>
+                  </div>
+                )}
+
+                {discountEnabled && !orderIsAlreadyPaid && (
                   <div className="space-y-2 pl-4 border-l-2 border-orange-500/30">
                     <Label htmlFor="discount-amount">
                       Monto del descuento ({getCurrencySymbol()})
