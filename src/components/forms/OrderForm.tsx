@@ -35,6 +35,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { Loader2, Check, ChevronsUpDown, MapPin, Truck, Store, Package, Layers, StickyNote, Tag } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { productsService } from '@/services/products.service';
 import { useState, useEffect, useRef } from 'react';
 import { Product, ProductVariant, BundleSelection, isBundle, isVariation } from '@/types';
@@ -614,10 +615,13 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
     // Note: Products with variants can be ordered as base product (no variant selected)
     // The validation was removed to allow ordering the base product without selecting a variant
 
-    // Validate bundle composition (Migration 146)
+    // Validate bundle composition (Migration 146). Backend re-validates each
+    // selection against the parent product's active color variations (bundle_components
+    // presence only flags that it is a color pack), this is the fast client-side
+    // block so a partial or empty color pack never leaves the form.
     if (hasVariationsForComposition && currentSelectionTotal !== requiredUnits) {
       form.setError('product', {
-        message: `Selecciona ${requiredUnits} unidades para completar el pack (tienes ${currentSelectionTotal})`
+        message: `Elegí el color de las ${requiredUnits} unidades del pack. Faltan ${requiredUnits - currentSelectionTotal}.`
       });
       return;
     }
@@ -1177,7 +1181,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-medium flex items-center gap-1.5">
                         <Layers className="h-3.5 w-3.5 text-purple-500" />
-                        Composicion del pack
+                        Composición del pack
                       </p>
                       <Badge
                         variant={currentSelectionTotal === requiredUnits ? 'default' : 'destructive'}
@@ -1244,11 +1248,20 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
                         );
                       })}
                     </div>
-                    {currentSelectionTotal > 0 && currentSelectionTotal !== requiredUnits && (
-                      <p className="text-xs text-destructive">
-                        Faltan {requiredUnits - currentSelectionTotal} unidades para completar el pack
-                      </p>
-                    )}
+                    <AnimatePresence>
+                      {currentSelectionTotal !== requiredUnits && (
+                        <motion.p
+                          key="bundle-incomplete"
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.18, ease: 'easeOut' }}
+                          className="text-xs text-destructive overflow-hidden"
+                        >
+                          Elegí el color de las {requiredUnits} unidades del pack. Faltan {requiredUnits - currentSelectionTotal}.
+                        </motion.p>
+                      )}
+                    </AnimatePresence>
                   </div>
                 )}
               </div>

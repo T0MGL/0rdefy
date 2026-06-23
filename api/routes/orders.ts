@@ -25,6 +25,7 @@ import { enrichLineItemsWithColors } from '../utils/line-item-colors';
 import { resolveOrderStore } from '../utils/resolve-order-store';
 import { pushOrderToCarrier } from '../services/carriers/carrier-push.service';
 import { withRetry, DATABASE_RETRY_OPTIONS } from '../utils/retry';
+import { validateBundleSelections, type BundleValidationResult, type BundleValidationLineItem, type ResolvedVariant } from '../services/bundle-selection-validator';
 
 // ================================================================
 // Zod Schemas
@@ -89,6 +90,11 @@ const LineItemSchema = z.object({
     image_url: z.string().url().optional(),
     variant_title: z.string().optional(),
     is_upsell: z.boolean().optional(),
+    // Stays optional at the schema level: single products and quantity-only
+    // packs (Solenne) legitimately omit it. The "required when this is a color
+    // pack" rule cannot live here because Zod has no DB knowledge of whether the
+    // variant is a bundle with selectable color components. That gate runs in
+    // the POST/PUT handlers via validateBundleSelections (bundle_components).
     bundle_selections: z.array(BundleSelectionSchema).optional(),
 });
 
@@ -257,6 +263,49 @@ const safeNumber = (value: any, defaultValue: number = 0): number => {
         return defaultValue;
     }
     return num;
+};
+
+// Thin adapter over validateBundleSelections for the manual order paths: batch
+// fetches the variant rows the gate needs, then delegates. Returns ok for empty
+// or variant-less line item sets so single-product and quantity-pack flows are
+// never blocked.
+const toBundleLineItem = (item: unknown): BundleValidationLineItem => {
+    const row = (item ?? {}) as Record<string, unknown>;
+    const selections = Array.isArray(row.bundle_selections)
+        ? row.bundle_selections.map((sel) => {
+              const s = (sel ?? {}) as Record<string, unknown>;
+              return { variant_id: typeof s.variant_id === 'string' ? s.variant_id : undefined, quantity: s.quantity };
+          })
+        : null;
+    return {
+        variant_id: typeof row.variant_id === 'string' ? row.variant_id : null,
+        quantity: row.quantity,
+        bundle_selections: selections,
+    };
+};
+
+const assertBundleSelectionsValid = async (
+    storeId: string,
+    lineItems: unknown,
+): Promise<BundleValidationResult> => {
+    if (!Array.isArray(lineItems) || lineItems.length === 0) return { ok: true };
+
+    const items = lineItems.map(toBundleLineItem);
+    const variantIds = items
+        .map((item) => item.variant_id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    if (variantIds.length === 0) return { ok: true };
+
+    const { data: variants } = await supabaseAdmin
+        .from('product_variants')
+        .select('id, product_id, units_per_pack, variant_type, uses_shared_stock')
+        .eq('store_id', storeId)
+        .in('id', Array.from(new Set(variantIds)));
+
+    const variantsMap = new Map<string, ResolvedVariant>();
+    (variants ?? []).forEach((v: ResolvedVariant) => variantsMap.set(v.id, v));
+
+    return validateBundleSelections(storeId, items, variantsMap);
 };
 
 export const ordersRouter = Router();
@@ -1672,6 +1721,19 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
             });
         }
 
+        // Authoritative gate: a color-pack bundle (has bundle_components) must
+        // carry a complete composition. Runs BEFORE the order insert so an
+        // invalid color pack never creates an order with null bundle_selections.
+        // Quantity-only packs and single products pass through untouched.
+        const bundleGate = await assertBundleSelectionsValid(req.storeId!, line_items);
+        if (!bundleGate.ok) {
+            return res.status(400).json({
+                error: 'Bundle composition required',
+                code: bundleGate.code,
+                message: bundleGate.message,
+            });
+        }
+
         // ================================================================
         // Find or create customer using atomic function (prevents race conditions)
         // ================================================================
@@ -2050,6 +2112,21 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
             return res.status(404).json({
                 error: 'Order not found'
             });
+        }
+
+        // Authoritative gate (same rule as POST): when the edit replaces the
+        // line items, a color-pack bundle must carry a complete composition.
+        // Runs before any write so a bad edit cannot desync the normalized rows
+        // with a null color. Quantity-only packs and single products pass.
+        if (line_items !== undefined) {
+            const bundleGate = await assertBundleSelectionsValid(req.storeId!, line_items);
+            if (!bundleGate.ok) {
+                return res.status(400).json({
+                    error: 'Bundle composition required',
+                    code: bundleGate.code,
+                    message: bundleGate.message,
+                });
+            }
         }
 
         // Build update object with only provided fields
