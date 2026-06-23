@@ -1187,6 +1187,19 @@ export class ExternalWebhookService {
         google_maps_url: sanitizedMapsUrl || null
       };
 
+      // Aceptar customer_ruc / customer_ruc_dv como alias de ruc / ruc_dv. Un
+      // integrador mandó el RUC fiscal bajo el nombre alterno y el valor se
+      // perdía en silencio. Usamos || (no ??) a propósito: el canónico gana solo
+      // cuando viene no vacío. Un ruc:"" (campo de form en blanco) cae al alias,
+      // y un alias en blanco aterriza en null. Esto cubre el caso real del form
+      // que manda ruc:"" + customer_ruc:"80012345" y conserva la normalización a null.
+      const customerAliases = payload.customer as ExternalOrderPayload['customer'] & {
+        customer_ruc?: string;
+        customer_ruc_dv?: string;
+      };
+      const ruc = payload.customer.ruc || customerAliases.customer_ruc || null;
+      const rucDvRaw = payload.customer.ruc_dv || customerAliases.customer_ruc_dv || null;
+
       const orderData = {
         store_id: storeId,
         customer_id: customerId,
@@ -1233,8 +1246,8 @@ export class ExternalWebhookService {
         sleeves_status: orderStatus,
 
         // Invoicing (RUC for SIFEN)
-        customer_ruc: payload.customer.ruc || null,
-        customer_ruc_dv: payload.customer.ruc_dv ? Number(payload.customer.ruc_dv) : null,
+        customer_ruc: ruc,
+        customer_ruc_dv: rucDvRaw ? Number(rucDvRaw) : null,
 
         // Metadata
         notes: payload.metadata ? JSON.stringify(payload.metadata) : null
