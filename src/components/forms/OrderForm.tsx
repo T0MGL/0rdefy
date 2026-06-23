@@ -615,9 +615,10 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
     // Note: Products with variants can be ordered as base product (no variant selected)
     // The validation was removed to allow ordering the base product without selecting a variant
 
-    // Validate bundle composition (Migration 146). Backend re-validates against
-    // bundle_components, this is the fast client-side block so a partial or empty
-    // color pack never leaves the form.
+    // Validate bundle composition (Migration 146). Backend re-validates each
+    // selection against the parent product's active color variations (bundle_components
+    // presence only flags that it is a color pack), this is the fast client-side
+    // block so a partial or empty color pack never leaves the form.
     if (hasVariationsForComposition && currentSelectionTotal !== requiredUnits) {
       form.setError('product', {
         message: `Elegí el color de las ${requiredUnits} unidades del pack. Faltan ${requiredUnits - currentSelectionTotal}.`

@@ -25,7 +25,7 @@ import { enrichLineItemsWithColors } from '../utils/line-item-colors';
 import { resolveOrderStore } from '../utils/resolve-order-store';
 import { pushOrderToCarrier } from '../services/carriers/carrier-push.service';
 import { withRetry, DATABASE_RETRY_OPTIONS } from '../utils/retry';
-import { validateBundleSelections, type BundleValidationResult, type ResolvedVariant } from '../services/bundle-selection-validator';
+import { validateBundleSelections, type BundleValidationResult, type BundleValidationLineItem, type ResolvedVariant } from '../services/bundle-selection-validator';
 
 // ================================================================
 // Zod Schemas
@@ -269,15 +269,31 @@ const safeNumber = (value: any, defaultValue: number = 0): number => {
 // fetches the variant rows the gate needs, then delegates. Returns ok for empty
 // or variant-less line item sets so single-product and quantity-pack flows are
 // never blocked.
+const toBundleLineItem = (item: unknown): BundleValidationLineItem => {
+    const row = (item ?? {}) as Record<string, unknown>;
+    const selections = Array.isArray(row.bundle_selections)
+        ? row.bundle_selections.map((sel) => {
+              const s = (sel ?? {}) as Record<string, unknown>;
+              return { variant_id: typeof s.variant_id === 'string' ? s.variant_id : undefined, quantity: s.quantity };
+          })
+        : null;
+    return {
+        variant_id: typeof row.variant_id === 'string' ? row.variant_id : null,
+        quantity: row.quantity,
+        bundle_selections: selections,
+    };
+};
+
 const assertBundleSelectionsValid = async (
     storeId: string,
     lineItems: unknown,
 ): Promise<BundleValidationResult> => {
     if (!Array.isArray(lineItems) || lineItems.length === 0) return { ok: true };
 
-    const variantIds = lineItems
-        .map((item: any) => item?.variant_id)
-        .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
+    const items = lineItems.map(toBundleLineItem);
+    const variantIds = items
+        .map((item) => item.variant_id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0);
     if (variantIds.length === 0) return { ok: true };
 
     const { data: variants } = await supabaseAdmin
@@ -289,7 +305,7 @@ const assertBundleSelectionsValid = async (
     const variantsMap = new Map<string, ResolvedVariant>();
     (variants ?? []).forEach((v: ResolvedVariant) => variantsMap.set(v.id, v));
 
-    return validateBundleSelections(storeId, lineItems as any[], variantsMap);
+    return validateBundleSelections(storeId, items, variantsMap);
 };
 
 export const ordersRouter = Router();
