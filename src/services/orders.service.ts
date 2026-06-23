@@ -572,6 +572,10 @@ export const ordersService = {
         delivery_link_token: data.delivery_link_token,
         latitude: data.latitude,
         longitude: data.longitude,
+        customer_ruc: data.customer_ruc,
+        customer_ruc_dv: data.customer_ruc_dv,
+        customer_email: data.customer_email,
+        invoice_id: data.invoice_id,
       };
     } catch (error) {
       logger.error('Error confirming order:', error);
@@ -621,6 +625,10 @@ export const ordersService = {
         delivery_link_token: data.delivery_link_token,
         latitude: data.latitude,
         longitude: data.longitude,
+        customer_ruc: data.customer_ruc,
+        customer_ruc_dv: data.customer_ruc_dv,
+        customer_email: data.customer_email,
+        invoice_id: data.invoice_id,
       };
     } catch (error) {
       logger.error('Error marking order as contacted:', error);
@@ -669,6 +677,10 @@ export const ordersService = {
         delivery_link_token: data.delivery_link_token,
         latitude: data.latitude,
         longitude: data.longitude,
+        customer_ruc: data.customer_ruc,
+        customer_ruc_dv: data.customer_ruc_dv,
+        customer_email: data.customer_email,
+        invoice_id: data.invoice_id,
       };
     } catch (error) {
       logger.error('Error rejecting order:', error);
@@ -779,6 +791,10 @@ export const ordersService = {
       deliveredTimestamp: data.delivered_at,
       cancelledTimestamp: data.cancelled_at,
       order_line_items: mappedLineItems,
+      customer_ruc: data.customer_ruc,
+      customer_ruc_dv: data.customer_ruc_dv,
+      customer_email: data.customer_email,
+      invoice_id: data.invoice_id,
     };
   },
 

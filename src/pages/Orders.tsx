@@ -1040,8 +1040,10 @@ export default function Orders() {
     try {
       const updatedOrder = await ordersService.confirm(orderId, requireOrderStoreId(originalOrder!));
       if (updatedOrder) {
-        // Update with server response (no flickering - smooth transition)
-        setOrders(prev => prev.map(o => (o.id === orderId ? updatedOrder : o)));
+        // Merge, do not replace: the status transform omits fields the row already
+        // carries (fiscal RUC/correo, line items), so a wholesale replace would wipe them.
+        setOrders(prev => prev.map(o => (o.id === orderId ? { ...o, ...updatedOrder } : o)));
+        setSelectedOrder(prev => (prev?.id === orderId ? { ...prev, ...updatedOrder } : prev));
         toast({
           title: 'Pedido confirmado',
           description: 'El pedido ha sido confirmado exitosamente',
@@ -1082,8 +1084,9 @@ export default function Orders() {
     try {
       const updatedOrder = await ordersService.reject(orderId, 'Rechazado manualmente', requireOrderStoreId(originalOrder!));
       if (updatedOrder) {
-        // Update with server response
-        setOrders(prev => prev.map(o => (o.id === orderId ? updatedOrder : o)));
+        // Merge, do not replace: keep fiscal data and line items the row already holds.
+        setOrders(prev => prev.map(o => (o.id === orderId ? { ...o, ...updatedOrder } : o)));
+        setSelectedOrder(prev => (prev?.id === orderId ? { ...prev, ...updatedOrder } : prev));
         toast({
           title: 'Pedido rechazado',
           description: 'El pedido ha sido rechazado',
@@ -1135,8 +1138,9 @@ export default function Orders() {
     try {
       const updatedOrder = await ordersService.contact(orderId, requireOrderStoreId(originalOrder!));
       if (updatedOrder) {
-        // Update with server response (no flickering - smooth transition)
-        setOrders(prev => prev.map(o => (o.id === orderId ? updatedOrder : o)));
+        // Merge, do not replace: keep fiscal data and line items the row already holds.
+        setOrders(prev => prev.map(o => (o.id === orderId ? { ...o, ...updatedOrder } : o)));
+        setSelectedOrder(prev => (prev?.id === orderId ? { ...prev, ...updatedOrder } : prev));
         toast({
           title: 'Mensaje enviado',
           description: 'El pedido ha sido marcado como contactado',
@@ -1286,6 +1290,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             }
             : o
         )));
+        setSelectedOrder(prev => (prev?.id === orderId ? { ...prev, ...updatedOrder } : prev));
         toast({
           title: 'Estado actualizado',
           description: `Estado cambiado a ${statusLabels[newStatus]}`,
