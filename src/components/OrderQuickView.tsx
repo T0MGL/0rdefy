@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
-import { Phone, MessageCircle, Eye, MapPin, Package, Calendar, Truck, ExternalLink, Star, Pencil, X, Save, Loader2, StickyNote } from 'lucide-react';
+import { Phone, Mail, MessageCircle, Eye, MapPin, Package, Calendar, Truck, ExternalLink, Star, Pencil, X, Save, Loader2, StickyNote } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef } from 'react';
 
 // Helper function to calculate relative time
@@ -271,6 +271,13 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <span className="font-medium text-foreground">RUC:</span>
                   <span>{order.customer_ruc}{order.customer_ruc_dv !== undefined && order.customer_ruc_dv !== null ? `-${order.customer_ruc_dv}` : ''}</span>
+                </div>
+              )}
+              {order.customer_email && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Mail size={14} />
+                  <span className="font-medium text-foreground">Correo:</span>
+                  <span className="break-all">{order.customer_email}</span>
                 </div>
               )}
               {(() => {
