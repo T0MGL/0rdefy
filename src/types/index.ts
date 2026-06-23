@@ -176,6 +176,12 @@ export interface Order {
   // Financial status from Shopify - CRITICAL for shipping labels
   financial_status?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided' | 'partially_refunded' | 'partially_paid';
   total_price?: number; // Total price of the order
+  // Product subtotal before shipping/discount. Discount guardrail base in
+  // apply_order_discount / confirm_order_atomic (migrations 206/207).
+  subtotal_price?: number;
+  // Shipping the customer owes. Part of the discount base alongside subtotal.
+  // Distinct from shipping_cost (operator-entered carrier rate in this dialog).
+  total_shipping?: number;
   // Discounts
   total_discounts?: number; // Descuento aplicado al pedido
   // Geolocation for map

@@ -109,24 +109,11 @@ export function OrderConfirmationDialog({
   // Determine if order is COD (eligible for "mark as prepaid" option)
   // Show option ONLY if order is COD and NOT already paid online
   const orderIsCOD = order && (
-    ['cash_on_delivery', 'cod', 'manual'].includes((order as any).payment_gateway?.toLowerCase() || '') ||
-    ((order as any).cod_amount && (order as any).cod_amount > 0)
+    ['cash_on_delivery', 'cod', 'manual'].includes(order.payment_gateway?.toLowerCase() || '') ||
+    Boolean(order.cod_amount && order.cod_amount > 0)
   );
-  const orderIsAlreadyPaid = order && ['paid', 'authorized'].includes((order as any).financial_status?.toLowerCase() || '');
+  const orderIsAlreadyPaid = order && ['paid', 'authorized'].includes(order.financial_status?.toLowerCase() || '');
   const showPrepaidOption = orderIsCOD && !orderIsAlreadyPaid;
-
-  // A discount above 95% of gross is blocked server-side as a likely typo. The
-  // gross used here is order.total, the same figure shown as "Total original" in
-  // this dialog and the base the confirm RPC falls back to. When the operator
-  // crosses that line on an unpaid order, we reveal an explicit opt-in (see
-  // allowFullDiscount) so a legitimate full comp / reposicion can go through.
-  const orderGross = order?.total ?? 0;
-  const discountExceedsThreshold =
-    discountEnabled &&
-    !orderIsAlreadyPaid &&
-    discountAmount > 0 &&
-    orderGross > 0 &&
-    discountAmount > orderGross * FULL_DISCOUNT_THRESHOLD;
 
   // Use centralized carriers hook with caching (active carriers only)
   const { carriers, isLoading: loadingCarriers, isError: carriersError, refetch: refetchCarriers, getCarrierById } = useCarriers({ activeOnly: true });
@@ -159,6 +146,36 @@ export function OrderConfirmationDialog({
   const [allowFullDiscount, setAllowFullDiscount] = useState(false);
   const [isPickup, setIsPickup] = useState(false);
   const [markAsPrepaid, setMarkAsPrepaid] = useState(false);
+
+  // Discount guardrail base, mirroring confirm_order_atomic STEP 7 (migration
+  // 207): subtotal_price + total_shipping + the upsell the operator is adding in
+  // this same dialog. The RPC includes that upsell in the base, so the reveal
+  // threshold has to as well, otherwise the opt-in can fail to appear exactly
+  // when the backend will block. Legacy fallback for orders without a stamped
+  // subtotal is the running total_price + upsell (the RPC's v_new_total_price),
+  // NOT total_price + total_discounts: 207 omits total_discounts here, unlike
+  // apply_order_discount (206) on the edit path.
+  const selectedUpsell = upsellAdded && upsellProductId
+    ? products.find((p) => p.id === upsellProductId)
+    : undefined;
+  const upsellTotal = selectedUpsell
+    ? (Number(selectedUpsell.price) || 0) * Math.max(1, upsellQuantity)
+    : 0;
+  const stampedGross = (Number(order?.subtotal_price) || 0) + (Number(order?.total_shipping) || 0);
+  const orderGross = stampedGross > 0
+    ? stampedGross + upsellTotal
+    : (Number(order?.total_price) || 0) + upsellTotal;
+
+  // A discount above 95% of gross is blocked server-side as a likely typo. When
+  // the operator crosses that line on an unpaid order, we reveal an explicit
+  // opt-in (see allowFullDiscount) so a legitimate full comp / reposicion can
+  // go through. Threshold is the exact complement of the backend guardrail.
+  const discountExceedsThreshold =
+    discountEnabled &&
+    !orderIsAlreadyPaid &&
+    discountAmount > 0 &&
+    orderGross > 0 &&
+    discountAmount > orderGross * FULL_DISCOUNT_THRESHOLD;
 
   // City-based coverage system state
   const [citySearch, setCitySearch] = useState('');

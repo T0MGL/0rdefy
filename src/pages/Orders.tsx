@@ -3719,10 +3719,19 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                   customerRuc: orderToEdit.customer_ruc ? `${orderToEdit.customer_ruc}${orderToEdit.customer_ruc_dv !== undefined && orderToEdit.customer_ruc_dv !== null ? '-' + orderToEdit.customer_ruc_dv : ''}` : '',
                   // Receptor email (electronic invoicing)
                   customerEmail: orderToEdit.customer_email || '',
-                  // Order-level discount (Migration 196). gross = current total
-                  // plus the discount already stamped, matching the RPC base.
+                  // Order-level discount. gross base must mirror
+                  // apply_order_discount (migration 206): subtotal_price +
+                  // total_shipping, with total_price + total_discounts as the
+                  // legacy fallback only when no subtotal is stamped. Using the
+                  // fallback unconditionally disagreed with the backend at the
+                  // 95%-of-gross boundary for orders with nonzero shipping.
                   discountAmount: Number(orderToEdit.total_discounts) || 0,
-                  grossTotal: (Number(orderToEdit.total_price) || 0) + (Number(orderToEdit.total_discounts) || 0),
+                  grossTotal: (() => {
+                    const stamped = (Number(orderToEdit.subtotal_price) || 0) + (Number(orderToEdit.total_shipping) || 0);
+                    return stamped > 0
+                      ? stamped
+                      : (Number(orderToEdit.total_price) || 0) + (Number(orderToEdit.total_discounts) || 0);
+                  })(),
                 }}
                 onSubmit={handleUpdateOrder}
                 onCancel={() => {
