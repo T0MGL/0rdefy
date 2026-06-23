@@ -60,6 +60,8 @@ import { useSubscription } from '@/contexts/SubscriptionContext';
 import { printLabelPDF } from '@/components/printing/printLabelPDF';
 import { getOrderDisplayId } from '@/utils/orderDisplay';
 import { cn } from '@/lib/utils';
+import { FULL_DISCOUNT_THRESHOLD } from '@/lib/constants';
+import { AnimatePresence, motion } from 'framer-motion';
 import type { Order, Product } from '@/types';
 import { DeliveryPreferencesAccordion, type DeliveryPreferences } from '@/components/DeliveryPreferencesAccordion';
 import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
@@ -113,6 +115,19 @@ export function OrderConfirmationDialog({
   const orderIsAlreadyPaid = order && ['paid', 'authorized'].includes((order as any).financial_status?.toLowerCase() || '');
   const showPrepaidOption = orderIsCOD && !orderIsAlreadyPaid;
 
+  // A discount above 95% of gross is blocked server-side as a likely typo. The
+  // gross used here is order.total, the same figure shown as "Total original" in
+  // this dialog and the base the confirm RPC falls back to. When the operator
+  // crosses that line on an unpaid order, we reveal an explicit opt-in (see
+  // allowFullDiscount) so a legitimate full comp / reposicion can go through.
+  const orderGross = order?.total ?? 0;
+  const discountExceedsThreshold =
+    discountEnabled &&
+    !orderIsAlreadyPaid &&
+    discountAmount > 0 &&
+    orderGross > 0 &&
+    discountAmount > orderGross * FULL_DISCOUNT_THRESHOLD;
+
   // Use centralized carriers hook with caching (active carriers only)
   const { carriers, isLoading: loadingCarriers, isError: carriersError, refetch: refetchCarriers, getCarrierById } = useCarriers({ activeOnly: true });
 
@@ -138,6 +153,10 @@ export function OrderConfirmationDialog({
   const [openZoneCombobox, setOpenZoneCombobox] = useState(false);
   const [discountEnabled, setDiscountEnabled] = useState(false);
   const [discountAmount, setDiscountAmount] = useState<number>(0);
+  // Operator opt-in for a discount above 95% of gross (legitimate comp /
+  // reposicion). Defaults false so it is never sent by accident; the backend
+  // rejects such a discount with FULL_DISCOUNT_BLOCKED unless this is set.
+  const [allowFullDiscount, setAllowFullDiscount] = useState(false);
   const [isPickup, setIsPickup] = useState(false);
   const [markAsPrepaid, setMarkAsPrepaid] = useState(false);
 
@@ -535,6 +554,7 @@ export function OrderConfirmationDialog({
       setOpenProductCombobox(false);
       setDiscountEnabled(false);
       setDiscountAmount(0);
+      setAllowFullDiscount(false);
       setMarkAsPrepaid(false);
       setOpenCityCombobox(false);
       // Reset API-fetched role (will be re-fetched by the settings useEffect)
@@ -800,6 +820,14 @@ export function OrderConfirmationDialog({
       // in the discount section). The input is disabled too, this is the guard.
       if (discountEnabled && discountAmount > 0 && !orderIsAlreadyPaid) {
         payload.discount_amount = discountAmount;
+
+        // Only authorize a >95%-of-gross discount when the operator both crossed
+        // the threshold and explicitly opted in. Otherwise we leave the flag off
+        // so the backend rejects the discount with FULL_DISCOUNT_BLOCKED, which
+        // catches the accidental-typo case this guardrail exists for.
+        if (discountExceedsThreshold && allowFullDiscount) {
+          payload.allow_full_discount = true;
+        }
       }
 
       // Add mark as prepaid if selected (COD order paid via transfer)
@@ -956,6 +984,7 @@ export function OrderConfirmationDialog({
     setIsPickup(false);
     setDiscountEnabled(false);
     setDiscountAmount(0);
+    setAllowFullDiscount(false);
     setMarkAsPrepaid(false);
     setDeliveryPreferences(null);
     setCustomerRuc('');
@@ -1295,6 +1324,7 @@ export function OrderConfirmationDialog({
                       setDiscountEnabled(checked);
                       if (!checked) {
                         setDiscountAmount(0);
+                        setAllowFullDiscount(false);
                       }
                     }}
                   />
@@ -1340,6 +1370,52 @@ export function OrderConfirmationDialog({
                         </p>
                       </div>
                     )}
+
+                    {/* Above 95% of gross the backend treats the discount as a
+                        typo and blocks it (FULL_DISCOUNT_BLOCKED). This opt-in is
+                        the only legitimate escape hatch (full comp / reposicion).
+                        Kept friction-ful and off by default so it is never
+                        toggled by accident, which is the bug it guards against. */}
+                    <AnimatePresence initial={false}>
+                      {discountExceedsThreshold && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.18, ease: 'easeOut' }}
+                          className="overflow-hidden"
+                        >
+                          <div className={cn(
+                            "flex items-start gap-3 p-3 rounded-lg border-2",
+                            allowFullDiscount
+                              ? "border-red-500 bg-red-50 dark:bg-red-950/30"
+                              : "border-red-300 dark:border-red-800 bg-red-50/60 dark:bg-red-950/20"
+                          )}>
+                            <AlertTriangle className="h-5 w-5 mt-0.5 flex-shrink-0 text-red-600 dark:text-red-400" />
+                            <div className="space-y-2 flex-1">
+                              <Label htmlFor="allow-full-discount" className="flex flex-col space-y-1 cursor-pointer">
+                                <span className="font-semibold text-red-800 dark:text-red-200">
+                                  Autorizar descuento total (reposición / comp)
+                                </span>
+                                <span className="font-normal text-xs text-red-700 dark:text-red-300">
+                                  Este descuento supera el 95% del total. Registrará el pedido con ingreso casi nulo. Activá esto solo para reposiciones o pedidos sin cargo legítimos, nunca para corregir un monto mal tipeado.
+                                </span>
+                              </Label>
+                              <div className="flex items-center gap-2 pt-1">
+                                <Switch
+                                  id="allow-full-discount"
+                                  checked={allowFullDiscount}
+                                  onCheckedChange={setAllowFullDiscount}
+                                />
+                                <span className="text-xs font-medium text-red-800 dark:text-red-200">
+                                  Confirmo que es un pedido sin cargo intencional
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 )}
               </div>

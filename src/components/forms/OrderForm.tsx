@@ -34,12 +34,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { Loader2, Check, ChevronsUpDown, MapPin, Truck, Store, Package, Layers, StickyNote, Tag } from 'lucide-react';
+import { Loader2, Check, ChevronsUpDown, MapPin, Truck, Store, Package, Layers, StickyNote, Tag, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { productsService } from '@/services/products.service';
 import { useState, useEffect, useRef } from 'react';
 import { Product, ProductVariant, BundleSelection, isBundle, isVariation } from '@/types';
 import { cn } from '@/lib/utils';
+import { FULL_DISCOUNT_THRESHOLD } from '@/lib/constants';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { DeliveryPreferencesAccordion, type DeliveryPreferences } from '@/components/DeliveryPreferencesAccordion';
@@ -110,6 +111,10 @@ export interface OrderFormData extends OrderFormValues {
   // apply_order_discount RPC after the order update persists, so it never
   // touches line items.
   discountAmount?: number;
+  // Operator opt-in to authorize a discount above 95% of gross (legitimate
+  // comp / reposicion). Only sent when set; otherwise the backend rejects such
+  // a discount with FULL_DISCOUNT_BLOCKED. Defaults false.
+  allowFullDiscount?: boolean;
   // Current gross total of the order, used in the edit flow to preview the
   // post-discount total. Read-only context, not submitted.
   grossTotal?: number;
@@ -185,6 +190,9 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
       ? String(initialData.discountAmount)
       : ''
   );
+  // Opt-in for a discount above 95% of gross. Off by default so the >95% case
+  // is rejected unless the operator explicitly authorizes a full comp.
+  const [allowFullDiscount, setAllowFullDiscount] = useState(false);
 
   // Keep digits and at most one decimal point. Drops any extra dots so values
   // like '1.2.3' can never reach Number() and coerce to NaN -> 0 silently.
@@ -676,6 +684,19 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
           ? (() => {
               const parsed = Number(discountInput);
               return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+            })()
+          : undefined,
+        // Only authorize a >95%-of-gross discount when the operator both crossed
+        // the threshold and explicitly opted in. Below that, or unchecked, we
+        // leave it false so the guardrail still catches a mistyped amount.
+        allowFullDiscount: isEditMode
+          ? (() => {
+              const gross = Number(initialData?.grossTotal) || 0;
+              const parsed = Number(discountInput);
+              const exceeds =
+                Number.isFinite(parsed) && parsed > 0 && gross > 0 &&
+                parsed > gross * FULL_DISCOUNT_THRESHOLD;
+              return exceeds && allowFullDiscount;
             })()
           : undefined,
         // Bundle composition (Migration 146)
@@ -1551,6 +1572,11 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
           const effectiveDiscount = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, gross) : 0;
           const exceedsTotal = Number.isFinite(parsed) && parsed > gross && gross > 0;
           const resultingTotal = Math.max(0, gross - effectiveDiscount);
+          // Server rejects a discount over 95% of gross as a likely typo. Reveal
+          // the opt-in only when the operator crosses that line (see allowFullDiscount).
+          const discountExceedsThreshold =
+            Number.isFinite(parsed) && parsed > 0 && gross > 0 &&
+            parsed > gross * FULL_DISCOUNT_THRESHOLD;
 
           return (
             <div className="space-y-1 rounded-md border border-border bg-muted/30 p-3">
@@ -1594,6 +1620,51 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
               <p className="text-xs text-muted-foreground">
                 No modifica los productos. Se recalcula el total y el monto a cobrar.
               </p>
+
+              {/* Above 95% of gross the backend blocks the discount as a typo
+                  (FULL_DISCOUNT_BLOCKED). This opt-in is the only legitimate
+                  escape hatch (full comp / reposicion), kept friction-ful and
+                  off by default so it is never toggled by accident. */}
+              <AnimatePresence initial={false}>
+                {discountExceedsThreshold && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                    className="overflow-hidden"
+                  >
+                    <div className={cn(
+                      "mt-2 flex items-start gap-3 p-3 rounded-md border-2",
+                      allowFullDiscount
+                        ? "border-red-500 bg-red-50 dark:bg-red-950/30"
+                        : "border-red-300 dark:border-red-800 bg-red-50/60 dark:bg-red-950/20"
+                    )}>
+                      <AlertTriangle className="h-5 w-5 mt-0.5 flex-shrink-0 text-red-600 dark:text-red-400" />
+                      <div className="space-y-2 flex-1">
+                        <Label htmlFor="order-allow-full-discount" className="flex flex-col space-y-1 cursor-pointer">
+                          <span className="font-semibold text-red-800 dark:text-red-200">
+                            Autorizar descuento total (reposición / comp)
+                          </span>
+                          <span className="font-normal text-xs text-red-700 dark:text-red-300">
+                            Este descuento supera el 95% del total. Registrará el pedido con ingreso casi nulo. Activá esto solo para reposiciones o pedidos sin cargo legítimos, nunca para corregir un monto mal tipeado.
+                          </span>
+                        </Label>
+                        <div className="flex items-center gap-2 pt-1">
+                          <Switch
+                            id="order-allow-full-discount"
+                            checked={allowFullDiscount}
+                            onCheckedChange={setAllowFullDiscount}
+                          />
+                          <span className="text-xs font-medium text-red-800 dark:text-red-200">
+                            Confirmo que es un pedido sin cargo intencional
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           );
         })()}

@@ -455,11 +455,18 @@ export const ordersService = {
   // Order shape the GET endpoint builds (joined line_items, normalized fields).
   // Returning that raw row directly would pollute the cached Order on merge, so
   // we re-fetch through getById to get the correctly shaped Order.
-  applyDiscount: async (id: string, discountAmount: number, storeId?: string): Promise<Order | undefined> => {
+  applyDiscount: async (id: string, discountAmount: number, storeId?: string, allowFullDiscount = false): Promise<Order | undefined> => {
+    // allow_full_discount is only sent when explicitly authorized. Without it the
+    // RPC rejects a >95%-of-gross discount with FULL_DISCOUNT_BLOCKED, which is
+    // the guardrail against an operator mistyping the amount.
     const response = await fetch(`${API_BASE_URL}/orders/${id}/discount`, {
       method: 'POST',
       headers: storeId ? getOrderScopedHeaders(storeId) : getHeaders(),
-      body: JSON.stringify({ discount_amount: discountAmount }),
+      body: JSON.stringify(
+        allowFullDiscount
+          ? { discount_amount: discountAmount, allow_full_discount: true }
+          : { discount_amount: discountAmount }
+      ),
     });
 
     if (!response.ok) {

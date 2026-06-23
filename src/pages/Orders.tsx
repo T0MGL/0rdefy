@@ -106,6 +106,8 @@ interface OrderFormData {
   bundleSelections?: import('@/types').BundleSelection[] | null;
   // Absolute order-level discount, set only in edit mode (Migration 196).
   discountAmount?: number;
+  // Operator opt-in to authorize a discount above 95% of gross (full comp).
+  allowFullDiscount?: boolean;
 }
 
 type LineItem = NonNullable<Order['order_line_items']>[number];
@@ -1596,7 +1598,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
       if (updatedOrder && data.discountAmount !== undefined) {
         const nextDiscount = Number(data.discountAmount) || 0;
         try {
-          const discounted = await ordersService.applyDiscount(orderToEdit.id, nextDiscount, editStoreId);
+          const discounted = await ordersService.applyDiscount(orderToEdit.id, nextDiscount, editStoreId, data.allowFullDiscount === true);
           if (discounted) {
             updatedOrder = discounted;
           }
