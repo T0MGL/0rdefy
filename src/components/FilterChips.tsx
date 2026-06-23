@@ -44,6 +44,20 @@ export function FilterChips({ storageKey, onFilterApply, activeFilterId }: Filte
           }
           return filter;
         });
+        // Backfill the Contactados chip for users whose saved filters predate it.
+        // Inserted right after Pendientes to match the order lifecycle.
+        if (storageKey === 'orders_filters' && !parsed.some(f => f.filters?.status === 'contacted')) {
+          const contactedChip: SavedFilter = {
+            id: 'contacted',
+            name: 'Contactados',
+            icon: '💬',
+            filters: { status: 'contacted' },
+            isPermanent: true,
+          };
+          const pendingIdx = parsed.findIndex(f => f.filters?.status === 'pending');
+          parsed.splice(pendingIdx >= 0 ? pendingIdx + 1 : 0, 0, contactedChip);
+          needsMigration = true;
+        }
         if (needsMigration) {
           localStorage.setItem(storageKey, JSON.stringify(parsed));
         }
@@ -61,6 +75,13 @@ export function FilterChips({ storageKey, onFilterApply, activeFilterId }: Filte
           name: 'Pendientes',
           icon: '⏰',
           filters: { status: 'pending' },
+          isPermanent: true,
+        },
+        {
+          id: 'contacted',
+          name: 'Contactados',
+          icon: '💬',
+          filters: { status: 'contacted' },
           isPermanent: true,
         },
         {
