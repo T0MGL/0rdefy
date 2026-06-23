@@ -17,6 +17,14 @@
 // makeup of color variations). Quantity-only packs (Solenne) have no
 // bundle_components and keep null, exactly as before. This mirrors the
 // definition migration 181 itself uses for composed vs parent-pool inventory.
+//
+// What a selection may point at is NOT the single bundle_components default
+// row (each NOCTE color-pack variant carries exactly one, its own default
+// color). Mixed-color packs are a real, supported case (prod orders
+// ORD-20260621-ee620f Rojo+Naranja, ORD-20260622-7f3630 Rojo+Naranja+Amarillo).
+// A slot can take ANY active sibling color variation of the bundle's PARENT
+// product. So bundle_components presence is only the "is this a color pack"
+// gate; the allowed color set is the parent product's active variations.
 // ================================================================
 
 import { supabaseAdmin } from '../db/connection';
@@ -55,8 +63,9 @@ const toPositiveInt = (value: unknown): number | null => {
  *
  * Two DB reads, both batched to avoid N+1:
  *   1. bundle_components for the candidate bundle variants (presence => color pack).
- *   2. the selected component variants (active + belonging to this store and to
- *      the bundle's parent product) only for lines that supplied selections.
+ *   2. the active sibling variations of every color pack's parent product, the
+ *      universe a slot may be composed from. A selection is valid iff it is an
+ *      active variation of its own bundle's parent.
  */
 export async function validateBundleSelections(
     storeId: string,
@@ -71,35 +80,43 @@ export async function validateBundleSelections(
 
     if (bundleVariantIds.length === 0) return { ok: true };
 
-    // A bundle is a color pack iff it has component rows. componentsByBundle maps
-    // bundle_variant_id -> set of its allowed component variation ids.
+    // A bundle is a color pack iff it has at least one component row. We only
+    // need the boolean here, not the rows: bundle_components carries each pack's
+    // single default color, which is NOT the universe a slot may pick from.
     const { data: components } = await db
         .from('bundle_components')
-        .select('bundle_variant_id, component_variant_id')
+        .select('bundle_variant_id')
         .eq('store_id', storeId)
         .in('bundle_variant_id', Array.from(new Set(bundleVariantIds)));
 
-    const componentsByBundle = new Map<string, Set<string>>();
-    for (const row of components ?? []) {
-        const set = componentsByBundle.get(row.bundle_variant_id) ?? new Set<string>();
-        set.add(row.component_variant_id);
-        componentsByBundle.set(row.bundle_variant_id, set);
+    const colorPackVariantIds = new Set<string>();
+    for (const row of components ?? []) colorPackVariantIds.add(row.bundle_variant_id);
+
+    // The allowed color set for a slot is its bundle's PARENT product active
+    // variations (any color, mixed packs allowed), not the bundle_components
+    // default. Resolve the parent product_id of every color pack in this order
+    // and batch-fetch their active variations in one query (no N+1).
+    const parentProductIds = new Set<string>();
+    for (const id of colorPackVariantIds) {
+        const v = variantsMap.get(id);
+        if (v) parentProductIds.add(v.product_id);
     }
 
-    // Active set of every component referenced by any color pack in this order,
-    // so a selection cannot point at a deactivated color variation.
-    const allComponentIds = Array.from(
-        new Set([...componentsByBundle.values()].flatMap((set) => Array.from(set))),
-    );
-    const activeComponents = new Set<string>();
-    if (allComponentIds.length > 0) {
+    // product_id -> set of its active variation ids (the colors a slot can be).
+    const activeVariationsByParent = new Map<string, Set<string>>();
+    if (parentProductIds.size > 0) {
         const { data: variations } = await db
             .from('product_variants')
-            .select('id')
+            .select('id, product_id')
             .eq('store_id', storeId)
             .eq('is_active', true)
-            .in('id', allComponentIds);
-        for (const row of variations ?? []) activeComponents.add(row.id);
+            .in('product_id', Array.from(parentProductIds))
+            .or('variant_type.eq.variation,and(uses_shared_stock.eq.false,variant_type.is.null)');
+        for (const row of variations ?? []) {
+            const set = activeVariationsByParent.get(row.product_id) ?? new Set<string>();
+            set.add(row.id);
+            activeVariationsByParent.set(row.product_id, set);
+        }
     }
 
     for (let i = 0; i < lineItems.length; i++) {
@@ -107,10 +124,11 @@ export async function validateBundleSelections(
         const variant = item.variant_id ? variantsMap.get(item.variant_id) : undefined;
         if (!variant || !isBundleVariant(variant)) continue;
 
-        const allowedComponents = componentsByBundle.get(variant.id);
-        // No components => quantity-only pack. Selections are not required; the
-        // handler stores null, preserving the Solenne path byte-for-byte.
-        if (!allowedComponents || allowedComponents.size === 0) continue;
+        // No component rows => quantity-only pack. Selections are not required;
+        // the handler stores null, preserving the Solenne path byte-for-byte.
+        if (!colorPackVariantIds.has(variant.id)) continue;
+
+        const allowedColors = activeVariationsByParent.get(variant.product_id) ?? new Set<string>();
 
         const lineQty = toPositiveInt(item.quantity);
         if (lineQty === null) {
@@ -131,7 +149,7 @@ export async function validateBundleSelections(
 
         let selectedUnits = 0;
         for (const sel of selections) {
-            if (!sel.variant_id || !allowedComponents.has(sel.variant_id) || !activeComponents.has(sel.variant_id)) {
+            if (!sel.variant_id || !allowedColors.has(sel.variant_id)) {
                 return {
                     ok: false,
                     lineIndex: i,
