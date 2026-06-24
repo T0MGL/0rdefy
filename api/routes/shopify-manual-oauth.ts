@@ -399,6 +399,9 @@ shopifyManualOAuthRouter.get('/callback', async (req: Request, res: Response) =>
       shop_currency: shopData?.currency || null,
       shop_timezone: shopData?.timezone || null,
       shop_data: shopData,
+      // Reinstall over an uninstalled row must clear the prior uninstall markers.
+      uninstalled_at: null,
+      sync_error: null,
       installed_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };

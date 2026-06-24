@@ -647,6 +647,10 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
           scope,
           shop_name: safeShopName,
           status: 'active',
+          // Reinstall must clear the prior uninstall markers, otherwise the row
+          // reads active while still carrying a stale uninstalled_at timestamp.
+          uninstalled_at: null,
+          sync_error: null,
           updated_at: new Date().toISOString()
         })
         .eq('shop', shop);

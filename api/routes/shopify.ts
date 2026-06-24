@@ -310,6 +310,9 @@ shopifyRouter.post('/configure', async (req: AuthRequest, res: Response) => {
           import_orders: config.import_orders,
           import_historical_orders: config.import_historical_orders,
           status: 'active',
+          // Reconnecting an existing integration must clear any prior uninstall markers.
+          uninstalled_at: null,
+          sync_error: null,
           shopify_shop_id: connectionTest.shop_data.id?.toString(),
           shop_name: connectionTest.shop_data.name,
           shop_email: connectionTest.shop_data.email,
@@ -2282,6 +2285,10 @@ const appUninstalledHandler = async (req: Request, res: Response) => {
       .update({
         status: 'uninstalled',
         uninstalled_at: new Date().toISOString(),
+        // The token is dead once Shopify revokes it on uninstall; clear it so an
+        // uninstalled row never carries live credentials, matching the other handlers.
+        access_token: null,
+        scope: null,
         updated_at: new Date().toISOString()
       })
       .eq('id', integration.id);

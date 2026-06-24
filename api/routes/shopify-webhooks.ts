@@ -701,11 +701,14 @@ router.post('/app-uninstalled', async (req: Request, res: Response) => {
       return res.status(404).send('Integration not found');
     }
 
-    // Mark as inactive and clear sensitive data
+    // Mark as uninstalled and clear sensitive data. status and uninstalled_at must
+    // move together so the row never reads active while carrying an uninstall marker,
+    // and so the value matches the canonical handler in shopify.ts.
     const { error } = await supabaseAdmin
       .from('shopify_integrations')
       .update({
-        status: 'inactive',
+        status: 'uninstalled',
+        uninstalled_at: new Date().toISOString(),
         access_token: null,
         scope: null,
         updated_at: new Date().toISOString()
@@ -720,11 +723,11 @@ router.post('/app-uninstalled', async (req: Request, res: Response) => {
       .update({ is_active: false })
       .eq('integration_id', integration.id);
 
-    logger.info('SERVER', `✅ [APP-UNINSTALLED] Integration deactivated for ${shopDomain}`);
+    logger.info('SERVER', `✅ [APP-UNINSTALLED] Integration marked as uninstalled for ${shopDomain}`);
 
     res.status(200).send('OK');
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('SERVER', '❌ [APP-UNINSTALLED] Error:', error);
     // Return 200 to prevent Shopify infinite retries on persistent errors
     res.status(200).send('Error logged, webhook acknowledged');
