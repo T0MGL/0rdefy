@@ -23,25 +23,8 @@ import {
 } from './ui/select';
 import { Phone, Mail, MessageCircle, Eye, MapPin, Package, Calendar, Truck, ExternalLink, Star, Pencil, X, Save, Loader2, StickyNote } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef } from 'react';
-
-// Helper function to calculate relative time
-function getRelativeTime(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffMins < 1) return 'Hace un momento';
-  if (diffMins < 60) return `Hace ${diffMins} min`;
-  if (diffHours < 24) return `Hace ${diffHours} hora${diffHours > 1 ? 's' : ''}`;
-  if (diffDays === 1) return 'Hace 1 día';
-  if (diffDays < 7) return `Hace ${diffDays} días`;
-
-  // More than a week, show formatted date
-  return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
-}
+import { useAuth } from '@/contexts/AuthContext';
+import { formatRelativeTime } from '@/utils/timeUtils';
 
 interface OrderQuickViewProps {
   order: Order | null;
@@ -91,6 +74,11 @@ const statusLabels = {
 
 export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNotesUpdate }: OrderQuickViewProps) {
   const { toast } = useToast();
+  const { currentStore } = useAuth();
+  // Status timestamps are stored as UTC instants; render them in the store's
+  // timezone so every operator sees the same local time regardless of browser.
+  const storeTz = currentStore?.timezone || 'America/Asuncion';
+  const relTime = (value?: string | null) => (value ? formatRelativeTime(value, storeTz) : null);
   const [currentStatus, setCurrentStatus] = useState<Order['status']>(order?.status || 'pending');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -713,67 +701,40 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
           <div className="space-y-3">
             <h4 className="font-semibold text-sm text-muted-foreground">TIMELINE</h4>
             <div className="space-y-4 pl-4 border-l-2 border-primary/30">
-              <div className="relative">
-                <div className="absolute -left-[21px] w-3 h-3 rounded-full bg-primary" />
-                <div className="text-sm">
-                  <p className="font-medium">Pedido creado</p>
-                  <p className="text-xs text-muted-foreground">{getRelativeTime(order.date)}</p>
-                </div>
-              </div>
-              {currentStatus !== 'pending' && (
-                <div className="relative">
-                  <div className="absolute -left-[21px] w-3 h-3 rounded-full bg-primary" />
-                  <div className="text-sm">
-                    <p className="font-medium">Confirmado</p>
-                    <p className="text-xs text-muted-foreground">
-                      {(order as any).confirmationTimestamp
-                        ? getRelativeTime((order as any).confirmationTimestamp)
-                        : 'Sin fecha'}
-                    </p>
+              {(() => {
+                const o = order as any;
+                // One entry per status that recorded a precise timestamp. Each
+                // dedicated *_at column (migration 206) renders as the order's
+                // local instant in the store timezone. Negative outcomes use a
+                // red marker. Steps without a timestamp are omitted.
+                const steps: Array<{ label: string; ts?: string | null; tone?: 'negative' }> = [
+                  { label: 'Pedido creado', ts: order.date },
+                  { label: 'Confirmado', ts: o.confirmationTimestamp },
+                  { label: 'En preparación', ts: o.inPreparationTimestamp },
+                  { label: 'Listo para enviar', ts: o.readyToShipTimestamp },
+                  { label: 'En tránsito', ts: o.inTransitTimestamp },
+                  { label: 'En reparto', ts: o.outForDeliveryTimestamp },
+                  { label: 'Entregado', ts: o.deliveredTimestamp },
+                  { label: 'Incidencia', ts: o.incidentTimestamp, tone: 'negative' },
+                  { label: 'Cancelado', ts: o.cancelledTimestamp, tone: 'negative' },
+                  { label: 'Rechazado', ts: o.rejectedTimestamp, tone: 'negative' },
+                  { label: 'Devuelto', ts: o.returnedTimestamp, tone: 'negative' },
+                ].filter((s) => s.ts);
+
+                return steps.map((s, i) => (
+                  <div key={`${s.label}-${i}`} className="relative">
+                    <div
+                      className={`absolute -left-[21px] w-3 h-3 rounded-full ${
+                        s.tone === 'negative' ? 'bg-red-500' : 'bg-primary'
+                      }`}
+                    />
+                    <div className="text-sm">
+                      <p className="font-medium">{s.label}</p>
+                      <p className="text-xs text-muted-foreground">{relTime(s.ts)}</p>
+                    </div>
                   </div>
-                </div>
-              )}
-              {(currentStatus === 'shipped' || currentStatus === 'in_transit' || currentStatus === 'delivered') && (
-                <div className="relative">
-                  <div className="absolute -left-[21px] w-3 h-3 rounded-full bg-primary" />
-                  <div className="text-sm">
-                    <p className="font-medium">En tránsito</p>
-                    <p className="text-xs text-muted-foreground">
-                      {(order as any).inTransitTimestamp
-                        ? getRelativeTime((order as any).inTransitTimestamp)
-                        : (order as any).confirmationTimestamp
-                        ? getRelativeTime((order as any).confirmationTimestamp)
-                        : 'En proceso'}
-                    </p>
-                  </div>
-                </div>
-              )}
-              {currentStatus === 'delivered' && (
-                <div className="relative">
-                  <div className="absolute -left-[21px] w-3 h-3 rounded-full bg-primary" />
-                  <div className="text-sm">
-                    <p className="font-medium">Entregado</p>
-                    <p className="text-xs text-muted-foreground">
-                      {(order as any).deliveredTimestamp
-                        ? getRelativeTime((order as any).deliveredTimestamp)
-                        : 'Recientemente'}
-                    </p>
-                  </div>
-                </div>
-              )}
-              {(currentStatus === 'cancelled' || currentStatus === 'rejected') && (
-                <div className="relative">
-                  <div className="absolute -left-[21px] w-3 h-3 rounded-full bg-red-500" />
-                  <div className="text-sm">
-                    <p className="font-medium">{currentStatus === 'cancelled' ? 'Cancelado' : 'Rechazado'}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {(order as any).cancelledTimestamp
-                        ? getRelativeTime((order as any).cancelledTimestamp)
-                        : 'Sin fecha'}
-                    </p>
-                  </div>
-                </div>
-              )}
+                ));
+              })()}
             </div>
           </div>
 
@@ -806,7 +767,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                 )}
                 {order.rated_at && (
                   <p className="text-xs text-amber-600 dark:text-amber-400/70 mt-2">
-                    Calificado {getRelativeTime(order.rated_at)}
+                    Calificado {relTime(order.rated_at)}
                   </p>
                 )}
               </div>

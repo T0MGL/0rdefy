@@ -1,7 +1,7 @@
 import { Notification, NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from '@/types/notification';
 import type { Order, Product, Ad } from '@/types';
 import type { Carrier } from '@/services/carriers.service';
-import { isOlderThan, getHoursDifference, formatTimeAgo, getNow, getISOWeekKey } from './timeUtils';
+import { isOlderThan, getHoursDifference, formatTimeAgo, getNow, getISOWeekKey, getNowPartsInTz } from './timeUtils';
 import { isConfirmed, isPending, isReadyToShip } from '@/lib/status';
 import { logger } from '@/utils/logger';
 import { hashItemIds } from './notificationIds';
@@ -165,8 +165,8 @@ export function generateNotifications(
     const carriersFeatureEnabled = flags.carriers !== false;
     const notifications: Notification[] = [];
 
-    // Check quiet hours for non-critical notifications
-    const isQuietHours = checkQuietHours(preferences);
+    // Check quiet hours for non-critical notifications (evaluated in store tz)
+    const isQuietHours = checkQuietHours(preferences, data.storeTimezone);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // ORDER NOTIFICATIONS
@@ -619,13 +619,16 @@ export function generateNotifications(
 /**
  * Check if current time is within quiet hours
  */
-function checkQuietHours(preferences: NotificationPreferences): boolean {
+function checkQuietHours(preferences: NotificationPreferences, storeTimezone?: string): boolean {
   try {
     if (!preferences.quietHoursEnabled) return false;
 
-    const now = new Date();
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
+    // Quiet hours are the store's operational hours, so evaluate "now" in the
+    // store timezone rather than the browser's (an operator abroad must not
+    // shift the store's quiet window).
+    const { hour: currentHour, minute: currentMinute } = getNowPartsInTz(
+      storeTimezone || 'America/Asuncion'
+    );
     const currentTime = currentHour * 60 + currentMinute;
 
     const startParts = (preferences.quietHoursStart || '22:00').split(':');

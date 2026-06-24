@@ -100,18 +100,51 @@ export function endOfDayInTimezone(date: Date, timezone: string): string {
 }
 
 /**
- * Safely parse a date, returning null if invalid
+ * Detects whether an ISO-ish datetime string already carries timezone info
+ * (a trailing "Z" or a "+hh:mm" / "-hh:mm" offset after the time part).
  */
-function safeParseDate(date: string | Date | null | undefined): Date | null {
-  if (!date) return null;
+function hasTimezoneDesignator(s: string): boolean {
+  // Offset (+hh:mm / -hhmm) or trailing Z, only valid after the time component.
+  return /([zZ]|[+-]\d{2}:?\d{2})$/.test(s.trim());
+}
+
+/**
+ * Normalize a timestamp coming from the API/DB.
+ *
+ * Postgres `timestamp without time zone` columns are serialized by PostgREST
+ * WITHOUT an offset (e.g. "2026-06-24T18:00:00"). Every timestamp we store is
+ * UTC wall-clock (the backend writes new Date().toISOString() and SQL NOW()
+ * with the session in UTC), so a naive string must be read as UTC. Plain
+ * `new Date("2026-06-24T18:00:00")` would instead interpret it in the browser's
+ * local timezone and shift the instant — that is the root cause of imprecise
+ * status times. We append "Z" to naive datetime strings to anchor them in UTC.
+ *
+ * Strings that already have an offset/Z, date-only strings ("2026-06-24",
+ * parsed as UTC midnight by spec) and Date objects are left untouched.
+ */
+export function parseDbTimestamp(value: string | Date | null | undefined): Date | null {
+  if (!value) return null;
   try {
-    const parsed = typeof date === 'string' ? new Date(date) : date;
-    // Check if date is valid
-    if (isNaN(parsed.getTime())) return null;
-    return parsed;
+    if (value instanceof Date) {
+      return isNaN(value.getTime()) ? null : value;
+    }
+    const s = String(value).trim();
+    if (!s) return null;
+    // Only datetime strings (with a time component) need UTC anchoring.
+    const needsUtc = s.includes('T') && !hasTimezoneDesignator(s);
+    const parsed = new Date(needsUtc ? `${s}Z` : s);
+    return isNaN(parsed.getTime()) ? null : parsed;
   } catch {
     return null;
   }
+}
+
+/**
+ * Safely parse a date, returning null if invalid.
+ * Naive (offset-less) datetime strings from the DB are interpreted as UTC.
+ */
+function safeParseDate(date: string | Date | null | undefined): Date | null {
+  return parseDbTimestamp(date);
 }
 
 /**
@@ -177,16 +210,15 @@ export function formatTimeAgo(from: string | Date): string {
 }
 
 /**
- * Format a date in user's timezone
+ * Format a date in an EXPLICIT IANA timezone (e.g. the store timezone).
+ * Naive DB timestamps are read as UTC first, then rendered in `timezone`.
  * @returns Formatted date string, or 'fecha inválida' if input is invalid
  */
-export function formatDateInUserTz(date: string | Date, options?: Intl.DateTimeFormatOptions): string {
+export function formatDateInTz(date: string | Date, timezone: string, options?: Intl.DateTimeFormatOptions): string {
   const dateObj = safeParseDate(date);
   if (!dateObj) return 'fecha inválida';
 
   try {
-    const timezone = getUserTimezone();
-
     const defaultOptions: Intl.DateTimeFormatOptions = {
       timeZone: timezone,
       year: 'numeric',
@@ -200,6 +232,73 @@ export function formatDateInUserTz(date: string | Date, options?: Intl.DateTimeF
     return new Intl.DateTimeFormat('es-ES', defaultOptions).format(dateObj);
   } catch {
     return 'fecha inválida';
+  }
+}
+
+/**
+ * Format a date in user's timezone
+ * @returns Formatted date string, or 'fecha inválida' if input is invalid
+ */
+export function formatDateInUserTz(date: string | Date, options?: Intl.DateTimeFormatOptions): string {
+  return formatDateInTz(date, getUserTimezone(), options);
+}
+
+/**
+ * Relative time ("Hace 2 horas") with the absolute-date fallback rendered in a
+ * specific timezone (the store timezone). The relative delta is computed from
+ * the absolute instant, so it is timezone-independent and correct as long as
+ * the timestamp is parsed as UTC (see parseDbTimestamp). Only the ">1 week"
+ * branch shows a calendar date, which we anchor to `timezone` so it reads as
+ * the store's local day rather than the browser's.
+ *
+ * @param timezone IANA tz; falls back to America/Asuncion only if omitted.
+ */
+export function formatRelativeTime(date: string | Date, timezone: string = 'America/Asuncion'): string {
+  const dateObj = safeParseDate(date);
+  if (!dateObj) return 'Sin fecha';
+
+  const diffMs = getNow().getTime() - dateObj.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 1) return 'Hace un momento';
+  if (diffMins < 60) return `Hace ${diffMins} min`;
+  if (diffHours < 24) return `Hace ${diffHours} hora${diffHours > 1 ? 's' : ''}`;
+  if (diffDays === 1) return 'Hace 1 día';
+  if (diffDays < 7) return `Hace ${diffDays} días`;
+
+  // More than a week: show the calendar date in the store timezone.
+  return formatDateInTz(dateObj, timezone, {
+    day: 'numeric',
+    month: 'short',
+    year: undefined,
+    hour: undefined,
+    minute: undefined,
+  });
+}
+
+/**
+ * Current wall-clock hour/minute in a given IANA timezone.
+ * Used to evaluate store-local windows (e.g. notification quiet hours) without
+ * depending on the browser timezone.
+ */
+export function getNowPartsInTz(timezone: string): { hour: number; minute: number } {
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(getNow());
+    const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
+    let minute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
+    if (isNaN(minute)) minute = 0;
+    // en-GB can emit "24" for midnight in some engines; normalize to 0.
+    return { hour: hour % 24, minute };
+  } catch {
+    const now = getNow();
+    return { hour: now.getHours(), minute: now.getMinutes() };
   }
 }
 

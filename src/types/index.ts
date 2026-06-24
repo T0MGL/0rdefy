@@ -132,9 +132,15 @@ export interface Order {
   confirmedByWhatsApp?: boolean;
   confirmationTimestamp?: string;
   confirmationMethod?: 'whatsapp' | 'phone' | 'manual';
+  inPreparationTimestamp?: string;
+  readyToShipTimestamp?: string;
   inTransitTimestamp?: string;
+  outForDeliveryTimestamp?: string;
   deliveredTimestamp?: string;
   cancelledTimestamp?: string;
+  rejectedTimestamp?: string;
+  returnedTimestamp?: string;
+  incidentTimestamp?: string;
   rejectionReason?: string;
   // New confirmation flow fields
   upsell_added?: boolean;
