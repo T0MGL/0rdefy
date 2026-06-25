@@ -179,11 +179,15 @@ async function validateShopifyHMAC(req: any, res: Response, next: any) {
   // Neither format matched - invalid HMAC
   else {
     logger.error('SERVER', `❌ [WEBHOOK] Invalid HMAC signature for ${shopDomain}`);
-    logger.error('SERVER', `🔐 Using secret from: ${secretSource}`);
-    logger.error('SERVER', `   is_custom_app: ${integration.is_custom_app}, has_scope: ${!!integration.scope}, has_webhook_signature: ${!!integration.webhook_signature}`);
-    logger.error('SERVER', `   Expected base64: ${hashBase64.substring(0, 20)}...`);
-    logger.error('SERVER', `   Expected hex: ${hashHex.substring(0, 40)}...`);
-    logger.error('SERVER', `   Received HMAC: ${hmac.substring(0, 40)}...`);
+    logger.error('SERVER', '[WEBHOOK] HMAC verification metadata', {
+      secretSource,
+      isCustomApp: integration.is_custom_app,
+      hasScope: !!integration.scope,
+      hasWebhookSignature: !!integration.webhook_signature,
+      receivedHmacLength: hmac?.length || 0,
+      expectedBase64Length: hashBase64.length,
+      expectedHexLength: hashHex.length
+    });
     return res.status(401).send('Invalid HMAC');
   }
 

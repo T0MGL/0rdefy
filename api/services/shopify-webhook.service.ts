@@ -611,12 +611,12 @@ export class ShopifyWebhookService {
       }
 
       logger.error('SHOPIFY_WEBHOOK', 'HMAC verification failed - neither base64 nor hex format matched');
-      logger.error('SHOPIFY_WEBHOOK', `Expected base64: ${hashBase64}`);
-      logger.error('SHOPIFY_WEBHOOK', `Expected hex: ${hashHex.substring(0, 64)}`);
-      logger.error('SHOPIFY_WEBHOOK', `Received HMAC: ${hmacHeader}`);
-      // DEBUG: Log body length and first/last chars to verify body integrity
-      logger.error('SHOPIFY_WEBHOOK', `[DEBUG] Body length: ${body.length}, starts with: ${body.substring(0, 50)}..., ends with: ...${body.substring(body.length - 50)}`);
-      logger.error('SHOPIFY_WEBHOOK', `[DEBUG] Secret length: ${secret.length}, preview: ${secret.substring(0, 4)}...${secret.substring(secret.length - 4)}`);
+      logger.error('SHOPIFY_WEBHOOK', 'HMAC verification metadata', {
+        bodyLength: body.length,
+        receivedHmacLength: hmacHeader?.length || 0,
+        expectedBase64Length: hashBase64.length,
+        expectedHexLength: hashHex.length
+      });
       return false;
 
     } catch (error) {

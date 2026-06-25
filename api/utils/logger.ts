@@ -77,8 +77,13 @@ const PII_PATTERNS = {
     phone: /(\+?\d{1,4})?[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}/g,
     // JWT tokens
     jwt: /eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*/g,
+    // Common bearer/key headers
+    bearer: /\bBearer\s+[a-zA-Z0-9._~+/=-]{12,}/gi,
+    headerSecret: /\b(authorization|x-api-key|apikey|api-key|access-token|refresh-token|set-cookie|cookie|x-shopify-hmac-sha256|x-webhook-signature|signature)\b(\s*[:=]\s*)['"]?[^'",\s}]+/gi,
     // API keys/secrets (generic patterns)
-    apiKey: /(api[_-]?key|secret|token|password|authorization)['":\s]*[=:]\s*['"]?([a-zA-Z0-9_\-.]{20,})['"]?/gi,
+    apiKey: /(api[_-]?key|secret|token|password|authorization|service[_-]?role|anon[_-]?key|publishable[_-]?key|signing[_-]?secret|client[_-]?secret)['":\s]*[=:]\s*['"]?([a-zA-Z0-9_\-./+=]{8,})['"]?/gi,
+    // Sensitive query params in URLs
+    querySecret: /([?&](?:token|access_token|refresh_token|api_key|apikey|key|secret|signature|hmac|state|code|password)=)[^&#\s]+/gi,
     // Credit card numbers
     creditCard: /\b(?:\d{4}[-\s]?){3}\d{4}\b/g,
     // IP addresses (optional - may want to keep for security logs)
@@ -89,32 +94,34 @@ const PII_PATTERNS = {
  * Redacts PII from a string
  */
 function redactPII(value: string): string {
-    if (!isProduction) return value;
-
     let redacted = value;
 
-    // Redact emails: keep first 2 chars + domain
-    redacted = redacted.replace(PII_PATTERNS.email, (match, local, domain) => {
-        const prefix = local.substring(0, Math.min(2, local.length));
-        return `${prefix}***@${domain}`;
-    });
-
-    // Redact phone numbers: keep country code + last 2 digits
-    redacted = redacted.replace(PII_PATTERNS.phone, (match) => {
-        if (match.length < 6) return match; // Don't redact short numbers
-        const cleaned = match.replace(/[-.\s()]/g, '');
-        if (cleaned.length < 8) return match;
-        return `${cleaned.substring(0, 3)}***${cleaned.slice(-2)}`;
-    });
-
-    // Redact JWTs
+    // Secrets are always redacted in every environment. Development logs are
+    // routinely copied into tickets, Sentry, CI, and chat.
     redacted = redacted.replace(PII_PATTERNS.jwt, '[JWT_REDACTED]');
-
-    // Redact API keys/secrets
+    redacted = redacted.replace(PII_PATTERNS.bearer, 'Bearer [REDACTED]');
+    redacted = redacted.replace(PII_PATTERNS.headerSecret, '$1$2[REDACTED]');
     redacted = redacted.replace(PII_PATTERNS.apiKey, '$1=[REDACTED]');
+    redacted = redacted.replace(PII_PATTERNS.querySecret, '$1[REDACTED]');
+
+    if (isProduction) {
+        // Redact emails: keep first 2 chars + domain
+        redacted = redacted.replace(PII_PATTERNS.email, (match, local, domain) => {
+            const prefix = local.substring(0, Math.min(2, local.length));
+            return `${prefix}***@${domain}`;
+        });
+
+        // Redact phone numbers: keep country code + last 2 digits
+        redacted = redacted.replace(PII_PATTERNS.phone, (match) => {
+            if (match.length < 6) return match; // Don't redact short numbers
+            const cleaned = match.replace(/[-.\s()]/g, '');
+            if (cleaned.length < 8) return match;
+            return `${cleaned.substring(0, 3)}***${cleaned.slice(-2)}`;
+        });
+    }
 
     // Redact credit cards
-    redacted = redacted.replace(PII_PATTERNS.creditCard, '****-****-****-$4');
+    redacted = redacted.replace(PII_PATTERNS.creditCard, (match) => `****-****-****-${match.replace(/\D/g, '').slice(-4)}`);
 
     return redacted;
 }
@@ -124,8 +131,17 @@ function redactPII(value: string): string {
  */
 const SENSITIVE_FIELDS = new Set([
     'password', 'password_hash', 'passwordHash', 'newPassword', 'currentPassword',
-    'token', 'accessToken', 'refreshToken', 'apiKey', 'api_key', 'secret',
-    'authorization', 'cookie', 'session', 'sessionToken',
+    'token', 'accessToken', 'access_token', 'refreshToken', 'refresh_token',
+    'auth_token', 'supabase_token', 'shopify_session_token',
+    'apiKey', 'api_key', 'apikey', 'api_secret_key', 'apiSecretKey',
+    'secret', 'client_secret', 'clientSecret', 'signing_secret', 'signingSecret',
+    'webhook_signature', 'webhookSignature', 'service_role_key', 'serviceRoleKey',
+    'anon_key', 'anonKey', 'publishable_key', 'publishableKey',
+    'authorization', 'Authorization', 'x-api-key', 'X-API-Key', 'apikey',
+    'hmac', 'signature', 'x-shopify-hmac-sha256', 'X-Shopify-Hmac-Sha256',
+    'x-webhook-signature', 'X-Webhook-Signature',
+    'cookie', 'Cookie', 'set-cookie', 'Set-Cookie', 'session', 'sessionToken',
+    'delivery_link_token', 'deliveryLinkToken',
     'credit_card', 'creditCard', 'card_number', 'cardNumber', 'cvv', 'cvc',
     'ssn', 'socialSecurityNumber',
     'pin', 'otp', 'verificationCode',
@@ -180,9 +196,19 @@ function sanitizeObject(obj: any, depth: number = 0): any {
 
     for (const [key, value] of Object.entries(obj)) {
         const lowerKey = key.toLowerCase();
+        const normalizedKey = lowerKey.replace(/[^a-z0-9]/g, '');
 
         // Completely redact sensitive fields
-        if (SENSITIVE_FIELDS.has(key) || SENSITIVE_FIELDS.has(lowerKey)) {
+        if (
+            SENSITIVE_FIELDS.has(key) ||
+            SENSITIVE_FIELDS.has(lowerKey) ||
+            SENSITIVE_FIELDS.has(normalizedKey) ||
+            normalizedKey.includes('password') ||
+            normalizedKey.includes('token') ||
+            normalizedKey.includes('secret') ||
+            normalizedKey.includes('apikey') ||
+            normalizedKey.includes('authorization')
+        ) {
             sanitized[key] = '[REDACTED]';
             continue;
         }
@@ -202,6 +228,14 @@ function sanitizeObject(obj: any, depth: number = 0): any {
     }
 
     return sanitized;
+}
+
+export function sanitizeForLogging<T = any>(value: T): T {
+    return sanitizeObject(value) as T;
+}
+
+export function redactForLogging(value: string): string {
+    return redactPII(value);
 }
 
 /**

@@ -18,6 +18,8 @@
  * ```
  */
 
+import { sanitizeForClientLogs } from './sanitize';
+
 // Optional chaining keeps this module importable outside Vite (node:test
 // runs without import.meta.env). Absent env means "not development".
 const isDevelopment = import.meta.env?.DEV ?? false;
@@ -33,7 +35,7 @@ export const logger = {
    */
   log: (...args: any[]) => {
     if (isDevelopment) {
-      console.log(...args);
+      console.log(...args.map((arg) => sanitizeForClientLogs(arg)));
     }
   },
 
@@ -43,7 +45,7 @@ export const logger = {
    */
   debug: (...args: any[]) => {
     if (isDevelopment) {
-      console.debug(...args);
+      console.debug(...args.map((arg) => sanitizeForClientLogs(arg)));
     }
   },
 
@@ -53,7 +55,7 @@ export const logger = {
    */
   info: (...args: any[]) => {
     if (isDevelopment) {
-      console.info(...args);
+      console.info(...args.map((arg) => sanitizeForClientLogs(arg)));
     }
   },
 
@@ -62,7 +64,7 @@ export const logger = {
    * Use for deprecation warnings, non-critical issues
    */
   warn: (...args: any[]) => {
-    console.warn(...args);
+    console.warn(...args.map((arg) => sanitizeForClientLogs(arg)));
   },
 
   /**
@@ -70,7 +72,7 @@ export const logger = {
    * Use for errors, exceptions, and failures
    */
   error: (...args: any[]) => {
-    console.error(...args);
+    console.error(...args.map((arg) => sanitizeForClientLogs(arg)));
   },
 
   /**
@@ -95,7 +97,7 @@ export const logger = {
    */
   table: (data: any) => {
     if (isDevelopment) {
-      console.table(data);
+      console.table(sanitizeForClientLogs(data));
     }
   },
 

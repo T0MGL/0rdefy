@@ -286,7 +286,10 @@ collaboratorsRouter.post(
           logger.warn('API', `[COLLABORATOR] Email invite failed for ${maskEmail(email)}: ${emailResult?.error || 'Unknown error'}`); // Redacted email (GDPR/CCPA compliance)
         }
       } else {
-        logger.info('API', `[COLLABORATOR] Email service disabled (no API key), invitation link must be sent manually: ${inviteUrl}`);
+        logger.info('API', '[COLLABORATOR] Email service disabled; invitation link returned to requester only', {
+          invitationId: invitation.id,
+          expiresAt: invitation.expires_at
+        });
       }
 
       res.status(201).json({

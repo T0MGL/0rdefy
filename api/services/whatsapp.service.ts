@@ -25,6 +25,10 @@ class WhatsAppService {
   private readonly enabled: boolean;
   private readonly apiUrl = 'https://graph.facebook.com/v18.0';
 
+  private isProduction(): boolean {
+    return process.env.NODE_ENV === 'production';
+  }
+
   constructor() {
     this.phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
     this.accessToken = process.env.WHATSAPP_ACCESS_TOKEN || '';
@@ -40,7 +44,11 @@ class WhatsAppService {
    */
   async sendVerificationCode(phone: string, code: string): Promise<boolean> {
     if (!this.enabled) {
-      logger.info('BACKEND', `📱 [DEMO MODE] Verification code for ${phone}: ${code}`);
+      if (this.isProduction()) {
+        logger.error('BACKEND', 'WhatsApp verification is disabled in production');
+        throw new Error('WhatsApp verification is not configured');
+      }
+      logger.info('BACKEND', '📱 [DEMO MODE] Verification code generated');
       return true; // In demo mode, always succeed
     }
 
@@ -130,6 +138,10 @@ class WhatsAppService {
    */
   isEnabled(): boolean {
     return this.enabled;
+  }
+
+  isDemoMode(): boolean {
+    return !this.enabled && !this.isProduction();
   }
 }
 

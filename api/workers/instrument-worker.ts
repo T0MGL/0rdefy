@@ -6,6 +6,7 @@
 
 import dotenv from 'dotenv';
 import * as Sentry from '@sentry/node';
+import { sanitizeForLogging } from '../utils/logger';
 
 dotenv.config();
 
@@ -18,5 +19,8 @@ if (dsn) {
     serverName: 'sifen-worker',
     tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
     sendDefaultPii: false,
+    beforeSend(event) {
+      return sanitizeForLogging(event);
+    },
   });
 }

@@ -630,7 +630,7 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
 
     if (!isValid) {
       logger.error('SHOPIFY', 'Invalid HMAC signature');
-      logger.error('SHOPIFY', `[HMAC-DEBUG] Failed for shop: ${shopDomain}, secret_source: ${secretSource}, secret_length: ${webhookSecret?.length || 0}`);
+      logger.error('SHOPIFY', '[HMAC-DEBUG] Verification failed', { shopDomain, secretSource });
       await webhookManager.recordMetric(
         integrationId!,
         storeId!,
@@ -851,7 +851,7 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
 
     if (!isValid) {
       logger.error('SHOPIFY', 'HMAC verification failed for orders/updated');
-      logger.error('SHOPIFY', `[HMAC-DEBUG] Failed for shop: ${shopDomain}, secret_source: ${secretSource}, secret_length: ${webhookSecret?.length || 0}`);
+      logger.error('SHOPIFY', '[HMAC-DEBUG] Verification failed for orders/updated', { shopDomain, secretSource });
       await webhookManager.recordMetric(
         integrationId!,
         storeId!,
@@ -2094,7 +2094,11 @@ const customersDataRequestHandler = async (req: Request, res: Response) => {
       return res.status(401).json({ error: WEBHOOK_ERRORS.VERIFICATION_FAILED });
     }
 
-    logger.info('SHOPIFY', 'GDPR customers/data_request webhook received', req.body);
+    logger.info('SHOPIFY', 'GDPR customers/data_request webhook received', {
+      shopDomain,
+      customerId: req.body?.customer?.id,
+      requestId: req.body?.data_request?.id
+    });
 
     // Log GDPR data request for audit - actual data compilation handled by shopify-compliance route
     logger.info('SHOPIFY', 'GDPR data request acknowledged', { shopDomain, customerId: req.body?.customer?.id });
@@ -2166,7 +2170,10 @@ const customersRedactHandler = async (req: Request, res: Response) => {
       return res.status(401).json({ error: WEBHOOK_ERRORS.VERIFICATION_FAILED });
     }
 
-    logger.info('SHOPIFY', 'GDPR customers/redact webhook received', req.body);
+    logger.info('SHOPIFY', 'GDPR customers/redact webhook received', {
+      shopDomain,
+      customerId: req.body?.customer?.id
+    });
 
     // Redact customer PII (GDPR Right to Erasure)
     const customerId = req.body?.customer?.id?.toString();
@@ -2370,7 +2377,10 @@ const shopRedactHandler = async (req: Request, res: Response) => {
       return res.status(401).json({ error: WEBHOOK_ERRORS.VERIFICATION_FAILED });
     }
 
-    logger.info('SHOPIFY', 'GDPR shop/redact webhook received', req.body);
+    logger.info('SHOPIFY', 'GDPR shop/redact webhook received', {
+      shopDomain,
+      shopId: req.body?.shop_id
+    });
 
     // Shop redaction: Clean up Shopify-specific data after app uninstall
     // The shop/redact webhook fires 48h after uninstall
@@ -2445,13 +2455,6 @@ shopifyRouter.get('/diagnose-hmac', async (req: AuthRequest, res: Response) => {
         // Shopify Client Secrets are typically 32 bytes = 64 hex chars OR ~44 base64 chars
         secret_looks_valid: secret ? (secret.length >= 32 && secret.length <= 128) : false,
         created_at: integration.created_at,
-        // Show first/last 4 chars of secrets for verification (safe to show)
-        webhook_signature_preview: integration.webhook_signature
-          ? `${integration.webhook_signature.substring(0, 4)}...${integration.webhook_signature.substring(integration.webhook_signature.length - 4)}`
-          : null,
-        api_secret_key_preview: integration.api_secret_key
-          ? `${integration.api_secret_key.substring(0, 4)}...${integration.api_secret_key.substring(integration.api_secret_key.length - 4)}`
-          : null,
       };
     });
 
@@ -2533,7 +2536,7 @@ shopifyRouter.post('/test-hmac', async (req: AuthRequest, res: Response) => {
     let verification_result = null;
     if (test_hmac) {
       verification_result = {
-        provided_hmac: test_hmac,
+        provided_hmac_length: String(test_hmac).length,
         matches_base64: test_hmac === hashBase64,
         matches_hex: test_hmac === hashHex,
         is_valid: test_hmac === hashBase64 || test_hmac === hashHex
@@ -2545,10 +2548,7 @@ shopifyRouter.post('/test-hmac', async (req: AuthRequest, res: Response) => {
       shop_domain,
       secret_source: source,
       secret_length: secret.length,
-      secret_preview: `${secret.substring(0, 4)}...${secret.substring(secret.length - 4)}`,
       test_payload_length: testPayload.length,
-      generated_hmac_base64: hashBase64,
-      generated_hmac_hex: hashHex,
       verification_result,
       instructions: test_hmac
         ? null

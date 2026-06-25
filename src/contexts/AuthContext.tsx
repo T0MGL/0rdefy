@@ -529,7 +529,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Check if still mounted before updating state
       if (!isMountedRef.current) return { error: undefined };
 
-      logger.log('✅ [AUTH] Login response:', response.data);
+      logger.log('✅ [AUTH] Login response received', {
+        success: response.data?.success,
+        hasToken: !!response.data?.token,
+        hasSupabaseToken: !!response.data?.supabaseToken,
+        storeCount: response.data?.user?.stores?.length || 0
+      });
 
       if (response.data.success) {
         // Stamp the backend's onboarding verdict onto the durable user object
@@ -616,7 +621,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Check if still mounted before updating state
       if (!isMountedRef.current) return { error: undefined };
 
-      logger.log('✅ [AUTH] Registration response:', response.data);
+      logger.log('✅ [AUTH] Registration response received', {
+        success: response.data?.success,
+        hasToken: !!response.data?.token,
+        hasSupabaseToken: !!response.data?.supabaseToken,
+        storeCount: response.data?.user?.stores?.length || 0
+      });
 
       if (response.data.success) {
         // A freshly registered user has NOT completed store setup. Stamp the
@@ -774,7 +784,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Check if still mounted before updating state
       if (!isMountedRef.current) return { error: undefined };
 
-      logger.log('✅ [AUTH] Profile update response:', response.data);
+      logger.log('✅ [AUTH] Profile update response received', {
+        success: response.data?.success,
+        hasToken: !!response.data?.token,
+        hasSupabaseToken: !!response.data?.supabaseToken
+      });
 
       if (response.data.success) {
         const userData = response.data.user;

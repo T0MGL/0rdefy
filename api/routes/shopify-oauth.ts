@@ -308,16 +308,11 @@ const validateHmac = (query: any, secret: string): boolean => {
     .map(key => `${key}=${params[key]}`)
     .join('&');
 
-  logger.info('API', '🔐 [HMAC] Sorted params:', sortedParams);
-
   // Step 2: Create HMAC-SHA256 hash
   const hash = crypto
     .createHmac('sha256', secret)
     .update(sortedParams)
     .digest('hex');
-
-  logger.info('API', '🔐 [HMAC] Calculated:', hash);
-  logger.info('API', '🔐 [HMAC] Received:', hmac);
 
   // Step 3: Compare with received HMAC (timing-safe comparison)
   const hashBuf = Buffer.from(hash);
@@ -379,10 +374,13 @@ const handleOAuthStart = async (req: Request, res: Response) => {
 
     // Generate random state for CSRF protection
     const state = crypto.randomBytes(32).toString('hex');
-    logger.info('API', '🔐 [SHOPIFY-OAUTH] Generated state:', state);
 
     // Store state in database (expires in 10 minutes)
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    logger.info('API', '🔐 [SHOPIFY-OAUTH] Generated OAuth state', {
+      shop,
+      expiresAt: expiresAt.toISOString()
+    });
 
     const { error: stateError } = await supabaseAdmin
       .from('shopify_oauth_states')
@@ -418,7 +416,7 @@ const handleOAuthStart = async (req: Request, res: Response) => {
       authUrl.searchParams.append('store_id', store_id as string);
     }
 
-    logger.info('API', '🔗 [SHOPIFY-OAUTH] Redirecting to:', authUrl.toString());
+    logger.info('API', '🔗 [SHOPIFY-OAUTH] Redirecting to Shopify OAuth', { shop });
 
     // Redirect user to Shopify for authorization
     res.redirect(authUrl.toString());
@@ -486,7 +484,7 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
 
     logger.info('API', '📥 [SHOPIFY-OAUTH] Callback received:', {
       shop,
-      state,
+      hasState: !!state,
       hasCode: !!code,
       hasHmac: !!hmac
     });

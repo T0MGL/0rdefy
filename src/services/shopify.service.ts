@@ -6,6 +6,7 @@
 
 import { ShopifyIntegration } from '@/types';
 import { getActiveStoreId } from '@/lib/activeStore';
+import { logger } from '@/utils/logger';
 
 let cleanBaseURL = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
 cleanBaseURL = cleanBaseURL.replace(/\/+$/, '');
@@ -131,8 +132,7 @@ export const startShopifyOAuth = (shop: string, userId?: string, storeId?: strin
   }
 
   const authUrl = `${API_BASE}/api/shopify-oauth/auth?${params.toString()}`;
-  console.log('[SHOPIFY-SERVICE] Starting OAuth:', authUrl);
-  console.log('[SHOPIFY-SERVICE] Embedded mode (iframe):', isInIframe);
+  logger.log('[SHOPIFY-SERVICE] Starting OAuth', { shop, storeId, embedded: isInIframe });
 
   if (isInIframe) {
     // Open OAuth in popup window (Shopify embedded mode)

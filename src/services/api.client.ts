@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { config } from '@/config';
 import { getActiveStoreId } from '@/lib/activeStore';
+import { logger } from '@/utils/logger';
 
 const apiClient = axios.create({
   baseURL: `${config.api.baseUrl}/api`,
@@ -103,7 +104,7 @@ apiClient.interceptors.response.use(
 
       // Handle 401 Unauthorized - Token expired or invalid
       if (status === 401) {
-        console.warn('⚠️ [API] 401 Unauthorized - Session invalid');
+        logger.warn('⚠️ [API] 401 Unauthorized - Session invalid');
 
         if (isShopifyEmbedded()) {
           // IN EMBEDDED MODE: Do NOT redirect, try to refresh token
@@ -112,7 +113,7 @@ apiClient.interceptors.response.use(
 
           // Check if we already retried this request
           if (originalRequest._retryCount >= 1) {
-            console.error('❌ [API] Token refresh failed after retry. Please refresh the page.');
+            logger.error('❌ [API] Token refresh failed after retry. Please refresh the page.');
             return Promise.reject(error);
           }
 
@@ -130,7 +131,7 @@ apiClient.interceptors.response.use(
             return apiClient(originalRequest);
           }
           // If we couldn't get a token, user needs to refresh the page
-          console.warn('⚠️ [API] Session expired. Please refresh the Shopify admin page.');
+          logger.warn('⚠️ [API] Session expired. Please refresh the Shopify admin page.');
         } else {
           // IN STANDALONE MODE: Dispatch event for AuthContext to handle
           const event = new CustomEvent('auth:session-expired');
@@ -144,7 +145,7 @@ apiClient.interceptors.response.use(
 
         // Check if it's a plan limit error
         if (errorCode === 'ORDER_LIMIT_REACHED' || errorCode === 'PRODUCT_LIMIT_REACHED') {
-          console.warn('⚠️ [API] Plan limit reached:', errorCode);
+          logger.warn('⚠️ [API] Plan limit reached:', errorCode);
 
           // Dispatch custom event for UI to handle
           const event = new CustomEvent('plan:limit-reached', {
@@ -156,7 +157,7 @@ apiClient.interceptors.response.use(
           });
           window.dispatchEvent(event);
         } else if (errorCode === 'FEATURE_NOT_AVAILABLE') {
-          console.warn('⚠️ [API] Feature not available:', error.response?.data?.feature);
+          logger.warn('⚠️ [API] Feature not available:', error.response?.data?.feature);
 
           // Dispatch custom event for UI to handle
           const event = new CustomEvent('plan:feature-blocked', {
@@ -167,13 +168,13 @@ apiClient.interceptors.response.use(
           });
           window.dispatchEvent(event);
         } else {
-          console.error('❌ [API] 403 Forbidden - Access denied');
+          logger.error('❌ [API] 403 Forbidden - Access denied');
         }
       }
 
       // Handle 500 Server Error
       if (status === 500) {
-        console.error('❌ [API] 500 Server Error');
+        logger.error('❌ [API] 500 Server Error');
         // Could show toast notification here
       }
 
@@ -189,10 +190,10 @@ apiClient.interceptors.response.use(
       }
     } else if (error.request) {
       // Network error - no response received
-      console.error('❌ [API] Network error - No response from server');
+      logger.error('❌ [API] Network error - No response from server');
     } else {
       // Something else happened
-      console.error('❌ [API] Request error:', error.message);
+      logger.error('❌ [API] Request error:', error.message);
     }
 
     return Promise.reject(error);

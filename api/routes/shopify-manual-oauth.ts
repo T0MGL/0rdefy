@@ -277,7 +277,7 @@ shopifyManualOAuthRouter.get('/callback', async (req: Request, res: Response) =>
 
     logger.info('API', '📥 [MANUAL-OAUTH] Callback received:', {
       shop,
-      state: (state as string)?.substring(0, 16) + '...',
+      hasState: !!state,
       hasCode: !!code
     });
 

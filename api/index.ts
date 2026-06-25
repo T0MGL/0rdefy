@@ -557,12 +557,6 @@ app.get('/api/debug/hmac-diagnostic', async (req: Request, res: Response) => {
                 secret_length: secret?.length || 0,
                 secret_looks_valid: secret ? (secret.length >= 32 && secret.length <= 128) : false,
                 created_at: integration.created_at,
-                webhook_signature_preview: integration.webhook_signature
-                    ? `${integration.webhook_signature.substring(0, 4)}...${integration.webhook_signature.substring(integration.webhook_signature.length - 4)}`
-                    : null,
-                api_secret_key_preview: integration.api_secret_key
-                    ? `${integration.api_secret_key.substring(0, 4)}...${integration.api_secret_key.substring(integration.api_secret_key.length - 4)}`
-                    : null,
             };
         });
 

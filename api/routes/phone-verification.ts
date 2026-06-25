@@ -118,8 +118,8 @@ router.post('/request', verifyToken, async (req: Request, res: Response) => {
       success: true,
       message: 'Código enviado por WhatsApp',
       expiresIn: 600, // seconds
-      demoMode: !whatsappService.isEnabled(),
-      ...(whatsappService.isEnabled() ? {} : { code }) // Only show code in demo mode
+      demoMode: whatsappService.isDemoMode(),
+      ...(whatsappService.isDemoMode() ? { code } : {}) // Local/demo only; never production
     });
 
   } catch (error) {
