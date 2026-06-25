@@ -1336,6 +1336,98 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
 });
 
 // ================================================================
+// GET /api/analytics/customer-revenue - Revenue per customer
+// ================================================================
+// Uses the same terminal-success basis as realRevenue: delivered + settled
+// orders in the selected local-date window, filtered to the store currency.
+// ================================================================
+analyticsRouter.get('/customer-revenue', async (req: AuthRequest, res: Response) => {
+    try {
+        const { startDate, endDate } = req.query;
+
+        if (!req.storeId) {
+            return res.status(400).json({
+                error: 'Store ID is required',
+                message: 'Missing store_id in request'
+            });
+        }
+
+        const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId);
+        const storeCurrency = await loadStoreCurrency(req.storeId);
+
+        let query = supabaseAdmin
+            .from('orders')
+            .select(`
+                customer_first_name,
+                customer_last_name,
+                customer_phone,
+                customer_email,
+                total_price,
+                currency
+            `)
+            .eq('store_id', req.storeId)
+            .in('sleeves_status', ['delivered', 'settled'])
+            .is('deleted_at', null)
+            .or('is_test.is.null,is_test.eq.false');
+
+        if (startDate) {
+            query = query.gte('created_at', startOfDayIso(startDate as string, storeTz));
+        }
+        if (endDate) {
+            query = query.lte('created_at', endOfDayIso(endDate as string, storeTz));
+        }
+
+        const { data, error } = await query;
+        if (error) {
+            logger.error('SERVER', '[GET /api/analytics/customer-revenue] Query error:', error);
+            throw error;
+        }
+
+        const { inCurrency } = dropOffCurrency(data || [], storeCurrency);
+        const revenueByCustomer = new Map<string, number>();
+
+        for (const order of inCurrency) {
+            const name = `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim().toLowerCase();
+            const customerKey =
+                (order.customer_email || '').trim().toLowerCase() ||
+                (order.customer_phone || '').trim() ||
+                name ||
+                'cliente-sin-datos';
+            revenueByCustomer.set(
+                customerKey,
+                (revenueByCustomer.get(customerKey) || 0) + (Number(order.total_price) || 0)
+            );
+        }
+
+        const customerRevenues = Array.from(revenueByCustomer.values()).sort((a, b) => a - b);
+        const totalCustomers = customerRevenues.length;
+        const totalRevenue = customerRevenues.reduce((sum, value) => sum + value, 0);
+        const medianRevenuePerCustomer = (() => {
+            if (totalCustomers === 0) return null;
+            const mid = Math.floor(totalCustomers / 2);
+            if (totalCustomers % 2 === 1) return customerRevenues[mid];
+            return (customerRevenues[mid - 1] + customerRevenues[mid]) / 2;
+        })();
+
+        res.json({
+            data: {
+                totalCustomers,
+                averageRevenuePerCustomer: totalCustomers > 0 ? totalRevenue / totalCustomers : null,
+                medianRevenuePerCustomer,
+                minRevenuePerCustomer: totalCustomers > 0 ? customerRevenues[0] : null,
+                maxRevenuePerCustomer: totalCustomers > 0 ? customerRevenues[customerRevenues.length - 1] : null,
+            }
+        });
+    } catch (error: any) {
+        logger.error('SERVER', '[GET /api/analytics/customer-revenue] Error:', error);
+        res.status(500).json({
+            error: 'Error al obtener revenue por cliente',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
 // GET /api/analytics/cash-projection - Advanced cash flow projection
 // ================================================================
 // Calculates cash projection based on:

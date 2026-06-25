@@ -53,6 +53,14 @@ const getHeaders = () => {
   };
 };
 
+export interface CustomerRevenueMetrics {
+  totalCustomers: number;
+  averageRevenuePerCustomer: number | null;
+  medianRevenuePerCustomer: number | null;
+  minRevenuePerCustomer: number | null;
+  maxRevenuePerCustomer: number | null;
+}
+
 export const analyticsService = {
   getOverview: async (params?: { startDate?: string; endDate?: string }, signal?: AbortSignal): Promise<DashboardOverview> => {
     const queryParams = new URLSearchParams();
@@ -126,6 +134,33 @@ export const analyticsService = {
     }
     const result = await response.json();
     return result.data || [];
+  },
+
+  getCustomerRevenueMetrics: async (
+    params?: { startDate?: string; endDate?: string },
+    signal?: AbortSignal
+  ): Promise<CustomerRevenueMetrics> => {
+    const queryParams = new URLSearchParams();
+    if (params?.startDate) queryParams.append('startDate', params.startDate);
+    if (params?.endDate) queryParams.append('endDate', params.endDate);
+
+    const url = `${API_BASE_URL}/analytics/customer-revenue${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+    const response = await fetch(url, {
+      headers: getHeaders(),
+      signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Error HTTP: ${response.status}`);
+    }
+    const result = await response.json();
+    return {
+      totalCustomers: 0,
+      averageRevenuePerCustomer: null,
+      medianRevenuePerCustomer: null,
+      minRevenuePerCustomer: null,
+      maxRevenuePerCustomer: null,
+      ...(result.data || {}),
+    };
   },
 
   getOrderStatusDistribution: async (params?: { startDate?: string; endDate?: string }): Promise<OrderStatusItem[]> => {

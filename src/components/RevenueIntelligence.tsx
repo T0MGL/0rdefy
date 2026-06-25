@@ -21,8 +21,7 @@ import {
   Legend,
 } from 'recharts';
 import { cn } from '@/lib/utils';
-import { analyticsService } from '@/services/analytics.service';
-import { ordersService } from '@/services/orders.service';
+import { analyticsService, type CustomerRevenueMetrics } from '@/services/analytics.service';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { InfoTooltip } from '@/components/InfoTooltip';
@@ -39,8 +38,8 @@ export function RevenueIntelligence() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
+  const [customerMetrics, setCustomerMetrics] = useState<CustomerRevenueMetrics | null>(null);
   const [topProducts, setTopProducts] = useState<Product[]>([]);
-  const [orders, setOrders] = useState<any[]>([]);
   const [productFilter, setProductFilter] = useState<'sales' | 'profitability'>('sales');
 
   // Use global date range context
@@ -85,15 +84,15 @@ export function RevenueIntelligence() {
           endDate: dateRange.endDate,
         };
 
-        const [overviewData, productsData, ordersResponse] = await Promise.all([
-          analyticsService.getOverview(dateParams),
+        const [overviewData, productsData, customerRevenueData] = await Promise.all([
+          analyticsService.getOverview(dateParams, controller.signal),
           analyticsService.getTopProducts(10, dateParams),
-          ordersService.getAll(),
+          analyticsService.getCustomerRevenueMetrics(dateParams, controller.signal),
         ]);
         if (!isMountedRef.current || controller.signal.aborted) return;
         setOverview(overviewData);
         setTopProducts(productsData);
-        setOrders(ordersResponse.data || []);
+        setCustomerMetrics(customerRevenueData);
       } catch (error: any) {
         if (error?.name === 'AbortError') return;
         logger.error('Error loading revenue intelligence data:', error);
@@ -154,21 +153,10 @@ export function RevenueIntelligence() {
     isTopSeller: productFilter === 'sales' && index < 3,
   })), [sortedProducts, productFilter]);
 
-  // Derived revenue value (safe for use in useMemo below even when overview is null)
-  const totalRevenueForCustomers = overview ? (overview.realRevenue ?? overview.revenue) : 0;
-
-  const { totalCustomers, avgRevenuePerCustomer, medianRevenue, minRevenue, maxRevenue } = useMemo(() => {
-    const total = new Set(orders.map(o => o.customer || o.customer_email)).size;
-    // Averages and medians over an empty set are not computable: null, not 0.
-    const avgRev: number | null = total > 0 ? totalRevenueForCustomers / total : null;
-    const revenues = orders.map(o => o.total || 0).sort((a, b) => a - b);
-    const median: number | null = revenues.length > 0
-      ? revenues[Math.floor(revenues.length / 2)]
-      : null;
-    const min: number | null = revenues.length > 0 ? revenues[0] : null;
-    const max: number | null = revenues.length > 0 ? revenues[revenues.length - 1] : null;
-    return { totalCustomers: total, avgRevenuePerCustomer: avgRev, medianRevenue: median, minRevenue: min, maxRevenue: max };
-  }, [orders, totalRevenueForCustomers]);
+  const avgRevenuePerCustomer = customerMetrics?.averageRevenuePerCustomer ?? null;
+  const medianRevenue = customerMetrics?.medianRevenuePerCustomer ?? null;
+  const minRevenue = customerMetrics?.minRevenuePerCustomer ?? null;
+  const maxRevenue = customerMetrics?.maxRevenuePerCustomer ?? null;
 
   if (loadError) {
     return (
@@ -283,8 +271,8 @@ export function RevenueIntelligence() {
             <CardTitle className="text-base">Ingresos vs Costo de Venta</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-4">
-              <div className="flex-shrink-0">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
+              <div className="mx-auto h-[100px] w-[100px] flex-shrink-0 xl:mx-0">
                 <ResponsiveContainer width={100} height={100}>
                   <PieChart>
                     <Pie
@@ -303,21 +291,21 @@ export function RevenueIntelligence() {
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-              <div className="flex-1 space-y-3">
+              <div className="min-w-0 flex-1 space-y-3">
                 <div>
                   <p className="text-xs text-muted-foreground">Total</p>
-                  <p className="text-2xl font-bold text-card-foreground">{formatCurrency(totalRevenue)}</p>
+                  <p className="break-words text-2xl font-bold text-card-foreground">{formatCurrency(totalRevenue)}</p>
                 </div>
                 <div className="space-y-1">
-                  <div className="flex items-center justify-between text-sm">
+                  <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 text-sm">
                     <span className="text-muted-foreground">COGS</span>
-                    <span className="font-semibold text-red-600 dark:text-red-400">
+                    <span className="text-right font-semibold text-red-600 dark:text-red-400">
                       {formatCurrency(totalCOGS)} ({formatPercent(totalRevenue > 0 ? (totalCOGS / totalRevenue) * 100 : null, 1)})
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
+                  <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 text-sm">
                     <span className="text-muted-foreground">Margen Bruto</span>
-                    <span className="font-semibold text-primary dark:text-primary">
+                    <span className="text-right font-semibold text-primary dark:text-primary">
                       {formatCurrency(grossMargin)} ({formatPercent(grossMarginPercent, 1)})
                     </span>
                   </div>
@@ -338,8 +326,8 @@ export function RevenueIntelligence() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-4">
-              <div className="flex-shrink-0">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
+              <div className="mx-auto h-[140px] w-[100px] flex-shrink-0 xl:mx-0">
                 <ResponsiveContainer width={100} height={140}>
                   <BarChart data={netMarginData} layout="vertical">
                     <XAxis type="number" hide />
@@ -352,10 +340,10 @@ export function RevenueIntelligence() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              <div className="flex-1 space-y-1.5">
+              <div className="min-w-0 flex-1 space-y-1.5">
                 {netMarginData.map((item) => (
-                  <div key={item.name} className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground flex items-center">
+                  <div key={item.name} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 text-sm">
+                    <span className="flex min-w-0 items-center text-muted-foreground">
                       {item.name}
                       {item.name === 'NETO' && (
                         <InfoTooltip
@@ -364,7 +352,7 @@ export function RevenueIntelligence() {
                         />
                       )}
                     </span>
-                    <span className="font-semibold text-card-foreground">
+                    <span className="text-right font-semibold text-card-foreground">
                       {formatCurrency(item.value)}
                     </span>
                   </div>
