@@ -203,6 +203,7 @@ const ConfirmOrderSchema = z.object({
     shipping_cost: z.union([z.string(), z.number()]).optional(),
     shipping_city: z.string().max(200).optional(),
     discount_amount: z.union([z.string(), z.number()]).optional(),
+    allow_full_discount: z.boolean().optional(),
     mark_as_prepaid: z.boolean().optional(),
     prepaid_method: z.string().max(100).optional(),
     delivery_preferences: DeliveryPreferencesSchema,
@@ -4034,6 +4035,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             shipping_cost,
             shipping_city,
             discount_amount,
+            allow_full_discount = false,  // Override the >95%-of-gross discount guardrail (full comp / write-off)
             mark_as_prepaid = false,  // NEW: Mark COD order as prepaid (transfer before shipping)
             prepaid_method = 'transfer',  // NEW: Method used for prepayment
             delivery_preferences = null,   // NEW: Delivery scheduling preferences (date, time slot, notes)
@@ -4128,7 +4130,8 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                 p_google_maps_link: google_maps_link || null,
                 p_discount_amount: discount_amount !== undefined ? Number(discount_amount) : null,
                 p_mark_as_prepaid: mark_as_prepaid === true,
-                p_prepaid_method: mark_as_prepaid ? (prepaid_method || 'transfer') : null
+                p_prepaid_method: mark_as_prepaid ? (prepaid_method || 'transfer') : null,
+                p_allow_full_discount: allow_full_discount === true
             });
 
             if (rpcError) {
@@ -4147,6 +4150,14 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                         error: 'Invalid order status',
                         message: 'Solo se pueden confirmar pedidos pendientes o contactados.',
                         code: 'INVALID_STATUS'
+                    });
+                }
+
+                if (errorMessage.includes('FULL_DISCOUNT_BLOCKED')) {
+                    return res.status(400).json({
+                        error: 'Discount too large',
+                        message: 'El descuento supera el 95% del total del pedido. Si el cliente ya pagó, usá "Pagado por transferencia" en vez del descuento. Verificá el monto antes de reintentar.',
+                        code: 'FULL_DISCOUNT_BLOCKED'
                     });
                 }
 
@@ -4312,7 +4323,8 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             p_upsell_quantity: upsell_added ? (upsell_quantity || 1) : 1,
             p_discount_amount: discount_amount !== undefined ? Number(discount_amount) : null,
             p_mark_as_prepaid: mark_as_prepaid === true,  // NEW: Mark COD as prepaid
-            p_prepaid_method: mark_as_prepaid ? (prepaid_method || 'transfer') : null  // NEW: Prepaid method
+            p_prepaid_method: mark_as_prepaid ? (prepaid_method || 'transfer') : null,  // NEW: Prepaid method
+            p_allow_full_discount: allow_full_discount === true
         });
 
         if (rpcError) {
@@ -4335,6 +4347,14 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                     error: 'Invalid order status',
                     message: `El pedido ya está ${currentStatus}. Solo se pueden confirmar pedidos pendientes o contactados.`,
                     code: 'INVALID_STATUS'
+                });
+            }
+
+            if (errorMessage.includes('FULL_DISCOUNT_BLOCKED')) {
+                return res.status(400).json({
+                    error: 'Discount too large',
+                    message: 'El descuento supera el 95% del total del pedido. Si el cliente ya pagó, usá "Pagado por transferencia" en vez del descuento. Verificá el monto antes de reintentar.',
+                    code: 'FULL_DISCOUNT_BLOCKED'
                 });
             }
 
@@ -4565,7 +4585,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
 ordersRouter.post('/:id/discount', validateUUIDParam('id'), requirePermission(Module.ORDERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
-        const { discount_amount } = req.body;
+        const { discount_amount, allow_full_discount = false } = req.body;
 
         const discount = Number(discount_amount);
         if (discount_amount === undefined || discount_amount === null || !Number.isFinite(discount) || discount < 0) {
@@ -4624,7 +4644,8 @@ ordersRouter.post('/:id/discount', validateUUIDParam('id'), requirePermission(Mo
             p_order_id: id,
             p_store_id: effectiveStoreId,
             p_discount_amount: discount,
-            p_applied_by: req.userId || 'dashboard'
+            p_applied_by: req.userId || 'dashboard',
+            p_allow_full_discount: allow_full_discount === true
         });
 
         if (rpcError) {
@@ -4651,6 +4672,14 @@ ordersRouter.post('/:id/discount', validateUUIDParam('id'), requirePermission(Mo
                     error: 'Invalid discount',
                     message: 'El monto del descuento no es válido.',
                     code: 'INVALID_DISCOUNT'
+                });
+            }
+
+            if (message.includes('FULL_DISCOUNT_BLOCKED')) {
+                return res.status(400).json({
+                    error: 'Discount too large',
+                    message: 'El descuento supera el 95% del total del pedido. Si el cliente ya pagó, marcá el pedido como pagado en vez de descontar. Verificá el monto antes de reintentar.',
+                    code: 'FULL_DISCOUNT_BLOCKED'
                 });
             }
 

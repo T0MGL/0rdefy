@@ -128,3 +128,11 @@ export const ADDITIONAL_VALUE_TYPES = [
   { value: 'expense', label: 'Gasto' },
   { value: 'income', label: 'Ingreso' },
 ];
+
+// Fraction of the order gross above which a discount is treated as a likely
+// operator typo and blocked server-side (code FULL_DISCOUNT_BLOCKED). Mirrors
+// FULL_DISCOUNT_THRESHOLD in api/utils/discount-validation.ts and
+// compute_discounted_total (migration 206). The UI uses it only to decide when
+// to reveal the "authorize full discount" opt-in; the backend stays the real
+// guardrail. Keep these two values in sync.
+export const FULL_DISCOUNT_THRESHOLD = 0.95;
